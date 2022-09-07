@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "NEMS"
+version = "0.0.1"
+description = "Fit and evaluate models of sensory encoding and decoding."
+readme = "README.md"
+authors = [
+    { name = "Jacob Pennington", email = "jacob.p.neuro@gmail.com" },
+    { name = "Stephen David", email = "lbhb.ohsu@gmail.com"}
+    ]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3 :: Only",
+]
+keywords = ["neuroscience", "auditory", "sensory", "encoding", "strf"]
+dependencies = [
+    "numpy==1.21.5",
+    "scipy==1.9.0",
+    "matplotlib==3.5.2"
+]
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+backends = ["tensorflow >= 2.9"]
+
+[project.urls]
+Homepage = "https://github.com/LBHB/NEMS"
+
+[tool.setuptools.packages.find]
+exclude = ["tutorials*", "tests*"]
