@@ -1,7 +1,8 @@
 # NEMS
-WIP refactor of lbhb/NEMS
 
 The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical model to time series data, plotting the model predictions, and comparing the predictive accuracy of multiple models. We use it to [develop and test computational models of how sound is encoded in the brains of behaving mammals](https://hearingbrain.org/), but it will work with many different types of timeseries data.
+
+Note: this is a refactor of a former version of NEMS that is now archived at github.com/LBHB/NEMS0. *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
 # Examples
 Build a standard linear-nonlinear spectrotemporal receptive field (LN-STRF) model.
