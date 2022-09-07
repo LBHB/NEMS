@@ -1,5 +1,5 @@
-# nems-lite
-WIP refactor of lbhb/NEMS and lbhb/nems_db
+# NEMS
+WIP refactor of lbhb/NEMS
 
 # (temporary) installation instructions
 1. Download source code.
