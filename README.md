@@ -92,6 +92,7 @@ conda install -c conda-forge numpy
 # Upcoming features/updates
 Roughly in order of priority:
 * Add more Layers from nems0.
+* * Get wc.g and stategain working in TensorFlow.
 * Add core pre-processing and scoring from nems0.
 * Set up readthedocs.
 * Demo data.
