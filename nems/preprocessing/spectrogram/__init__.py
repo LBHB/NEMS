@@ -5,9 +5,9 @@ licensed under the 3-clause BSD license. The full copyright disclaimer can be
 found below, or at the following URL:
 https://github.com/detly/gammatone/blob/master/COPYING
 
-Modifications consist of standardizing docummentation, renaming variables or
-refactoring syntax, and removing unused code. The underlying algorithms have
-not been substantively changed.
+Modifications consist of standardizing docummentation format, removing outdated
+documentation, renaming variables or refactoring syntax, and removing unused
+code. The underlying algorithms have not been substantively changed.
 
 Copyright
 ---------
