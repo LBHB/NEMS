@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "LBHB-NEMS"
+name = "PyNEMS"
 version = "0.0.1"
 description = "Fit and evaluate models of sensory encoding and decoding."
 readme = "README.md"
@@ -18,15 +18,15 @@ classifiers = [
 ]
 keywords = ["neuroscience", "auditory", "sensory", "encoding", "strf"]
 dependencies = [
-    "numpy==1.21.5",
-    "scipy==1.9.0",
-    "matplotlib==3.5.2"
+    "numpy>=1.21.5",
+    "scipy>=1.9.0",
+    "matplotlib>=3.5.2"
 ]
 requires-python = ">=3.9"
 
 [project.optional-dependencies]
-dev = ["pytest"]
-backends = ["tensorflow >= 2.9"]
+dev = ["build", "twine", "pytest"]
+tf = ["tensorflow >= 2.9"]
 
 [project.urls]
 Homepage = "https://github.com/LBHB/NEMS"

@@ -74,7 +74,7 @@ pytest NEMS
 Create a new environment using your preferred environment manager, then use pip install.
 ```
 conda create -n nems-env python=3.9 pip
-pip install LBHB-NEMS
+pip install PyNEMS
 ```
 
 ## Alternative: Conda
