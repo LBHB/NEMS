@@ -1,78 +1,55 @@
 # This code is derived from the gammatone toolkit, licensed under the 3-clause
 # BSD license: https://github.com/detly/gammatone/blob/master/COPYING
 
+"""Renders spectrograms which use gammatone filterbanks or an FFT approximation.
+
+SVD 2020-04-09 : Modified for NEMS to allow for explicit `f_max` specification.
+
+"""
+
 from __future__ import division
 import numpy as np
 
-from .spectrogram import specgram
+from .spectrogram import spectrogram
 from .filters import make_erb_filters, centre_freqs, erb_filterbank, erb_space
 
-"""
-This module contains functions for rendering "spectrograms" which use gammatone
-filterbanks instead of Fourier transforms.
 
-SVD 2020-04-09 : Modified for NEMS to allow for explicit f_max specification
-"""
-
-def round_half_away_from_zero(num):
-    """ Implement the round-half-away-from-zero rule, where fractional parts of
-    0.5 result in rounding up to the nearest positive integer for positive
-    numbers, and down to the nearest negative number for negative integers.
-    """
-    return np.sign(num) * np.floor(np.abs(num) + 0.5)
-
-
-def gtgram_strides(fs, window_time, hop_time, filterbank_cols):
-    """
-    Calculates the window size for a gammatonegram.
+def gammagram(wave, fs, window_time, hop_time, channels, f_min, f_max=None):
+    """Calculate a spectrogram-like array based on gammatone subband filters.
     
-    @return a tuple of (window_size, hop_samples, output_columns)
-    """
-    nwin        = int(round_half_away_from_zero(window_time * fs))
-    hop_samples = int(round_half_away_from_zero(hop_time * fs))
-    columns     = (1
-                    + int(
-                        np.floor(
-                            (filterbank_cols - nwin)
-                            / hop_samples
-                        )
-                    )
-                  )
-        
-    return (nwin, hop_samples, columns)
+    The waveform `wave` (at sample rate `fs`) is passed through a multi-channel
+    gammatone auditory model filterbank, with lowest frequency `f_min` and
+    highest frequency `f_max`. The outputs of each band then have their energy
+    integrated over windows of `window_time` seconds, advancing by `hop_time`
+    seconds for successive columns. These magnitudes are returned as a
+    nonnegative real matrix with `channels` rows.
 
+    Parameters
+    ----------
+    wave : np.ndarray.
+        Sound waveform with shape (T,) or (T,1).
+    fs : int.
+        Sampling frequency.
+    window_time : float.
+    hop_time : float.
+    channels : int.
+        Number of frequency channels in the spectrogram-like output.
+    f_min : float.
+    f_max : float; optional.
 
-def gtgram_xe(wave, fs, channels, f_min, f_max=None, verbose=False):
-    """ Calculate the intermediate ERB filterbank processed matrix """
-    cfs = centre_freqs(fs, channels, f_min, f_max)
-    if verbose:
-        print('cfs: ', cfs)
-    fcoefs = np.flipud(make_erb_filters(fs, cfs))
-    xf = erb_filterbank(wave, fcoefs)
-    xe = np.power(xf, 2)
-    return xe
-
-
-def gtgram(
-    wave,
-    fs,
-    window_time, hop_time,
-    channels,
-    f_min, f_max=None):
-    """
-    Calculate a spectrogram-like time frequency magnitude array based on
-    gammatone subband filters. The waveform ``wave`` (at sample rate ``fs``) is
-    passed through an multi-channel gammatone auditory model filterbank, with
-    lowest frequency ``f_min`` and highest frequency ``f_max``. The outputs of
-    each band then have their energy integrated over windows of ``window_time``
-    seconds, advancing by ``hop_time`` secs for successive columns. These
-    magnitudes are returned as a nonnegative real matrix with ``channels`` rows.
+    Returns
+    -------
+    np.ndarray
+        With shape (T, `channels`)
     
-    | 2009-02-23 Dan Ellis dpwe@ee.columbia.edu
-    |
-    | (c) 2013 Jason Heeris (Python implementation)
+    Copyright
+    ---------
+    2009-02-23 Dan Ellis dpwe@ee.columbia.edu
+    (c) 2013 Jason Heeris (Python implementation)
+
     """
-    xe = gtgram_xe(wave, fs, channels, f_min, f_max)
+
+    xe = _gtgram_xe(wave, fs, channels, f_min, f_max)
     
     nwin, hop_samples, ncols = gtgram_strides(
         fs,
@@ -90,48 +67,151 @@ def gtgram(
     return y
 
 
-def fft_weights(
-    nfft,
-    fs,
-    nfilts,
-    width,
-    fmin,
-    fmax,
-    maxlen):
+def _gtgram_xe(wave, fs, channels, f_min, f_max=None, verbose=False):
+    """Calculate the intermediate ERB filterbank processed matrix.
+    
+    Internal for `gammagram`.
+    
     """
-    :param nfft: the source FFT size
-    :param sr: sampling rate (Hz)
-    :param nfilts: the number of output bands required (default 64)
-    :param width: the constant width of each band in Bark (default 1)
-    :param fmin: lower limit of frequencies (Hz)
-    :param fmax: upper limit of frequencies (Hz)
-    :param maxlen: number of bins to truncate the rows to
+
+    cfs = centre_freqs(fs, channels, f_min, f_max)
+    if verbose:
+        print('cfs: ', cfs)
+    fcoefs = np.flipud(make_erb_filters(fs, cfs))
+    xf = erb_filterbank(wave, fcoefs)
+    xe = np.power(xf, 2)
+
+    return xe
+
+
+def gtgram_strides(fs, window_time, hop_time, filterbank_cols):
+    """Calculate the window size for a gammatone filter spectrogram.
     
-    :return: a tuple `weights`, `gain` with the calculated weight matrices and
-             gain vectors
-    
-    Generate a matrix of weights to combine FFT bins into Gammatone bins.
-    
-    Note about `maxlen` parameter: While wts has nfft columns, the second half
-    are all zero. Hence, aud spectrum is::
-    
-        fft2gammatonemx(nfft,sr)*abs(fft(xincols,nfft))
-    
-    `maxlen` truncates the rows to this many bins.
-    
-    | (c) 2004-2009 Dan Ellis dpwe@ee.columbia.edu  based on rastamat/audspec.m
-    | (c) 2012 Jason Heeris (Python implementation)
+    Parameters
+    ----------
+    TODO
+
+    Returns
+    -------
+    (window_size, hop_samples, output_columns)
+
     """
-    ucirc = np.exp(1j * 2 * np.pi * np.arange(0, nfft / 2 + 1) / nfft)[None, ...]
+
+    nwin        = int(round_half_away_from_zero(window_time * fs))
+    hop_samples = int(round_half_away_from_zero(hop_time * fs))
+    columns     = int(np.floor((filterbank_cols - nwin)/hop_samples)) + 1
+
+    return (nwin, hop_samples, columns)
+
+
+def round_half_away_from_zero(num):
+    """Implements the "round-half-away-from-zero" rule.
+    
+    Fractional parts of 0.5 result in rounding up to the nearest positive
+    integer for positive numbers, and down to the nearest negative number for
+    negative integers.
+
+    Parameters
+    ----------
+    num : float
+
+    Returns
+    -------
+    int
+
+    """
+    return np.sign(num) * np.floor(np.abs(num) + 0.5)
+
+
+def fft_gammagram(wave, fs, window_time, hop_time, channels, f_min):
+    """Approximate a gammatone filter spectrogram using FFT.
+
+    A matrix of weightings is calculated using `fft_weights`, and applied to
+    the FFT of the input signal, `wave`, using sample rate `fs`. The result is
+    an approximation of full filtering using an ERB gammatone filterbank
+    (as per `gammagram`).
+
+    `f_min` determines the frequency cutoff for the corresponding gammatone
+    filterbank. `window_time` and `hop_time` (both in seconds) are the size
+    and overlap of the spectrogram columns.
+
+    Parameters
+    ----------
+    wave : np.ndarray.
+        Sound waveform with shape (T,) or (T,1).
+    fs : int.
+        Sampling frequency.
+    window_time : float.
+    hop_time : float.
+    channels : int.
+        Number of frequency channels in the spectrogram-like output.
+    f_min : float.
+
+    Returns
+    -------
+    np.ndarray
+        With shape (T, `channels`)
+
+    Copyright
+    ---------
+    2009-02-23 Dan Ellis dpwe@ee.columbia.edu
+    (c) 2013 Jason Heeris (Python implementation)
+
+    """
+
+    nfft = int(2 ** (np.ceil(np.log2(2 * window_time * fs))))
+    nwin, nhop, _ = gtgram_strides(fs, window_time, hop_time, 0)
+
+    gt_weights, _ = fft_weights(
+        nfft, fs, channels, f_min, f_max=fs/2, maxlen=(nfft/2 + 1)
+        )
+
+    sgram = spectrogram(wave, nfft, fs, nwin, nhop)
+    result = gt_weights.dot(np.abs(sgram)) / nfft
+
+    return result
+
+
+def fft_weights(nfft, fs, channels, f_min, f_max, maxlen, width=1):
+    """Generate a matrix of weights to combine FFT bins into Gammatone bins.
+
+    Parameters
+    ----------
+    nfft : int.
+        Size of the source FFT.
+    fs : int.
+        Sampling frequency.
+    channels : int.
+        Number of output bands required.
+    f_min : lower limit of frequencies (Hz)
+    f_max : upper limit of frequencies (Hz)
+    maxlen : int.
+        Number of bins to truncate the columns to.
+    width : int; default=1.
+        Constant width of each band in Bark.
+
+    Returns
+    -------
+    (np.ndarray, np.ndarray)
+        Weight matrices and gain vectors.
+    
+    Copyright
+    ---------
+    (c) 2004-2009 Dan Ellis dpwe@ee.columbia.edu  based on rastamat/audspec.m
+    (c) 2012 Jason Heeris (Python implementation)
+
+    """
+    ucirc = np.exp(1j*2*np.pi*np.arange(0, nfft/2 + 1)/nfft)[np.newaxis, ...]
     
     # Common ERB filter code factored out
-    cf_array = erb_space(fmin, fmax, nfilts)[::-1]
+    cf_array = erb_space(f_min, f_max, channels)[::-1]
 
     _, A11, A12, A13, A14, _, _, _, B2, gain = (
         make_erb_filters(fs, cf_array, width).T
     )
     
-    A11, A12, A13, A14 = A11[..., None], A12[..., None], A13[..., None], A14[..., None]
+    A11, A12, A13, A14 = (A11[..., np.newaxis], A12[..., np.newaxis],
+                          A13[..., np.newaxis], A14[..., np.newaxis])
 
     r = np.sqrt(B2)
     theta = 2 * np.pi * cf_array / fs    
@@ -139,7 +219,7 @@ def fft_weights(
     
     GTord = 4
     
-    weights = np.zeros((nfilts, nfft))
+    weights = np.zeros((channels, nfft))
 
     weights[:, 0:ucirc.shape[1]] = (
           np.abs(ucirc + A11 * fs) * np.abs(ucirc + A12 * fs)
@@ -151,48 +231,3 @@ def fft_weights(
     weights = weights[:, 0:int(maxlen)]
 
     return weights, gain
-
-
-def fft_gtgram(
-    wave,
-    fs,
-    window_time, hop_time,
-    channels,
-    f_min):
-    """
-    Calculate a spectrogram-like time frequency magnitude array based on
-    an FFT-based approximation to gammatone subband filters.
-
-    A matrix of weightings is calculated (using :func:`gtgram.fft_weights`), and
-    applied to the FFT of the input signal (``wave``, using sample rate ``fs``).
-    The result is an approximation of full filtering using an ERB gammatone
-    filterbank (as per :func:`gtgram.gtgram`).
-
-    ``f_min`` determines the frequency cutoff for the corresponding gammatone
-    filterbank. ``window_time`` and ``hop_time`` (both in seconds) are the size
-    and overlap of the spectrogram columns.
-
-    | 2009-02-23 Dan Ellis dpwe@ee.columbia.edu
-    |
-    | (c) 2013 Jason Heeris (Python implementation)
-    """
-    width = 1 # Was a parameter in the MATLAB code
-
-    nfft = int(2 ** (np.ceil(np.log2(2 * window_time * fs))))
-    nwin, nhop, _ = gtgram.gtgram_strides(fs, window_time, hop_time, 0);
-
-    gt_weights, _ = fft_weights(
-            nfft,
-            fs,
-            channels,
-            width,
-            f_min,
-            fs / 2,
-            nfft / 2 + 1
-        )
-
-    sgram = specgram(wave, nfft, fs, nwin, nhop)
-
-    result = gt_weights.dot(np.abs(sgram)) / nfft
-
-    return result

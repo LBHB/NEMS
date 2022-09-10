@@ -235,7 +235,7 @@ def erb_filterbank(wave, coefs):
     Parameters
     ----------
     wave : np.ndarray.
-        Sound waveform with shape (T,) or (T,1).  TODO: confirm
+        Sound waveform with shape (T,) or (T,1).
     coefs : np.ndarray.
         Gammatone filter coefficients returned by `make_erb_filters`,
         with shape (`num_freqs`, 10)
