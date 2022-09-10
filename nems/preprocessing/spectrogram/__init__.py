@@ -39,3 +39,6 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
+
+from .fft import spectrogram, fft_gammagram  # Faster
+from .gammatone import gammagram             # More biologically accurate

@@ -9,7 +9,8 @@ import numpy as np
 from .filters import make_erb_filters, centre_freqs, erb_filterbank
 
 
-def gammagram(wave, fs, window_time, hop_time, channels, f_min, f_max=None):
+def gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01, channels=18,
+              f_min=200.0, f_max=None):
     """Calculate a spectrogram-like array based on gammatone subband filters.
     
     The waveform `wave` (at sample rate `fs`) is passed through a multi-channel
@@ -23,14 +24,22 @@ def gammagram(wave, fs, window_time, hop_time, channels, f_min, f_max=None):
     ----------
     wave : np.ndarray.
         Sound waveform with shape (T,) or (T,1).
-    fs : int.
-        Sampling frequency.
-    window_time : float.
-    hop_time : float.
+    fs : int; default=44000.
+        Sampling frequency. `gtgram_strides` uses this to scale `window_time`
+        and `hop_time` to convert them to units of bins.
+    window_time : float; default=0.01.
+        Length of integration window. Default of 0.01 corresponods to 1/100hz,
+        where 100hz is the most common spike raster sampling rate used by LBHB.
+    hop_time : float; default=0.01.
+        Stepsize of window advancement for successive columns. Default of 0.01
+        corresponods to 1/100hz, where 100hz is the most common spike raster
+        sampling rate used by LBHB.
     channels : int.
         Number of frequency channels in the spectrogram-like output.
-    f_min : float.
+    f_min : float; default=200.0.
+        Lower frequency cutoff.
     f_max : float; optional.
+        Upper frequency cutoff.
 
     Returns
     -------
@@ -84,7 +93,16 @@ def gtgram_strides(fs, window_time, hop_time, filterbank_cols):
     
     Parameters
     ----------
-    TODO
+    fs : int.
+        Sampling frequency.
+    window_time : float; default=0.01.
+        Length of integration window. Default of 0.01 corresponods to 1/100hz,
+        where 100hz is the most common spike raster sampling rate used by LBHB.
+    hop_time : float; default=0.01.
+        Stepsize of window advancement for successive columns. Default of 0.01
+        corresponods to 1/100hz, where 100hz is the most common spike raster
+        sampling rate used by LBHB.
+    filterbank_cols : int.
 
     Returns
     -------
