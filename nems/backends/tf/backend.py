@@ -31,12 +31,11 @@ class TensorFlowBackend(Backend):
         """
         # TODO: what backend options to accept?
 
-        batch_size = eval_kwargs.get('batch_size', None)
+        batch_size = eval_kwargs.get('batch_size', 0)
         if batch_size == 0:
             data = data.prepend_samples()
             batch_size = None
-
-        if batch_size is not None:
+        elif batch_size is not None:
             raise NotImplementedError(
                 "tf.tensordot is failing for multiple batches b/c the axis "
                 "numbers shift. Need to fix that before this will work."
