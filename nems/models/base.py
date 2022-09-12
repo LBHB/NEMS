@@ -547,7 +547,7 @@ class Model:
         """
         
         # Get input & output arrays
-        args, kwargs, output = layer._evaluate(data)
+        args, kwargs, output = layer._evaluate(data, dtype=self.dtype)
 
         # Save output (or don't) based on Layer.DataMap.
         # data_keys is always a list, but output might be a list or one array.

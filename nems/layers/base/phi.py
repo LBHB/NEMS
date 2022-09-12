@@ -48,6 +48,10 @@ class Phi:
         self._vector_mask = None
         self._update_vector_mask()
 
+    @property
+    def dtype(self):
+        return self._array.dtype
+
     def set_dtype(self, dtype):
         """Change dtype of all Parameter values in-place."""
         self._array = self._array.astype(dtype)
