@@ -48,7 +48,7 @@ class TensorFlowBackend(Backend):
         for k, v in inputs.items():
             # Skip trial/sample dimension when determining shape.
             tf_in = Input(shape=v.shape[1:], name=k, batch_size=batch_size,
-                          dtype='float32')  # TODO: don't hard-code float32
+                          dtype=self.nems_model.dtype)
             tf_input_dict[k] = tf_in
         unused_inputs = list(tf_input_dict.keys())
 

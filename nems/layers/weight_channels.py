@@ -341,7 +341,8 @@ class WeightChannelsGaussian(WeightChannels):
             def call(self, inputs):
                 mean = tf.expand_dims(self.mean, -1)
                 sd = tf.expand_dims(self.sd/10, -1)
-                input_features = tf.cast(tf.shape(inputs)[-1], dtype='float32')
+                input_features = tf.cast(tf.shape(inputs)[-1],
+                                         dtype=inputs.dtype)
                 temp = tf.range(input_features) / input_features
                 temp = tf.transpose((temp-mean)/sd, [1,0])
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
