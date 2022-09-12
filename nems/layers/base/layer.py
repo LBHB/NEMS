@@ -157,7 +157,7 @@ class Layer:
         # TODO: make name property instead and save _name, default_name here.
         #       (so that other code doesn't need to check for None name)
         self._name = name 
-        self.default_name = f'{type(self).__name__}(shape={self.shape})'
+        self.default_name = f'{type(self).__name__}'
         self.model = None  # pointer to parent ModelSpec
 
         if parameters is None:
