@@ -83,7 +83,6 @@ class DataSet:
             # Set to same as first input.
             self.dtype = list(self.inputs.values())[0].dtype
         else:
-            self.as_type(dtype, inplace=True)
             self.dtype = dtype
 
     @property
@@ -473,7 +472,9 @@ class DataSet:
         return {**self.inputs, **self.outputs, **self.targets}
 
     def as_type(self, dtype, inplace=False):
-        """Replace all arrays with different dtype."""
+        """Replace all arrays with a different dtype."""
+        # NOTE: Even with `copy=False`, this will result in a copy if dtype
+        #       changes precision (e.g. float64 -> float32). 
         return self.apply(lambda a: a.astype(dtype, copy=False), inplace=inplace,
                           allow_copies=True)
 

@@ -343,7 +343,7 @@ class Layer:
         """
         self.data_map = DataMap(self)
 
-    def _evaluate(self, data):
+    def _evaluate(self, data, dtype=np.float32):
         """Get inputs from `data`, evaluate them, and update `Layer.data_map`.
 
         Parameters
@@ -375,11 +375,19 @@ class Layer:
         args, kwargs = self.data_map.get_inputs(data)
         output = self.evaluate(*args, **kwargs)
 
-        # Add singleton channel axis to each array if missing.
+        # Add singleton channel axis to each array if missing, and cast dtype
+        # if necessary.
         if isinstance(output, (list, tuple)):
-            output = [x[..., np.newaxis] if x.ndim == 1 else x for x in output]
-        elif output.ndim == 1:
-            output = output[..., np.newaxis]
+            output = [
+                x[..., np.newaxis].astype(dtype, copy=False)
+                if x.ndim == 1
+                else x.astype(dtype, copy=False)
+                for x in output
+                ]
+        else:
+            output = output.astype(dtype, copy=False)
+            if output.ndim == 1:
+                output = output[..., np.newaxis]
         
         # Add output information to DataMap
         self.data_map.map_outputs(output)
