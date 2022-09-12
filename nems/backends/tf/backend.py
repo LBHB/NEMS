@@ -75,16 +75,18 @@ class TensorFlowBackend(Backend):
                 if k in unused_inputs:
                     unused_inputs.pop(unused_inputs.index(k))
 
-            # TODO: need to do something with tf.keras.layers.concatenate
-            #       when there are multiple inputs. Adding the [0] for now because
-            #       singleton lists mess up some of the Layers.
             # Construct TF layer, provide input_shape for Layers that need that
-            # extra information.
-            input_shape = keras.backend.int_shape(layer_inputs[0])
+            # extra information. If inputs is a singleton, unwrap it. Otherwise,
+            # layers that expect a single input can break.
+            input_shape = [keras.backend.int_shape(x) for x in layer_inputs]
+            if len(layer_inputs) == 1:
+                layer_inputs = layer_inputs[0]
+                input_shape = input_shape[0]
+
             tf_layer = layer.as_tensorflow_layer(
                 input_shape=input_shape, **tf_kwargs
                 )
-            last_output = tf_layer(layer_inputs[0])
+            last_output = tf_layer(layer_inputs)
             
             if isinstance(last_output, (list, tuple)):
                 tf_data.update(
@@ -213,13 +215,16 @@ class TensorFlowBackend(Backend):
         )
 
         # Save weights back to NEMS model
-        # (first two TF layers are input layers, skip it).
+        # Skip input layers.
         # TODO: This assumes there aren't any other extra layers added
         #       by TF. That might not be the case for some model types. Better
         #       approach would be to track keys for the specific layers that
         #       have the parameters we need.
-        skip = len(self.model.inputs)
-        layer_iter = zip(self.nems_model.layers, self.model.layers[skip:])
+        tf_model_layers = [
+            layer for layer in self.model.layers
+            if not layer.name in [x.name for x in self.model.inputs]
+            ]
+        layer_iter = zip(self.nems_model.layers, tf_model_layers)
         for nems_layer, tf_layer in layer_iter:
             nems_layer.set_parameter_values(tf_layer.weights_to_values())
 
@@ -233,15 +238,15 @@ class TensorFlowBackend(Backend):
 
         return nems_fit_results
 
-    def predict(self, input, **eval_kwargs):
+    def predict(self, input, batch_size=0, **eval_kwargs):
         """Get output of `TensorFlowBackend.model` given `input`.
         
         Parameters
         ----------
-        input : ndarray, dict, or Dataset.
-            See `nems.models.base.Model.evaluate`.
+        input : ndarray or list of ndarray, tensor or list of tensor.
+        batch_size : int or None; default=0.
         eval_kwargs : dict
-            Additional keyword arguments for `Model.evaluate`.
+            Additional keyword arguments for `Model.evaluate`. Silently ignored.
 
         Returns
         -------
@@ -249,8 +254,17 @@ class TensorFlowBackend(Backend):
             Outpt of the associated Keras model.
 
         """
+        if batch_size == 0:
+            # Prepend samples
+            if isinstance(input, (np.ndarray)):
+                input = input[np.newaxis, ...]
+                batch_size = None
+            elif isinstance(input, list) and isinstance(input[0], np.ndarray):
+                input = [x[np.newaxis, ...] for x in input]
+                batch_size = None
+
         # TODO: Any kwargs needed here?
-        return self.model.predict(input)
+        return self.model.predict(input, batch_size=batch_size)
 
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):

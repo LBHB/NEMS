@@ -339,31 +339,22 @@ class WeightChannelsGaussian(WeightChannels):
 
         class WeightChannelsGaussianTF(NemsKerasLayer):
             def call(self, inputs):
-                # TODO: docs. Explain (at least briefly) why this is the same thing.
-
-                # TODO: convert to tensordot
-
-                # TODO: the shapes aren't lining up right for new syntax,
-                #       WIP
                 mean = tf.expand_dims(self.mean, -1)
                 sd = tf.expand_dims(self.sd/10, -1)
                 input_features = tf.cast(tf.shape(inputs)[-1], dtype='float32')
                 temp = tf.range(input_features) / input_features
-                temp = (tf.reshape(temp, [1, input_features, 1]) - mean) / sd
+                temp = tf.transpose((temp-mean)/sd, [1,0])
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
-                norm = tf.math.reduce_sum(temp, axis=1)
+                norm = tf.math.reduce_sum(temp, axis=-1, keepdims=True)
                 kernel = temp / norm
 
                 return tf.tensordot(inputs, kernel, axes=[[2], [0]])
-                #return tf.nn.conv1d(inputs, kernel, stride=1, padding='SAME')
             
             def weights_to_values(self):
                 values = self.parameter_values
-                # Remove extra dummy axis if one was added, and undo scaling.
+                # Undo scaling.
                 values['sd'] = values['sd'] / 10
                 return values
 
-        # TODO
-        raise NotImplementedError("Tensorflow wc.g is still a WIP")
         return WeightChannelsGaussianTF(self, new_values=new_values,
                                         new_bounds=new_bounds, **kwargs)

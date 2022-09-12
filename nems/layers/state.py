@@ -95,3 +95,23 @@ class StateGain(Layer):
                 shape = tuple([int(d) for d in dims])
 
         return StateGain(shape=shape)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class StateGainTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors, with state second.
+                # TODO: Use tensor names to not require this arbitrary order.
+                input = inputs[0]
+                state = inputs[1]
+
+                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                with_offset = with_gain + tf.matmul(state, self.offset)
+                
+                return with_offset
+
+        return StateGainTF(self, **kwargs)
