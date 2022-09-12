@@ -2,7 +2,7 @@
 
 The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical model to time series data, plotting the model predictions, and comparing the predictive accuracy of multiple models. We use it to [develop and test computational models of how sound is encoded in the brains of behaving mammals](https://hearingbrain.org/), but it will work with many different types of timeseries data.
 
-Note: this is a refactor of a former version of NEMS that is now archived at github.com/LBHB/NEMS0. *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
+Note: this is a refactor of a former version of NEMS that is now archived at [LBHB/NEMS0](github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
 # Examples
 Build a standard linear-nonlinear spectrotemporal receptive field (LN-STRF) model.
@@ -92,13 +92,12 @@ conda install -c conda-forge numpy
 # Upcoming features/updates
 Roughly in order of priority:
 * Add more Layers from nems0.
-* * Get wc.g and stategain working in TensorFlow.
 * Add core pre-processing and scoring from nems0.
 * Set up readthedocs.
 * Demo data.
 * Other core features (like jackknifed fits, cross-validation, etc.).
 * Enable Travis build (.travis.yml is already there, but not yet tested).
-* Publish through conda install and pip install (and update readme accordingly).
+* Publish through conda.
 * Backwards-compatibility tools for loading nems0 models.
 * Try Numba for Layer.evaluate and cost functions.
 * Implement Jax back-end.
