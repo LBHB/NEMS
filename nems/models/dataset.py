@@ -19,7 +19,7 @@ class DataSet:
 
     def __init__(self, input, state=None, target=None, input_name=None,
                  state_name=None, output_name=None, target_name=None,
-                 dtype=np.float64, has_samples=False, debug_memory=False,
+                 dtype=None, has_samples=False, debug_memory=False,
                  **kwargs):
         """Container for tracking dictionaries of data arrays.
         
@@ -35,7 +35,7 @@ class DataSet:
         state_name : str; optional.
         output_name : str; optional.
         target_name : str; optional.
-        dtype : type; default=np.float64.
+        dtype : type; optional.
             TODO: WIP. Want to specify a consistent datatype to cast all
                   arrays to.
         has_samples : bool; default=False.
@@ -74,11 +74,17 @@ class DataSet:
         for attr, name in names:
             if name is None: name = getattr(self, f'default_{attr}')
             setattr(self, f'{attr}_name', name)
-        self.dtype = dtype
+
         self.has_samples = has_samples
         self.debug_memory = debug_memory
-        # TODO: how to use dtype
         self.initialize_data(input, state, target)  # other kwargs too
+
+        if dtype is None:
+            # Set to same as first input.
+            self.dtype = list(self.inputs.values())[0].dtype
+        else:
+            self.as_type(dtype, inplace=True)
+            self.dtype = dtype
 
     @property
     def n_samples(self):
@@ -397,7 +403,7 @@ class DataSet:
         """Get a shallow copy of DataSet."""
         return self.modified_copy(self.inputs, self.outputs, self.targets)
 
-    def apply(self, fn, *args, allow_copies=False, **kwargs):
+    def apply(self, fn, *args, allow_copies=False, inplace=False, **kwargs):
         """Maps {k: v} -> {k: fn(v, *args, **kwargs)} for all k, v in DataSet.
         
         Parameters
@@ -426,7 +432,12 @@ class DataSet:
             apply_to_dict(fn, d, *args, allow_copies=allow_copies, **kwargs)
             for d in [self.inputs, self.outputs, self.targets]
             ]
-        return self.modified_copy(inputs, outputs, targets)
+        if inplace:
+            self.inputs = inputs
+            self.outputs = outputs
+            self.targets = targets
+        else:
+            return self.modified_copy(inputs, outputs, targets)
 
     def assert_no_copies(self, inputs, outputs, targets):
         """Check if arrays in dictionaries share memory with arrays in DataSet.
@@ -460,6 +471,11 @@ class DataSet:
     def as_dict(self):
         """Get `DataSet.inputs, .outputs, .targets` as a single dictionary."""
         return {**self.inputs, **self.outputs, **self.targets}
+
+    def as_type(self, dtype, inplace=False):
+        """Replace all arrays with different dtype."""
+        return self.apply(lambda a: a.astype(dtype, copy=False), inplace=inplace,
+                          allow_copies=True)
 
     # Pass dict get (but not set) operations to self.inputs, outputs, targets
     def __getitem__(self, key):

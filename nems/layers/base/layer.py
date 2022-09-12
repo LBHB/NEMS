@@ -158,11 +158,11 @@ class Layer:
         #       (so that other code doesn't need to check for None name)
         self._name = name 
         self.default_name = f'{type(self).__name__}'
-        self.model = None  # pointer to parent ModelSpec
+        self.model = None  # pointer to parent Model
 
         if parameters is None:
             parameters = self.initial_parameters()
-        self.parameters = parameters
+        self.parameters = parameters 
 
         # Overwrite defaults set by `initial_parameters` if priors, bounds
         # kwargs were specified.
@@ -210,6 +210,10 @@ class Layer:
         # TODO: rename unfrozen -> trainable, frozen -> untrainable?
         return {'total': total, 'unfrozen': unfrozen, 'frozen': frozen,
                 'permanent': permanent}
+
+    def set_dtype(self, dtype):
+        """Change dtype of all Parameter values in-place."""
+        self.parameters.set_dtype(dtype)
 
     @layer('baseclass')
     def from_keyword(keyword):
