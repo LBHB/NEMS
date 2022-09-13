@@ -3,12 +3,13 @@ import itertools
 import numpy as np
 
 
-# TODO: this doesn't actually support arbitrary arrays, only shape (N,)
 def correlation(x, y):
     """Compute Pearson correlation coefficient for arrays x and y.
 
     Correlation is computed for corresponding output channels in `x` and `y`,
     i.e. `corr(x[..., i], y[..., i])` for all `i`.
+
+    TODO: Support for batched data.
 
     Parameters
     ----------
