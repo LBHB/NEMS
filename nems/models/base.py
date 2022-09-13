@@ -762,10 +762,42 @@ class Model:
         return new_model
 
 
-    def score(self, prediction, target):
-        # TODO: this should point to an independent utility function, but
-        #       placed here for convenience (and also to provide model defaults).
-        raise NotImplementedError
+    def score(self, input, target, metric='correlation', metric_kwargs=None,
+              **eval_kwargs):
+        """Score model performance using post-fit metrics like correlation.
+        
+        This only supports metrics that expect a model output as a first
+        argument, a target as a second argument, and no other positional
+        arguments.
+
+        Parameters
+        ----------
+        input : ndarray, dict, or DataSet.
+            See `Model.evaluate`.
+        target : ndarray or dict of ndarray.
+            Dict option still TODO. Target data for optimization.
+        metric : str or callable; default='correlation'.
+            Scores model performance. If `str`, will be replaced with
+            `get_metric(metric)`.
+        metric_kwargs : dict; optional.
+            Additional keyword arguments for `metric`.
+
+        Returns
+        -------
+        numeric.
+            Specifically, `metric(prediction, target, **metric_kwargs)`.
+            No specific return format is enforced, but in general metrics should
+            return a numeric value, typically a float or ndarray.
+        
+        """
+
+        if metric_kwargs is None: metric_kwargs = {}
+        prediction = self.predict(input, **eval_kwargs)
+        if isinstance(metric, str):
+            metric = get_metric(metric)
+
+        return metric(prediction, target, **metric_kwargs)
+
 
     def get_bounds_vector(self, none_for_inf=True):
         """Get all parameter bounds, formatted as a list of 2-tuples.
