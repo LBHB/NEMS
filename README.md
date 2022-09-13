@@ -41,7 +41,7 @@ Score the prediction
 from nems.metrics import correlation
 print(correlation(prediction, response))
 # OR
-print(model.score(spectrogram, response, metric='correlation'))
+print(model.score(test_spectrogram, response, metric='correlation'))
 ```
 
 
