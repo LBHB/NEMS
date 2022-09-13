@@ -6,6 +6,7 @@ import numpy as np
 
 from nems.registry import keyword_lib
 from nems.backends import get_backend
+from nems.metrics import get_metric
 from nems.visualization import plot_model
 from .dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib

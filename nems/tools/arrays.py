@@ -1,4 +1,4 @@
-"""Miscellaneous utilities for manipulating Numpy ndarrays."""
+"""Miscellaneous utilities for manipulating NumPy ndarrays."""
 
 import numpy as np
 

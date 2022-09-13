@@ -15,3 +15,8 @@ Contents
 """
 
 from .correlation import correlation, noise_corrected_r
+
+from nems.tools.lookup import FindCallable
+
+metric_nicknames = {}
+get_metric = FindCallable({**globals(), **metric_nicknames}, header='Metric')

@@ -12,6 +12,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras
 
+from nems.tools.lookup import FindCallable
+
 
 # Keras' built-in MSE with default options
 keras_mse = tf.keras.losses.MeanSquaredError()
@@ -163,12 +165,4 @@ def pearson(y_true, y_pred):
 
 cost_nicknames = {'squared_error': loss_se, 'nmse': loss_tf_nmse,
                   'nmse_shrinkage': loss_tf_nmse_shrinkage}
-def get_cost(name):
-    if name in cost_nicknames:
-        cost = cost_nicknames[name]
-    else:
-        cost = globals().get(name, None)
-    if cost is None:
-        raise TypeError(f"Cost function name '{name}' could not be found.")
-
-    return cost
+get_cost = FindCallable({**globals(), **cost_nicknames}, header='Cost')
