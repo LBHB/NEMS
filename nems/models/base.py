@@ -409,6 +409,9 @@ class Model:
                 # Get data for the final layer only, to reduce memory use.
                 layer_data = self.get_layer_data(data_generator, n, n)[-1]
                 sample_out.append(layer_data['data'].prepend_samples())
+                # Make sure memory is freed up between loops.
+                del data_generator
+                del layer_data
 
             batch_out = DataSet.concatenate_sample_outputs(sample_out)
             batch.outputs = batch_out
@@ -497,10 +500,34 @@ class Model:
             data = input
 
         max_n = len(self.layers)
+        previous_output = 'not None'  # Only for setting `inplace_ok` flag.
         for n, layer in enumerate(self.layers):
             if not use_existing_maps:
                 layer.reset_map()
-            a, k, o = self._evaluate_layer(layer, data)
+
+            inplace_ok = False
+            # If previous output was None, then it will be overwritten after
+            # this Layer is evaluated anyway. But also need to make sure input
+            # arrays are not overwritten.
+            if previous_output is None:       # never True for first layer.
+                if layer.input is None:       # so this must point to an output
+                    inplace_ok = True
+                else:
+                    # Need to check if any of the keys in `args` or `kwargs`
+                    # points to an input rather than an intermediate output.
+                    arg_keys = layer.data_map.args
+                    kwarg_keys = list(layer.data_map.kwargs.values())
+                    keys = [*arg_keys, *kwarg_keys]
+                    if all([k not in data.inputs for k in keys]):
+                        inplace_ok = True
+
+            a, k, o = self._evaluate_layer(layer, data, inplace_ok=inplace_ok)
+
+            # TODO: last thing to consider (I think) on `inplace_ok`: overwriting
+            #       previous output would change the reference to `o` in the
+            #       already-yielded layer data. This wouldn't hurt anything in
+            #       the model.evaluate implementation b/c only the final data
+            #       is used anyway. However, that could make debugging confusing.
             layer_data = {
                 'index': n, 'layer': layer.name,
                 'args': a, 'kwargs': k, 'out': o
@@ -512,6 +539,9 @@ class Model:
                 else:
                     layer_data['data'] = data
                 yield layer_data
+            
+            # Track last output for determining `inplace_ok`.
+            previous_output = layer.output
 
         # On final layer, only update data after evaluation
         data.finalize_data(final_layer=layer)
@@ -522,7 +552,7 @@ class Model:
 
         yield layer_data
 
-    def _evaluate_layer(self, layer, data):
+    def _evaluate_layer(self, layer, data, inplace_ok=False):
         """Evaluates one Layer. Internal for `Model.generate_layer_data`.
         
         Returns
@@ -537,7 +567,7 @@ class Model:
         """
         
         # Get input & output arrays
-        args, kwargs, output = layer._evaluate(data)
+        args, kwargs, output = layer._evaluate(data, inplace_ok=inplace_ok)
 
         # Save output (or don't) based on Layer.DataMap.
         # data_keys is always a list, but output might be a list or one array.

@@ -24,6 +24,12 @@ class Layer:
         `Layer.input is None` and a `state` array is provided to
         `Model.evaluate`, then `state` will be added to other inputs as a
         keyword argument, i.e.: `layer.evaluate(*inputs, **state)`.
+    _inplace_ok : bool; default=False.
+        Layer.evaluate can reference this flag to determine if it can safely
+        overwrite input arrays with new values to reduce memory usage within
+        the scope of `evaluate`. A parent Model will set `inplace_ok=True`
+        only if the output of the previous Layer will not be saved. Setting
+        this attribute directly is not recommended except when debugging.
 
     """
 
@@ -35,6 +41,7 @@ class Layer:
         cls.subclasses[cls.__name__] = cls
 
     state_arg = None
+    _inplace_ok = False
 
     def __init__(self, shape=None, input=None, output=None, parameters=None,
                  priors=None, bounds=None, name=None):
@@ -339,7 +346,7 @@ class Layer:
         """
         self.data_map = DataMap(self)
 
-    def _evaluate(self, data):
+    def _evaluate(self, data, inplace_ok=False):
         """Get inputs from `data`, evaluate them, and update `Layer.data_map`.
 
         Parameters
@@ -369,7 +376,9 @@ class Layer:
 
         """
         args, kwargs = self.data_map.get_inputs(data)
+        self._inplace_ok = inplace_ok  # Set flag for `evaluate` behavior.
         output = self.evaluate(*args, **kwargs)
+        self._inplace_ok = False       # Always reset to default of False.
 
         # Add singleton channel axis to each array if missing.
         if isinstance(output, (list, tuple)):
