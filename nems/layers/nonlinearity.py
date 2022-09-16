@@ -183,9 +183,8 @@ class DoubleExponential(StaticNonlinearity):
         zero = np.zeros(shape=self.shape)
         one = np.ones(shape=self.shape)
         phi = Phi(
-            Parameter('base', shape=self.shape, prior=Normal(zero, one/5)),
-            Parameter('amplitude', shape=self.shape,
-                      prior=Normal(one, one/5)),
+            Parameter('base', shape=self.shape, prior=Normal(-one, one/5)),
+            Parameter('amplitude', shape=self.shape, prior=Normal(2*one, one/5)),
             Parameter('shift', shape=self.shape, prior=Normal(zero, one/5)),
             Parameter('kappa', shape=self.shape, prior=Normal(one, one/5))
             )
@@ -207,7 +206,7 @@ class DoubleExponential(StaticNonlinearity):
             out = input
 
         output = ne.evaluate(
-            "base + amplitude*exp(-exp(-exp(kappa)*(input-shift)))",
+            "base + amplitude*exp(-exp(-exp(kappa)*(input+shift)))",
             out=out
             )
 
@@ -250,7 +249,7 @@ class DoubleExponential(StaticNonlinearity):
             class DoubleExponentialTF(NemsKerasLayer):
                 def call(self, inputs):
                     exp = tf.math.exp(-tf.math.exp(
-                        -tf.math.exp(self.kappa) * (inputs - self.shift)
+                        -tf.math.exp(self.kappa) * (inputs + self.shift)
                         ))
                     return self.base + self.amplitude * exp
 
