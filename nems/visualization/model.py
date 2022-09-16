@@ -425,6 +425,10 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
             last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
         last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
+    if 'state' in eval_kwargs.keys():
+        if eval_kwargs['state'] is not None:
+            state_name = eval_kwargs.get('state_name','state')
+            last_ax.plot(eval_kwargs['state'], label=f'{state_name}', lw=0.5)
 
     figure.suptitle(f"{model.name} cc={model.meta.get('r_test',[0])[0]}", fontsize=10)
 
