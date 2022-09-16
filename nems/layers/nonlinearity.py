@@ -1,5 +1,5 @@
-from tkinter import FALSE
 import numpy as np
+import numexpr as ne
 
 from nems.registry import layer
 from nems.distributions import Normal
@@ -192,14 +192,25 @@ class DoubleExponential(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Apply double exponential sigmoid to input x: $b+a*exp[-exp(k(x-s)]$.
+        """Apply sigmoid transform to input x: $b+a*exp[-exp(-exp(k)(x-s)]$.
         
         See Thorson, Liénard, David (2015).
         
         """
         base, amplitude, shift, kappa = self.get_parameter_values()
-        inner_exp = (-np.exp(kappa) * (input - shift))
-        output = base + amplitude * np.exp(-np.exp(inner_exp))
+
+        if (input.shape[-1] < base.shape[-1]) or (not self._inplace_ok):
+            # First condition means output will be larger than input, so we
+            # can't store it in the same array.
+            out = None
+        else:
+            out = input
+
+        output = ne.evaluate(
+            "base + amplitude*exp(-exp(-exp(kappa)*(input-shift)))",
+            out=out
+            )
+
         return output
 
     @layer('dexp')
@@ -301,9 +312,18 @@ class RectifiedLinear(StaticNonlinearity):
         `StaticNonlinearity.evaluate` is the same as for other subclasses.
         
         """
+
         shift, offset, gain = self.get_parameter_values()
-        rectified = (input+shift) * (input > -shift)
-        return offset + gain*rectified
+
+        if (input.shape[-1] < shift.shape[-1]) or (not self._inplace_ok):
+            # First condition means output will be larger than input, so we
+            # can't store it in the same array.
+            out = None
+        else:
+            out = input
+
+        output = ne.evaluate('offset + gain*((input + shift)*(input > -shift))')
+        return output
 
     @layer('relu')
     def from_keyword(keyword):
