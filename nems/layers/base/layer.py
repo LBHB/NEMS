@@ -165,11 +165,11 @@ class Layer:
         #       (so that other code doesn't need to check for None name)
         self._name = name 
         self.default_name = f'{type(self).__name__}'
-        self.model = None  # pointer to parent ModelSpec
+        self.model = None  # pointer to parent Model
 
         if parameters is None:
             parameters = self.initial_parameters()
-        self.parameters = parameters
+        self.parameters = parameters 
 
         # Overwrite defaults set by `initial_parameters` if priors, bounds
         # kwargs were specified.
@@ -217,6 +217,10 @@ class Layer:
         # TODO: rename unfrozen -> trainable, frozen -> untrainable?
         return {'total': total, 'unfrozen': unfrozen, 'frozen': frozen,
                 'permanent': permanent}
+
+    def set_dtype(self, dtype):
+        """Change dtype of all Parameter values in-place."""
+        self.parameters.set_dtype(dtype)
 
     @layer('baseclass')
     def from_keyword(keyword):
@@ -346,7 +350,7 @@ class Layer:
         """
         self.data_map = DataMap(self)
 
-    def _evaluate(self, data, inplace_ok=False):
+    def _evaluate(self, data, inplace_ok=False, dtype=np.float32):
         """Get inputs from `data`, evaluate them, and update `Layer.data_map`.
 
         Parameters
@@ -380,11 +384,19 @@ class Layer:
         output = self.evaluate(*args, **kwargs)
         self._inplace_ok = False       # Always reset to default of False.
 
-        # Add singleton channel axis to each array if missing.
+        # Add singleton channel axis to each array if missing, and cast dtype
+        # if necessary.
         if isinstance(output, (list, tuple)):
-            output = [x[..., np.newaxis] if x.ndim == 1 else x for x in output]
-        elif output.ndim == 1:
-            output = output[..., np.newaxis]
+            output = [
+                x[..., np.newaxis].astype(dtype, copy=False)
+                if x.ndim == 1
+                else x.astype(dtype, copy=False)
+                for x in output
+                ]
+        else:
+            output = output.astype(dtype, copy=False)
+            if output.ndim == 1:
+                output = output[..., np.newaxis]
         
         # Add output information to DataMap
         self.data_map.map_outputs(output)

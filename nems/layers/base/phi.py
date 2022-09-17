@@ -48,6 +48,14 @@ class Phi:
         self._vector_mask = None
         self._update_vector_mask()
 
+    @property
+    def dtype(self):
+        return self._array.dtype
+
+    def set_dtype(self, dtype):
+        """Change dtype of all Parameter values in-place."""
+        self._array = self._array.astype(dtype)
+
     # TODO: if it becomes necessary, we can relax this restriction and allow
     #       for adding/removing Parameters. But I can't think of a case where
     #       it would really be needed since Layer parameters aren't meant to

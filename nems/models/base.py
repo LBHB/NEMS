@@ -16,7 +16,7 @@ del nems.layers
 
 class Model:
 
-    def __init__(self, layers=None, name=None, meta=None):
+    def __init__(self, layers=None, name=None, dtype=np.float32, meta=None):
         """A structured collection of Layers.
         
         This is the primary class for interacting with NEMS. Conceptually, a
@@ -31,6 +31,8 @@ class Model:
             Layers that will define the Model's data transformations.
         name : str; optional.
             Name for the Model.
+        dtype : type; default=np.float32.
+            TODO: docs. float64 not supported by all TensorFlow ops.
         meta : dict; optional.
             A general-purpose dictionary for storing additional information
             about the model.
@@ -94,6 +96,8 @@ class Model:
         if layers is not None:
             self.add_layers(*layers)
         self.name = name if name is not None else 'UnnamedModel'
+        self.set_dtype(dtype)
+
         # Store optional metadata. This is a generic dictionary for information
         # about the model. Any type can be stored here as long as it can be
         # encoded by `json.dumps`.
@@ -165,6 +169,12 @@ class Model:
         info['model'] = model_info
 
         return info
+
+    def set_dtype(self, dtype):
+        """Change dtype of Parameters in-place, set dtype for fit/evaluate."""
+        for layer in self.layers:
+            layer.set_dtype(dtype)
+        self.dtype = dtype
 
     def add_layers(self, *layers):
         """Add Layers to this Model, stored in `Model._layers`.
@@ -320,6 +330,7 @@ class Model:
             data = DataSet(
                 input=input, state=state, input_name=input_name,
                 state_name=state_name, output_name=output_name,
+                dtype=self.dtype
             )
         else:
             # Input should already be a properly formatted DataSet
@@ -567,7 +578,9 @@ class Model:
         """
         
         # Get input & output arrays
-        args, kwargs, output = layer._evaluate(data, inplace_ok=inplace_ok)
+        args, kwargs, output = layer._evaluate(
+            data, inplace_ok=inplace_ok, dtype=self.dtype
+            )
 
         # Save output (or don't) based on Layer.DataMap.
         # data_keys is always a list, but output might be a list or one array.
@@ -1165,6 +1178,7 @@ class Model:
         data = {
             'layers': list(self._layers.values()),
             'name': self.name,
+            'dtype': self.dtype,
             'meta': self.meta
         }
 
@@ -1183,7 +1197,8 @@ class Model:
         `nems.tools.json`
 
         """
-        model = cls(layers=json['layers'], name=json['name'], meta=json['meta'])
+        model = cls(layers=json['layers'], name=json['name'], 
+                    dtype=json['dtype'], meta=json['meta'])
         return model
 
     def copy(self):

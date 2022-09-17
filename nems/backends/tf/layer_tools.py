@@ -12,7 +12,8 @@ class NemsKerasLayer(Layer):
         # Don't pass 'input_shape' to Keras Layer constructor. Will still be in here
         # if `nems_layer.as_tensorflow_layer` didn't use it.
         _ = kwargs.pop('input_shape', None)
-        super().__init__(name=nems_layer.name, *args, **kwargs)
+        super().__init__(name=nems_layer.name, dtype=nems_layer.parameters.dtype,
+                         *args, **kwargs)
         if new_values is None: new_values = {}
         if new_bounds is None: new_bounds = {}
         for p in nems_layer.parameters:
