@@ -3,25 +3,56 @@ import itertools
 import numpy as np
 
 
-# TODO: this doesn't actually support arbitrary arrays, only shape (N,)
 def correlation(x, y):
     """Compute Pearson correlation coefficient for arrays x and y.
 
-    Note that this is just a wrapper for `np.corrcoef`.
-    TODO: this doesn't actually support arbitrary arrays, only shape (N,)
+    Correlation is computed for corresponding output channels in `x` and `y`,
+    i.e. `corr(x[..., i], y[..., i])` for all `i`.
+
+    TODO: Support for batched data.
 
     Parameters
     ----------
     x, y : np.ndarray
-        Arrays must have the same shape. Most commonly, these will be a
-        model output (prediction) and a recorded response (target).
+        Arrays must have the same shape and no more than 2 dimensions.
+        Most commonly, these will be a model output (prediction) and a recorded
+        response (target).
 
     Returns
     -------
-    float
+    float or ndarray.
     
     """
-    return np.corrcoef(x, y)[0,1]
+    if (x.ndim > 2) or (y.ndim > 2):
+        # TODO: Correlation may not be an appropriate tool for higher-D data?
+        #       In which case change this to ValueError, but need to think about
+        #       it some more first.
+        raise NotImplementedError(
+            "`nems.metrics.correlation` only supports 1D or 2D array inputs."
+        )
+
+    if x.ndim == 1:
+        x = x[...,np.newaxis]
+    if y.ndim == 1:
+        y = y[...,np.newaxis]
+
+    # NOTE: For large arrays (>100000 time points, >100 neurons) this loop is
+    #       much faster than using `np.corrcoef` once and indexing into the full
+    #       correlation matrix.
+    corrs = []
+    for i in range(x.shape[-1]):
+        # `rowvar=False` to convert NEMS shapes to shape expected by NumPy.
+        # I.e. second index is variables (channels), first index is observations
+        # within each variable (time).
+        corrs.append(np.corrcoef(x[...,i], y[...,i], rowvar=False)[0,1])
+
+    if len(corrs) == 1:
+        # 
+        r = corrs[0]
+    else:
+        r = np.array(corrs)
+    
+    return r
 
 
 def noise_corrected_r(prediction, single_trial_responses, n_pairs=None,
@@ -112,7 +143,7 @@ def _paired_single_trial_r(trials, n_pairs=1000, trial_axis=0, limit=0.01):
     for i, j in pairs:
         rep1 = np.take(trials, indices=[i], axis=trial_axis).squeeze()
         rep2 = np.take(trials, indices=[j], axis=trial_axis).squeeze()
-        pairwise_correlations.append(np.corrcoef(rep1, rep2)[0, 1])
+        pairwise_correlations.append(np.corrcof(rep1, rep2)[0, 1])
                 
     # Hard limit on single-trial correlation to prevent explosion
     # TODO: better logic for this

@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from nems.tools.lookup import FindCallable
+
 
 # TODO: Need to have normalization in-place for multi-neuron data
 #       (or multi-batch?), otherwise some components will get weighted
@@ -78,13 +80,5 @@ def nmse(prediction, target):
 # Add nickname here if desired string name doesn't match
 # the name of the function.
 cost_nicknames = {}
-def get_cost(name):
-    if name in cost_nicknames:
-        cost = cost_nicknames[name]
-    else:
-        cost = globals().get(name, None)
-    if cost is None:
-        raise TypeError(f"Cost function name '{name}' could not be found.")
-
-    return cost
+get_cost = FindCallable({**globals(), **cost_nicknames}, header='Cost')
     

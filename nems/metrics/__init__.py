@@ -12,6 +12,17 @@ Contents
     `equivalence.py` : Measure functional similarity of different models.
     `sparseness.py`  : Measure lifetime sparseness of responses and predictions.
 
+Notes
+-----
+Asymmetric metrics that compare model outputs to targets
+(i.e. `metric(x,y) != metric(y,x)`) should define arguments in the order of:
+`metric(output, target)` since that is the order used by `model.score`.
+
 """
 
 from .correlation import correlation, noise_corrected_r
+
+from nems.tools.lookup import FindCallable
+
+metric_nicknames = {}
+get_metric = FindCallable({**globals(), **metric_nicknames}, header='Metric')

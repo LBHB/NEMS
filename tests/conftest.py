@@ -37,18 +37,18 @@ def state():
 
 @pytest.fixture
 def spectrogram_with_samples():
-    """10 samples, 100 time bins, 18 spectral channels."""
+    """2 samples, 100 time bins, 18 spectral channels."""
     np.random.seed(spectrogram_seed)
-    return np.random.rand(10, 100, 18)
+    return np.random.rand(2, 100, 18)
 
 @pytest.fixture
 def response_with_samples():
-    """10 samples, 100 time bins, 1 neural response."""
+    """2 samples, 100 time bins, 1 neural response."""
     np.random.seed(response_seed)
-    return np.random.rand(10, 100, 1)
+    return np.random.rand(2, 100, 1)
 
 @pytest.fixture
 def state_with_samples():
-    """10 samples, 100 time bins, 2 state channels."""
+    """2 samples, 100 time bins, 2 state channels."""
     np.random.seed(state_seed)
-    return np.random.rand(10, 100, 2)
+    return np.random.rand(2, 100, 2)

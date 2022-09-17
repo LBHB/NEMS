@@ -20,7 +20,8 @@ keywords = ["neuroscience", "auditory", "sensory", "encoding", "strf"]
 dependencies = [
     "numpy>=1.21.5",
     "scipy>=1.9.0",
-    "matplotlib>=3.5.2"
+    "matplotlib>=3.5.2",
+    "numexpr>=2.8.3"
 ]
 requires-python = ">=3.9"
 

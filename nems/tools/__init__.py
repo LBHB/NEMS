@@ -15,5 +15,11 @@ Contents
                 NOTE: tools from `json.py` should *not* be imported here
                 (for the `nems.tools` API), as this can easily cause circular
                 imports.
+    `arrays.py` : Tools for manipulating NumPy arrays. Useful for working with
+                  the dictionary of arrays format that `nems.Model` uses for
+                  complex model fits.
+    `lookup.py` : Look up functions based on strings. Mainly used to improve
+                  user-friendliness when specifying cost functions or similar
+                  options.
 
 """
