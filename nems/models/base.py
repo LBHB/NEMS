@@ -1178,7 +1178,7 @@ class Model:
         data = {
             'layers': list(self._layers.values()),
             'name': self.name,
-            'dtype': self.dtype,
+            'dtype': self.dtype.__name__,
             'meta': self.meta
         }
 
@@ -1198,7 +1198,7 @@ class Model:
 
         """
         model = cls(layers=json['layers'], name=json['name'], 
-                    dtype=json['dtype'], meta=json['meta'])
+                    dtype=getattr(np, json['dtype']), meta=json['meta'])
         return model
 
     def copy(self):
