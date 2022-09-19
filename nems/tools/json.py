@@ -203,23 +203,41 @@ def load_model(filepath):
     return model
 
 
-def generate_model_filepath(model, basepath=""):
+def generate_model_filepath(model, basepath="", max_length=100):
+    """Get filepath for saving Model based on `Model.name`.
+    
+    Uses `Model.name` to guess an appropriate directory name. Directory name is
+    filtered for invalid characters and truncated with a hash if the name is
+    longer than `max_length`. The final filepath is returned in the form of:
+    `'<basepath>/<directory name>/model.json'`.
+
+    Parameters
+    ----------
+    model : nems.Model
+    basepath : str; default="".
+        Path where save directory should be created.
+    max_length : int >= 22; default=100.
+        Maximum number of characters to include in the created directory name.
+        If more this number is exceeded, the final 22 characters will be
+        replaced with '...<19-character hash>'.
+        NOTE: `max_length` does *not* include `basepath` or the 'model.json'
+              suffix.
+        
+    Returns
+    -------
+    filepath : string
+
     """
-    return filepath for saving data based on model.name, but filtered for
-    invalid characters and truncated with a hash if the name is too long for
-    the file system
-    :param model: nems model
-    :param basepath: path where save directory should be created
-    :return: filepath: string <basepath>/<model.name>/model.json
-    """
+
     guess = model.name
 
-    # remove problematic characters
+    # Remove problematic characters
     guess = re.sub('[/]', '_', guess)
     guess = re.sub('[:]', '', guess)
     guess = re.sub('[,]', '', guess)
 
-    if len(guess) > 100:
-        # If modelname is too long, causes filesystem errors.
-        guess = guess[:80] + '...' + str(hash(guess))
+    if len(guess) >= max_length:
+        # If the total filepath is too long, it causes filesystem errors.
+        guess = guess[:max_length-22] + '...' + str(hash(guess))
+
     return os.path.join(basepath, guess, 'model.json')
