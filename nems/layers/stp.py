@@ -73,6 +73,8 @@ class ShortTermPlasticity(Layer):
         """
         tau_sd = np.full(shape=self.shape, fill_value=0.1)
         tau_prior = HalfNormal(tau_sd)
+        # TODO: base this on `self.dep_only`, `self.quick_eval`. Currently hard
+        #       codes no facilitation.
         u_sd = np.full(shape=self.shape, fill_value=0.1)
         u_prior = HalfNormal(u_sd)
 
@@ -133,15 +135,6 @@ class ShortTermPlasticity(Layer):
         #       Clipping values like this tends to make optimization harder.
         tstim[tstim < 0] = 0
 
-        # TODO: deal with upper and lower bounds on dep and facilitation parms
-        #       need to know something about magnitude of inputs???
-        #       move bounds to fitter? slow
-
-        # limits, assumes input (X) range is approximately -1 to +1
-        # TODO: add support for facilitation???
-        if self.dep_only or self.quick_eval:
-            u = np.abs(u)
-
         # TODO: specify parameters in bin units in the first place so that we
         #       don't need to bother with this? Can still add a separate
         #       `bins_to_seconds` method for convenience. Same with chunksize.
@@ -153,7 +146,7 @@ class ShortTermPlasticity(Layer):
 
         # TODO : allow >1 STP channel per input?
 
-        # go through each stimulus channel
+        # TODO: only need this for `quick_eval=False`, remove when that gets removed.
         stim_out = tstim  # allocate scaling term
 
         if self.crosstalk:
@@ -163,14 +156,13 @@ class ShortTermPlasticity(Layer):
             ui = ui[..., np.newaxis]      # ~20x faster than expand_dims
             taui = taui[..., np.newaxis]
 
-        for i in range(u.shape[0]):
+        if self.quick_eval:
+            a = 1 / taui
+            x = ui * tstim
 
+        for i in range(u.shape[0]):
             if self.quick_eval:
-                a = 1 / taui
-                x = ui * tstim
-                # TODO: different way to accomplish this? Creating array of
-                #       ones for the full stimulus shape is rather slow.
-                td = np.ones(shape=s)
+                td = np.empty(shape=s)  # ~40x faster than np.ones
                 x0, imu0 = 0.0, 0.0
 
                 for j in range(len(reset_times) - 1):
@@ -179,23 +171,33 @@ class ShortTermPlasticity(Layer):
 
                     ix = self.cumulative_integral_trapz(a + xi, dx=1, initial=0, axis=1) + a + (x0 + xi[:, :1]) / 2
 
-                    mu = ne.evaluate('exp(ix)')
+                    mu = np.exp(ix)
                     imu = self.cumulative_integral_trapz(mu * xi, dx=1, initial=0, axis=1) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
 
+                    # TODO: doesn't mu have to be > 0 by definition? Why bother with
+                    #       the bitwise_and? repeating this on each inner loop adds a few
+                    #       milliseconds to the eval time 
+                    # TODO: wondering if the same might be true for imu... looks like it 
+                    #       should be true if x is positive everywhere? If so, can check that
+                    #       one time and skip the indexing on all the loops. Not that much
+                    #       time for one index by it adds up. For a 80000 time bin signal
+                    #       with fs100 and chunksize 5, doing imu[ff] and mu[ff] on each
+                    #       inner loops adds a total of about half a millisecond to the eval.
+                    #       Removing this and the bitwise and would be another big speedup.
                     ff = np.bitwise_and(mu > 0, imu > 0)
+                    # TODO: why ones? do all values get replaced? if so, use empty (faster)
+                    #       if not, why does a default value of 1 make sense?
                     _td = np.ones_like(mu)
-                    imuff, muff = imu[ff], mu[ff]
-                    _td[ff] = ne.evaluate('1 - exp(log(imuff) - log(muff))')
+                    _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
                     td[:, si] = _td
 
                     x0 = xi[:, -1:]
                     imu0 = imu[:, -1:] / mu[:, -1:]
 
+                # TODO: Neither of these explanations makes sense to me. Ask for clarification.
                 # shift td forward in time by one to allow STP to kick in after the stimulus changes (??)
-                # stim_out = tstim * td
-
                 # offset depression by one to allow transients
-                stim_out = tstim * np.pad(td[:, :-1], ((0, 0), (1, 0)), 'constant', constant_values=(1, 1))
+                stim_out = tstim * np.concatenate([[[1]], td[:, :-1]], axis=1)
             else:
                 a = 1 / taui[i]
                 ustim = 1.0 / taui[i] + ui[i] * tstim[i, :]
