@@ -78,7 +78,7 @@ class ShortTermPlasticity(Layer):
 
         # TODO: is setting this based on sampling rate really necessary?
         #       if so, explain why
-        tau_min = max(0.0001, self.fs/2)
+        tau_min = max(0.0001, 2/self.fs)
         tau_bounds = (tau_min, np.inf)
         u_bounds = (1e-6, np.inf)
 
@@ -114,6 +114,8 @@ class ShortTermPlasticity(Layer):
         #       this may not be worth caching.
         if self._reset_times is None:
             if self.reset_signal is None:
+                # convert chunksize from sec to bins
+                chunksize = int(self.chunksize * self.fs)
                 reset_times = np.arange(0, s[1] + chunksize - 1, chunksize)
             else:
                 reset_times = np.argwhere(self.reset_signal[0, :])[:, 0]
@@ -149,9 +151,6 @@ class ShortTermPlasticity(Layer):
         taui = tau * self.fs
         ui = u / self.fs * 100
 
-        # convert chunksize from sec to bins
-        chunksize = int(self.chunksize * self.fs)
-
         # TODO : allow >1 STP channel per input?
 
         # go through each stimulus channel
@@ -185,7 +184,8 @@ class ShortTermPlasticity(Layer):
 
                     ff = np.bitwise_and(mu > 0, imu > 0)
                     _td = np.ones_like(mu)
-                    _td[ff] = ne.evaluate('1 - exp(log(imu[ff]) - log(mu[ff]))')
+                    imuff, muff = imu[ff], mu[ff]
+                    _td[ff] = ne.evaluate('1 - exp(log(imuff) - log(muff))')
                     td[:, si] = _td
 
                     x0 = xi[:, -1:]
