@@ -1,5 +1,4 @@
 import numpy as np
-import numexpr as ne
 
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter, require_shape
@@ -104,6 +103,13 @@ class ShortTermPlasticity(Layer):
 
         u, tau = self.get_parameter_values()
 
+        if (u > 0) and np.all(input > 0):
+            # Can skip checking `imu > 0` in inner loop of quick_eval.
+            # Saves a lot of time for large arrays / small chunk size.
+            skip_sign_check = True
+        else:
+            skip_sign_check = False
+
         # TODO: get rid of need for transpose here
         tstim = input.T
         s = tstim.shape
@@ -169,14 +175,15 @@ class ShortTermPlasticity(Layer):
                     si = slice(reset_times[j], reset_times[j + 1])
                     xi = x[:, si]
 
-                    ix = self.cumulative_integral_trapz(a + xi, dx=1, initial=0, axis=1) + a + (x0 + xi[:, :1]) / 2
+                    ix = self.cumulative_integral_trapz(a + xi) + a + (x0 + xi[:, :1]) / 2
 
                     mu = np.exp(ix)
-                    imu = self.cumulative_integral_trapz(mu * xi, dx=1, initial=0, axis=1) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
+                    imu = self.cumulative_integral_trapz(mu * xi) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
 
                     # TODO: doesn't mu have to be > 0 by definition? Why bother with
                     #       the bitwise_and? repeating this on each inner loop adds a few
-                    #       milliseconds to the eval time 
+                    #       milliseconds to the eval time
+                    # ff = np.bitwise_and(mu > 0, imu > 0)
                     # TODO: wondering if the same might be true for imu... looks like it 
                     #       should be true if x is positive everywhere? If so, can check that
                     #       one time and skip the indexing on all the loops. Not that much
@@ -184,7 +191,10 @@ class ShortTermPlasticity(Layer):
                     #       with fs100 and chunksize 5, doing imu[ff] and mu[ff] on each
                     #       inner loops adds a total of about half a millisecond to the eval.
                     #       Removing this and the bitwise and would be another big speedup.
-                    ff = np.bitwise_and(mu > 0, imu > 0)
+                    if not skip_sign_check:
+                        ff = (imu > 0)
+                    else:
+                        ff = ...
                     # TODO: why ones? do all values get replaced? if so, use empty (faster)
                     #       if not, why does a default value of 1 make sense?
                     _td = np.ones_like(mu)
@@ -197,7 +207,11 @@ class ShortTermPlasticity(Layer):
                 # TODO: Neither of these explanations makes sense to me. Ask for clarification.
                 # shift td forward in time by one to allow STP to kick in after the stimulus changes (??)
                 # offset depression by one to allow transients
-                stim_out = tstim * np.concatenate([[[1]], td[:, :-1]], axis=1)
+                stim_out = tstim * np.concatenate(
+                    # Oddly enough, zeros + 1 is twice as fast as using ones
+                    # for this size of array (1-6ish usually)
+                    [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
+                    )
             else:
                 a = 1 / taui[i]
                 ustim = 1.0 / taui[i] + ui[i] * tstim[i, :]
@@ -240,11 +254,11 @@ class ShortTermPlasticity(Layer):
         return stim_out.T
 
     @staticmethod
-    def cumulative_integral_trapz(y, dx=1.0, initial=0.0, axis=1):
+    def cumulative_integral_trapz(y, dx=1.0, axis=1):
         """Cumulative integral of y(x) using the trapezoid method.
         
-        Compare to `scipy.integrate.cumtrapz`. This method is slightly faster,
-        likely due to supporting fewer options.
+        Compare to `scipy.integrate.cumtrapz`. This method is slightly faster
+        due to supporting fewer options.
         
         Parameters
         ----------
@@ -254,8 +268,6 @@ class ShortTermPlasticity(Layer):
             Spacing between elements of `y`.
         axis : int; default=1.
             Specifies the axis over which to compute the cumulative sum.
-        initial : float; default=0.0.
-            Use this as the first value in the returned array.
 
         Returns
         -------
@@ -270,11 +282,10 @@ class ShortTermPlasticity(Layer):
         #       concat is ~10x faster and does the same thing.
         #       With this version, even a little faster than
         #       `scipy.integrate.cumtrapz` and does the same thing.
-        y = np.concatenate([[[initial]], y], axis=1)
-        # x = np.pad(
-        #     x, ((0, 0), (1, 0)), 'constant', constant_values=(initial, initial)
-        #     )
-        y = np.multiply(np.cumsum(y, axis=axis), dx, out=y)
+        #       Also set to only use init=0 for further improvement, since
+        #       that's the only value that STP uses.
+        y = np.concatenate([np.zeros((y.shape[0], 1)), y], axis=1)
+        y = np.multiply(np.cumsum(y, axis=axis), dx)
 
         return y
 
