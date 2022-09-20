@@ -167,53 +167,54 @@ class ShortTermPlasticity(Layer):
             a = 1 / taui
             x = ui * tstim
 
-        for i in range(u.shape[0]):
-            if self.quick_eval:
-                td = np.empty(shape=s)  # ~40x faster than np.ones
-                x0, imu0 = 0.0, 0.0
 
-                for j in range(len(reset_times) - 1):
-                    si = slice(reset_times[j], reset_times[j + 1])
-                    xi = x[:, si]
+        if self.quick_eval:
+            td = np.empty(shape=s)  # ~40x faster than np.ones
+            x0, imu0 = 0.0, 0.0
 
-                    ix = self.cumulative_integral_trapz(a + xi) + a + (x0 + xi[:, :1]) / 2
+            for j in range(len(reset_times) - 1):
+                si = slice(reset_times[j], reset_times[j + 1])
+                xi = x[:, si]
 
-                    mu = np.exp(ix)
-                    imu = self.cumulative_integral_trapz(mu * xi) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
+                ix = self.cumulative_integral_trapz(a + xi) + a + (x0 + xi[:, :1]) / 2
 
-                    # TODO: doesn't mu have to be > 0 by definition? Why bother with
-                    #       the bitwise_and? repeating this on each inner loop adds a few
-                    #       milliseconds to the eval time
-                    # ff = np.bitwise_and(mu > 0, imu > 0)
-                    # TODO: wondering if the same might be true for imu... looks like it 
-                    #       should be true if x is positive everywhere? If so, can check that
-                    #       one time and skip the indexing on all the loops. Not that much
-                    #       time for one index by it adds up. For a 80000 time bin signal
-                    #       with fs100 and chunksize 5, doing imu[ff] and mu[ff] on each
-                    #       inner loops adds a total of about half a millisecond to the eval.
-                    #       Removing this and the bitwise and would be another big speedup.
-                    if not skip_sign_check:
-                        ff = (imu > 0)
-                        # TODO: why ones? do all values get replaced? if so, use empty (faster)
-                        #       if not, why does a default value of 1 make sense?
-                        _td = np.ones_like(mu)
-                        _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
-                    else:
-                        _td = 1 - np.exp(np.log(imu) - np.log(mu))
-                    
-                    td[:, si] = _td
-                    x0 = xi[:, -1:]
-                    imu0 = imu[:, -1:] / mu[:, -1:]
+                mu = np.exp(ix)
+                imu = self.cumulative_integral_trapz(mu * xi) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
 
-                # TODO: Neither of these explanations makes sense to me. Ask for clarification.
-                # shift td forward in time by one to allow STP to kick in after the stimulus changes (??)
-                # offset depression by one to allow transients
-                stim_out = tstim * np.concatenate(
-                    # Oddly enough, zeros + 1 is twice as fast as using ones
-                    # for this size of array (1-6ish usually)
-                    [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
-                    )
-            else:
+                # TODO: doesn't mu have to be > 0 by definition? Why bother with
+                #       the bitwise_and? repeating this on each inner loop adds a few
+                #       milliseconds to the eval time
+                # ff = np.bitwise_and(mu > 0, imu > 0)
+                # TODO: wondering if the same might be true for imu... looks like it 
+                #       should be true if x is positive everywhere? If so, can check that
+                #       one time and skip the indexing on all the loops. Not that much
+                #       time for one index by it adds up. For a 80000 time bin signal
+                #       with fs100 and chunksize 5, doing imu[ff] and mu[ff] on each
+                #       inner loops adds a total of about half a millisecond to the eval.
+                #       Removing this and the bitwise and would be another big speedup.
+                if not skip_sign_check:
+                    ff = (imu > 0)
+                    # TODO: why ones? do all values get replaced? if so, use empty (faster)
+                    #       if not, why does a default value of 1 make sense?
+                    _td = np.ones_like(mu)
+                    _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
+                else:
+                    _td = 1 - np.exp(np.log(imu) - np.log(mu))
+                
+                td[:, si] = _td
+                x0 = xi[:, -1:]
+                imu0 = imu[:, -1:] / mu[:, -1:]
+
+            # TODO: Neither of these explanations makes sense to me. Ask for clarification.
+            # shift td forward in time by one to allow STP to kick in after the stimulus changes (??)
+            # offset depression by one to allow transients
+            stim_out = tstim * np.concatenate(
+                # Oddly enough, zeros + 1 is twice as fast as using ones
+                # for this size of array (1-6ish usually)
+                [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
+                )
+        else:
+            for i in range(u.shape[0]):
                 # iterate over channels
                 td = self.numba_loop(ui, taui, tstim, i)
 
