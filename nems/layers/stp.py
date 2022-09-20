@@ -104,13 +104,6 @@ class ShortTermPlasticity(Layer):
 
         u, tau = self.get_parameter_values()
 
-        if (u > 0) and np.all(input > 0):
-            # Can skip checking `imu > 0` in inner loop of quick_eval.
-            # Saves a lot of time for large arrays / small chunk size.
-            skip_sign_check = True
-        else:
-            skip_sign_check = False
-
         # TODO: get rid of need for transpose here
         tstim = input.T
         s = tstim.shape
@@ -142,6 +135,16 @@ class ShortTermPlasticity(Layer):
         #       Clipping values like this tends to make optimization harder.
         tstim[tstim < 0] = 0
 
+        # TODO: If the above truncation is kept in, only need to check (u > 0).
+        #       And since quick_eval only supports depression anyway, that's
+        #       always true, so don't need to bother with these checks at all.
+        if (u > 0) and np.all(tstim > 0):
+            # Can skip checking `imu > 0` in inner loop of quick_eval.
+            # Saves a lot of time for large arrays / small chunk size.
+            skip_sign_check = True
+        else:
+            skip_sign_check = False
+
         # TODO: specify parameters in bin units in the first place so that we
         #       don't need to bother with this? Can still add a separate
         #       `bins_to_seconds` method for convenience. Same with chunksize.
@@ -153,9 +156,6 @@ class ShortTermPlasticity(Layer):
 
         # TODO : allow >1 STP channel per input?
 
-        # TODO: only need this for `quick_eval=False`, remove when that gets removed.
-        stim_out = tstim  # allocate scaling term
-
         if self.crosstalk:
             # assumes dim of u is 1 !
             tstim = np.mean(tstim, axis=0, keepdims=True)
@@ -166,7 +166,6 @@ class ShortTermPlasticity(Layer):
         if self.quick_eval:
             a = 1 / taui
             x = ui * tstim
-
 
         if self.quick_eval:
             td = np.empty(shape=s)  # ~40x faster than np.ones
@@ -214,6 +213,7 @@ class ShortTermPlasticity(Layer):
                 [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
                 )
         else:
+            stim_out = tstim  # allocate scaling term
             for i in range(u.shape[0]):
                 # iterate over channels
                 td = self.numba_loop(ui, taui, tstim, i)
