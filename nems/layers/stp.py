@@ -3,7 +3,7 @@ from numba import njit
 
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter, require_shape
-from nems.distributions import Normal, HalfNormal
+from nems.distributions import HalfNormal
 
 
 class ShortTermPlasticity(Layer):
@@ -245,16 +245,13 @@ class ShortTermPlasticity(Layer):
 
         if ui[i] == 0:
             # passthru, no STP, preserve stim_out = tstim
-            depression = None
-        elif ui[i] > 0:
-            depression = True
-        else:
-            depression = False
-
-        if depression is None:
             pass
         else:
-            # depression
+            if ui[i] > 0:
+                depression = True
+            else:
+                depression = False
+
             for tt in range(1, s):
                 delta = a - td[-1] * ustim[tt - 1]
                 next_td = td[-1] + delta
@@ -356,6 +353,10 @@ class ShortTermPlasticity(Layer):
                 # TODO docs.
                 # Implementation developed by Menoua K.
 
+                # TODO: Why are different levels of precision hard-coded in
+                #       different places? Ideally should change all dtype=
+                #       to inputs.dtype to work with the new consistent-dtype
+                #       system.
                 _zero = tf.constant(0.0, dtype='float32')
                 _nan = tf.constant(0.0, dtype='float32')
 
@@ -384,6 +385,7 @@ class ShortTermPlasticity(Layer):
                 a = tf.cast(1.0 / taui, 'float64')
                 x = ui * tstim
 
+                # TODO: move these outside __call__ similar to revision of scipy
                 if reset_signal is None:
                     reset_times = tf.range(0, s[1] + chunksize - 1, chunksize)
                 else:
