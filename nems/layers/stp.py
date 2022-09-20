@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit
 
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter, require_shape
@@ -193,14 +194,14 @@ class ShortTermPlasticity(Layer):
                     #       Removing this and the bitwise and would be another big speedup.
                     if not skip_sign_check:
                         ff = (imu > 0)
+                        # TODO: why ones? do all values get replaced? if so, use empty (faster)
+                        #       if not, why does a default value of 1 make sense?
+                        _td = np.ones_like(mu)
+                        _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
                     else:
-                        ff = ...
-                    # TODO: why ones? do all values get replaced? if so, use empty (faster)
-                    #       if not, why does a default value of 1 make sense?
-                    _td = np.ones_like(mu)
-                    _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
+                        _td = 1 - np.exp(np.log(imu) - np.log(mu))
+                    
                     td[:, si] = _td
-
                     x0 = xi[:, -1:]
                     imu0 = imu[:, -1:] / mu[:, -1:]
 
@@ -213,32 +214,8 @@ class ShortTermPlasticity(Layer):
                     [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
                     )
             else:
-                a = 1 / taui[i]
-                ustim = 1.0 / taui[i] + ui[i] * tstim[i, :]
-                # ustim = ui[i] * tstim[i, :]
-                td = np.ones_like(ustim)  # initialize dep state vector
-
-                if ui[i] == 0:
-                    # passthru, no STP, preserve stim_out = tstim
-                    pass
-                elif ui[i] > 0:
-                    # depression
-                    for tt in range(1, s[1]):
-                        # td = di[i, tt - 1]  # previous time bin depression
-                        # delta = (1 - td) / taui[i] - ui[i] * td * tstim[i, tt - 1]
-                        # delta = 1/taui[i] - td * (1/taui[i] - ui[i] * tstim[i, tt - 1])
-                        # then a=1/taui[i] and ustim=1/taui[i] - ui[i] * tstim[i,:]
-                        delta = a - td[tt - 1] * ustim[tt - 1]
-                        td[tt] = td[tt - 1] + delta
-                        if td[tt] < 0:
-                            td[tt] = 0
-                else:
-                    # facilitation
-                    for tt in range(1, s[1]):
-                        delta = a - td[tt - 1] * ustim[tt - 1]
-                        td[tt] = td[tt - 1] + delta
-                        if td[tt] > 5:
-                            td[tt] = 5
+                # iterate over channels
+                td = self.numba_loop(ui, taui, tstim, i)
 
                 if self.crosstalk:
                     stim_out *= np.expand_dims(td, 0)
@@ -248,10 +225,50 @@ class ShortTermPlasticity(Layer):
         if np.sum(np.isnan(stim_out)):
             raise ValueError('nan value in STP stim_out')
 
-        # print("(u,tau)=({0},{1})".format(ui,taui))
         stim_out[np.isnan(input.T)] = np.nan
 
         return stim_out.T
+
+    # TODO: add numba to dependencies if we decide to keep this version
+    #       (so far, fastest by a wide margin)
+    # TODO: refactor rest of evaluate so that (ideally) the entire thing
+    #       can be pre-compiled instead of just the loops. But these are the
+    #       most important part.
+    @staticmethod
+    @njit
+    def numba_loop(ui, taui, tstim, i):
+        a = 1 / taui[i][0]
+        ustim = 1.0 / taui[i] + ui[i] * tstim[i, :]
+        s = ustim.shape[0]
+        td = [1]  # initialize dep state vector
+
+        if ui[i] == 0:
+            # passthru, no STP, preserve stim_out = tstim
+            depression = None
+        elif ui[i] > 0:
+            depression = True
+        else:
+            depression = False
+
+        if depression is None:
+            pass
+        else:
+            # depression
+            for tt in range(1, s):
+                delta = a - td[-1] * ustim[tt - 1]
+                next_td = td[-1] + delta
+
+                if depression and next_td < 0:
+                    # TODO: should this be a hyperparameter instead? ex: if signal
+                    #       is normalized s.t. mean = 0, this has a different meaning.
+                    next_td = 0
+                elif not depression and next_td > 5:
+                    # TODO: why 5?
+                    td[tt] = 5
+                td.append(next_td)
+
+        return np.array(td)
+
 
     @staticmethod
     def cumulative_integral_trapz(y, dx=1.0, axis=1):
