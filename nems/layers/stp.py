@@ -8,7 +8,7 @@ from nems.distributions import HalfNormal
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, fs=100, quick_eval=True, crosstalk=0, x0=None,
+    def __init__(self, fs=100, quick_eval=True, crosstalk=0,
                  dep_only=True, chunksize=5, reset_signal=None,
                  **kwargs):
         """TODO: docs
@@ -31,8 +31,6 @@ class ShortTermPlasticity(Layer):
             it's just b/c faciliatation isn't implemented?
         crosstalk : int; default=0;
             TODO: explain what this does.
-        x0 : TODO: type?; optional.
-            TODO: explain what this does.
         dep_only : bool; default=True.
             TODO: explain what this does.
         chunksize : int; default=5.
@@ -46,7 +44,6 @@ class ShortTermPlasticity(Layer):
         self.fs = fs
         self.quick_eval = quick_eval
         self.crosstalk = crosstalk
-        self.x0 = x0
         self.dep_only = dep_only
         self.chunksize = chunksize
         self.reset_signal = reset_signal
@@ -73,8 +70,6 @@ class ShortTermPlasticity(Layer):
         """
         tau_sd = np.full(shape=self.shape, fill_value=0.1)
         tau_prior = HalfNormal(tau_sd)
-        # TODO: base this on `self.dep_only`, `self.quick_eval`. Currently hard
-        #       codes no facilitation.
         u_sd = np.full(shape=self.shape, fill_value=0.1)
         u_prior = HalfNormal(u_sd)
 
@@ -82,7 +77,10 @@ class ShortTermPlasticity(Layer):
         #       if so, explain why
         tau_min = max(0.0001, 2/self.fs)
         tau_bounds = (tau_min, np.inf)
-        u_bounds = (1e-6, np.inf)
+        if self.dep_only or self.quick_eval:
+            u_bounds = (1e-6, np.inf)
+        else:
+            u_bounds = (-np.inf, np.inf)
 
         u = Parameter('u', shape=self.shape, prior=u_prior, bounds=u_bounds)
         tau = Parameter('tau', shape=self.shape, prior=tau_prior,
@@ -114,25 +112,30 @@ class ShortTermPlasticity(Layer):
         # TODO: profile memory usage on this. Only saves 10 microseconds
         #       (for the arange version), so if it's a huge memory increase then
         #       this may not be worth caching.
-        if self._reset_times is None:
-            if self.reset_signal is None:
-                # convert chunksize from sec to bins
-                chunksize = int(self.chunksize * self.fs)
-                reset_times = np.arange(0, s[1] + chunksize - 1, chunksize)
-            else:
-                reset_times = np.argwhere(self.reset_signal[0, :])[:, 0]
-                reset_times = np.append(reset_times, s[1])
-            self._reset_times = reset_times
-        else:
-            reset_times = self._reset_times
+        # TODO: cut this, just increment chunk size
+        # if self._reset_times is None:
+        #     if self.reset_signal is None:
+        #         # convert chunksize from sec to bins
+        #         chunksize = int(self.chunksize * self.fs)
+        #         reset_times = np.arange(0, s[1] + chunksize - 1, chunksize)
+        #     else:
+        #         reset_times = np.argwhere(self.reset_signal[0, :])[:, 0]
+        #         reset_times = np.append(reset_times, s[1])
+        #     self._reset_times = reset_times
+        # else:
+        #     reset_times = self._reset_times
 
+        # TODO: better way to deal with this?
+        #       raise error if nans on input instead?
         tstim[np.isnan(tstim)] = 0
-        if self.x0 is not None:
-            tstim -= np.expand_dims(self.x0, axis=1)
+
 
         # TODO: Is this necessary? If it's just to remove negative values, would
         #       shifting (and then unshifting at the end) be sufficient? 
         #       Clipping values like this tends to make optimization harder.
+        # TODO: maybe throw error instead? and say something along the lines of:
+        #       "STP can't have neg. valued inputs, we recommend normalizing 0 to 1"
+        # TODO: Alternative, come up with some nonphysiological generalization.
         tstim[tstim < 0] = 0
 
         # TODO: If the above truncation is kept in, only need to check (u > 0).
@@ -171,6 +174,7 @@ class ShortTermPlasticity(Layer):
             td = np.empty(shape=s)  # ~40x faster than np.ones
             x0, imu0 = 0.0, 0.0
 
+            # TODO: change to use chunksize instead of reset_times
             for j in range(len(reset_times) - 1):
                 si = slice(reset_times[j], reset_times[j + 1])
                 xi = x[:, si]
@@ -180,10 +184,6 @@ class ShortTermPlasticity(Layer):
                 mu = np.exp(ix)
                 imu = self.cumulative_integral_trapz(mu * xi) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
 
-                # TODO: doesn't mu have to be > 0 by definition? Why bother with
-                #       the bitwise_and? repeating this on each inner loop adds a few
-                #       milliseconds to the eval time
-                # ff = np.bitwise_and(mu > 0, imu > 0)
                 # TODO: wondering if the same might be true for imu... looks like it 
                 #       should be true if x is positive everywhere? If so, can check that
                 #       one time and skip the indexing on all the loops. Not that much
@@ -257,11 +257,11 @@ class ShortTermPlasticity(Layer):
                 next_td = td[-1] + delta
 
                 if depression and next_td < 0:
-                    # TODO: should this be a hyperparameter instead? ex: if signal
-                    #       is normalized s.t. mean = 0, this has a different meaning.
                     next_td = 0
                 elif not depression and next_td > 5:
-                    # TODO: why 5?
+                    # TODO: why 5?  -- hyperparameter?
+                    #       avoids explosions, and it's big enough that it's
+                    #       essentially "infinity" in biological terms.
                     td[tt] = 5
                 td.append(next_td)
 
@@ -290,15 +290,7 @@ class ShortTermPlasticity(Layer):
             Integrated values, with the same shape as `y`.
         
         """
-        # TODO: profile memory usage.
-        # TODO: move this to nems.tools?
         y = (y[:, :-1] + y[:, 1:]) / 2.0
-        # TODO: Is the padding ever *not* done on the time axis? If not,
-        #       concat is ~10x faster and does the same thing.
-        #       With this version, even a little faster than
-        #       `scipy.integrate.cumtrapz` and does the same thing.
-        #       Also set to only use init=0 for further improvement, since
-        #       that's the only value that STP uses.
         y = np.concatenate([np.zeros((y.shape[0], 1)), y], axis=1)
         y = np.multiply(np.cumsum(y, axis=axis), dx)
 
