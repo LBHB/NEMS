@@ -237,6 +237,10 @@ class StateDexp(Layer):
         state = state[..., :n_states]
 
         if self.per_channel:
+            if input.shape[-1] > 1:
+                raise ValueError(
+                    "StateDexp per-channel option only supports 1-channel input."
+                )
             expression = dexp
             sg = np.empty_like(state)
             sd = np.empty_like(state)
@@ -244,8 +248,6 @@ class StateDexp(Layer):
             for i in range(n_states):
                 s = state[..., i]
                 for parameter_set, array in [(_g, sg), (_d, sd)]:
-                    # TODO: Why [[0]]? This isn't using all of the parameter
-                    #       values for shape (n_states, n_inputs).
                     b, a, o, k = [p[i, [0]] for p in parameter_set]
                     s_dexp = ne.evaluate(expression, out=array[..., i])
 
