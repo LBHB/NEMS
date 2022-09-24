@@ -1,6 +1,33 @@
 """Miscellaneous utilities for manipulating NumPy ndarrays."""
 
 import numpy as np
+from numba import njit
+
+
+# Based on solution by:
+# user48956
+# https://stackoverflow.com/questions/911871/detect-if-a-numpy-array-contains-at-least-one-non-numeric-value
+@njit(nogil=True)
+def one_or_more_nan(array):
+    """True if an array contains at least one NaN value.
+    
+    Much faster than native numpy solutions if a NaN occurs 'early', and
+    not much slower if no NaNs are present.
+    
+    """
+    for value in array.flat:
+        if np.isnan(value): return True
+    else:
+        return False
+
+
+@njit(nogil=True)
+def one_or_more_negative(array):
+    """True if an array contains at least one negative number."""
+    for value in array.flat:
+        if value < 0: return True
+    else:
+        return False
 
 
 def broadcast_axis_shape(array1, array2, axis=0):
