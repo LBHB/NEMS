@@ -9,9 +9,8 @@ from nems.tools.arrays import one_or_more_negative
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, quick_eval=True, crosstalk=0,
-                 dep_only=True, chunksize=500, reset_signal=None,
-                 **kwargs):
+    def __init__(self, quick_eval=False, crosstalk=0, dep_only=True,
+                 chunksize=500, **kwargs):
         """TODO: docs
 
         TODO: additional context.
@@ -37,9 +36,7 @@ class ShortTermPlasticity(Layer):
             TODO: explain what this does.
             NOTE: used to be in units of seconds, now it should be specified
                   in units of bins.
-        reset_signal : TODO: type?; optional.
-            TODO: explain what this does.
-        
+
         """
 
         require_shape(self, kwargs, minimum_ndim=1)
