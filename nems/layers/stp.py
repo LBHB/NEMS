@@ -4,12 +4,13 @@ from numba import njit
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter, require_shape
 from nems.distributions import HalfNormal
+from nems.tools.arrays import one_or_more_negative
 
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, fs=100, quick_eval=True, crosstalk=0,
-                 dep_only=True, chunksize=5, reset_signal=None,
+    def __init__(self, quick_eval=True, crosstalk=0,
+                 dep_only=True, chunksize=500, reset_signal=None,
                  **kwargs):
         """TODO: docs
 
@@ -22,8 +23,6 @@ class ShortTermPlasticity(Layer):
         shape : tuple.
             TODO: what's the shape syntax? Only one dim, multiple? What do
                   the value(s) represent?
-        fs : int; default=100.
-            Sampling rate. TODO: explain what this is used for.
         quick_eval : bool; default=True.
             Determines which implementation of the STP algorithm to use.
             TODO: explain why some one might want to use `quick_eval=False`
@@ -31,23 +30,23 @@ class ShortTermPlasticity(Layer):
             it's just b/c faciliatation isn't implemented?
         crosstalk : int; default=0;
             TODO: explain what this does.
+            TODO: or remove if this isn't used any more?
         dep_only : bool; default=True.
             TODO: explain what this does.
         chunksize : int; default=5.
             TODO: explain what this does.
+            NOTE: used to be in units of seconds, now it should be specified
+                  in units of bins.
         reset_signal : TODO: type?; optional.
             TODO: explain what this does.
         
         """
 
         require_shape(self, kwargs, minimum_ndim=1)
-        self.fs = fs
         self.quick_eval = quick_eval
         self.crosstalk = crosstalk
         self.dep_only = dep_only
         self.chunksize = chunksize
-        self.reset_signal = reset_signal
-        self._reset_times = None
         super().__init__(**kwargs)
 
 
@@ -73,10 +72,7 @@ class ShortTermPlasticity(Layer):
         u_sd = np.full(shape=self.shape, fill_value=0.1)
         u_prior = HalfNormal(u_sd)
 
-        # TODO: is setting this based on sampling rate really necessary?
-        #       if so, explain why
-        tau_min = max(0.0001, 2/self.fs)
-        tau_bounds = (tau_min, np.inf)
+        tau_bounds = (0.0001, np.inf)
         if self.dep_only or self.quick_eval:
             u_bounds = (1e-6, np.inf)
         else:
@@ -87,6 +83,22 @@ class ShortTermPlasticity(Layer):
                         bounds=tau_bounds)
 
         return Phi(u, tau)
+
+
+    def bins_to_seconds(self, fs):
+        """Get parameter values in units of seconds based on sampling rate."""
+        
+        u, tau = self.get_parameter_values()
+        u_seconds = (u/100)*fs  # TODO: why is there a 100 here?
+        tau_seconds = tau/fs
+
+        return u, tau
+
+        # TODO: Previous converesion, delete after review by SVD
+        # convert u & tau units from sec to bins
+        taui = tau * self.fs
+        ui = u / self.fs * 100
+
 
     # Authors: SVD, Menoua K.
     # Revision by: JRP.
@@ -99,155 +111,115 @@ class ShortTermPlasticity(Layer):
         TODO: brief explanation of what the Layer is doing to inputs.
 
         """
+        
+        if one_or_more_negative(input):
+            raise ValueError(
+                "STP only supports inputs with all non-negative values. "
+                "We recommend normalizing inputs between 0 and 1, and/or "
+                "preceeding STP with a layer that guarantees positive outputs."
+            )
+
+        try:
+            n_times, n_channels = input.shape
+        except ValueError as e:
+            if "not enough values to unpack" in str(e):
+                raise ValueError(
+                    "STP only supports 2D inputs with shape (T, N), where T "
+                    "is the number of time bins and N is the number of output "
+                    "channels."
+                )
 
         u, tau = self.get_parameter_values()
+        # TODO: temporary fudge factor to deal with scaling priors, since
+        #       half-normal can only specify sd. remove this after implementing
+        #       a proper parameter scaling system.
+        tau *= 100
 
-        # TODO: get rid of need for transpose here
-        tstim = input.T
-        s = tstim.shape
-
-        # Input shape should not change (otherwise other parameters would
-        # break anyway), so this only needs to be calculated on the first
-        # evaluation. Saves almost a millisecond per eval (formerly per loop).
-        # TODO: profile memory usage on this. Only saves 10 microseconds
-        #       (for the arange version), so if it's a huge memory increase then
-        #       this may not be worth caching.
-        # TODO: cut this, just increment chunk size
-        # if self._reset_times is None:
-        #     if self.reset_signal is None:
-        #         # convert chunksize from sec to bins
-        #         chunksize = int(self.chunksize * self.fs)
-        #         reset_times = np.arange(0, s[1] + chunksize - 1, chunksize)
-        #     else:
-        #         reset_times = np.argwhere(self.reset_signal[0, :])[:, 0]
-        #         reset_times = np.append(reset_times, s[1])
-        #     self._reset_times = reset_times
-        # else:
-        #     reset_times = self._reset_times
-
-        # TODO: better way to deal with this?
-        #       raise error if nans on input instead?
-        tstim[np.isnan(tstim)] = 0
-
-
-        # TODO: Is this necessary? If it's just to remove negative values, would
-        #       shifting (and then unshifting at the end) be sufficient? 
-        #       Clipping values like this tends to make optimization harder.
-        # TODO: maybe throw error instead? and say something along the lines of:
-        #       "STP can't have neg. valued inputs, we recommend normalizing 0 to 1"
-        # TODO: Alternative, come up with some nonphysiological generalization.
-        tstim[tstim < 0] = 0
-
-        # TODO: If the above truncation is kept in, only need to check (u > 0).
-        #       And since quick_eval only supports depression anyway, that's
-        #       always true, so don't need to bother with these checks at all.
-        if (u > 0) and np.all(tstim > 0):
-            # Can skip checking `imu > 0` in inner loop of quick_eval.
-            # Saves a lot of time for large arrays / small chunk size.
-            skip_sign_check = True
-        else:
-            skip_sign_check = False
-
-        # TODO: specify parameters in bin units in the first place so that we
-        #       don't need to bother with this? Can still add a separate
-        #       `bins_to_seconds` method for convenience. Same with chunksize.
-        #       (so that ideally `fs` isn't needed at all, except as an arg to
-        #        the convenience method).
-        # convert u & tau units from sec to bins
-        taui = tau * self.fs
-        ui = u / self.fs * 100
-
-        # TODO : allow >1 STP channel per input?
-
-        if self.crosstalk:
-            # assumes dim of u is 1 !
-            tstim = np.mean(tstim, axis=0, keepdims=True)
-        if len(ui.shape) == 1:
-            ui = ui[..., np.newaxis]      # ~20x faster than expand_dims
-            taui = taui[..., np.newaxis]
+        # TODO: Refactor if still using, otherwise remove.
+        # if self.crosstalk:
+        #     # assumes dim of u is 1 !
+        #     tstim = np.mean(input, axis=0, keepdims=True)
 
         if self.quick_eval:
-            a = 1 / taui
-            x = ui * tstim
-
-        if self.quick_eval:
-            td = np.empty(shape=s)  # ~40x faster than np.ones
+            a = 1 / tau[np.newaxis, ...]
+            x = u[np.newaxis, ...] * input
+            nonzero = (x > 0)
+            # Values that aren't set get multiplied by 0, so value of empty
+            # entries doesn't matter and this is much faster than initializing
+            # to ones.
+            depression_per_bin = np.empty_like(input) 
             x0, imu0 = 0.0, 0.0
 
-            # TODO: change to use chunksize instead of reset_times
-            for j in range(len(reset_times) - 1):
-                si = slice(reset_times[j], reset_times[j + 1])
-                xi = x[:, si]
+            i = 0
+            j = self.chunksize
+            while i < (n_times - 1):
+                # Approximates analytical solution to differential equation:
+                # TODO: fill in diffeq (or maybe put this in docstring for
+                #       quick_eval kwarg instead).
+                xi = x[i:j, :]
+                x1 = xi[:1, :]
 
-                ix = self.cumulative_integral_trapz(a + xi) + a + (x0 + xi[:, :1]) / 2
-
+                ix = self._cumulative_integral_trapz(a + xi) + a + (x0 + x1)/2
                 mu = np.exp(ix)
-                imu = self.cumulative_integral_trapz(mu * xi) + (x0 + mu[:, :1] * xi[:, :1]) / 2 + imu0
+                mu1 = mu[:1, :]
+                imu = self._cumulative_integral_trapz(mu * xi) \
+                        + (x0 + mu1*x1)/2 + imu0
 
-                # TODO: wondering if the same might be true for imu... looks like it 
-                #       should be true if x is positive everywhere? If so, can check that
-                #       one time and skip the indexing on all the loops. Not that much
-                #       time for one index by it adds up. For a 80000 time bin signal
-                #       with fs100 and chunksize 5, doing imu[ff] and mu[ff] on each
-                #       inner loops adds a total of about half a millisecond to the eval.
-                #       Removing this and the bitwise and would be another big speedup.
-                if not skip_sign_check:
-                    ff = (imu > 0)
-                    # TODO: why ones? do all values get replaced? if so, use empty (faster)
-                    #       if not, why does a default value of 1 make sense?
-                    _td = np.ones_like(mu)
-                    _td[ff] = 1 - np.exp(np.log(imu[ff]) - np.log(mu[ff]))
-                else:
-                    _td = 1 - np.exp(np.log(imu) - np.log(mu))
-                
-                td[:, si] = _td
-                x0 = xi[:, -1:]
-                imu0 = imu[:, -1:] / mu[:, -1:]
+                _nonzero = nonzero[i:j, :]
+                depression_per_bin[i:j, :][_nonzero] = \
+                        1 - imu[_nonzero] / mu[_nonzero]
+                x0 = xi[-1:, :]
+                imu0 = imu[-1:, :] / mu[-1:, :]
+
+                i += self.chunksize
+                j += self.chunksize
 
             # TODO: Neither of these explanations makes sense to me. Ask for clarification.
-            # shift td forward in time by one to allow STP to kick in after the stimulus changes (??)
+            # shift depression forward in time by one to allow STP to kick in after the stimulus changes (??)
             # offset depression by one to allow transients
-            stim_out = tstim * np.concatenate(
-                # Oddly enough, zeros + 1 is twice as fast as using ones
-                # for this size of array (1-6ish usually)
-                [np.zeros((td.shape[0], 1)) + 1, td[:, :-1]], axis=1
+            out = np.multiply(
+                input, np.concatenate(
+                    # Oddly enough, zeros + 1 is twice as fast as using ones
+                    # for this size of array (1-6ish usually)
+                    [np.zeros((1, n_channels)) + 1, depression_per_bin[:-1, :]],
+                    axis=0
+                    ),
                 )
+
         else:
-            stim_out = tstim  # allocate scaling term
-            for i in range(u.shape[0]):
-                # iterate over channels
-                td = self.numba_loop(ui, taui, tstim, i)
+            out = np.empty_like(input)
+            for i in range(n_channels):
+                depression_per_bin = self._inner_loop(u, tau, input, i)
 
-                if self.crosstalk:
-                    stim_out *= np.expand_dims(td, 0)
-                else:
-                    stim_out[i, :] *= td
+                # TODO: refactor if still using, otherwise remove
+                # if self.crosstalk:
+                #     stim_out *= np.expand_dims(td, 0)
+                out[:, i] = np.multiply(
+                    input[:, i], depression_per_bin,
+                    )
 
-        if np.sum(np.isnan(stim_out)):
-            raise ValueError('nan value in STP stim_out')
+        return out
 
-        stim_out[np.isnan(input.T)] = np.nan
 
-        return stim_out.T
-
-    # TODO: add numba to dependencies if we decide to keep this version
-    #       (so far, fastest by a wide margin)
-    # TODO: refactor rest of evaluate so that (ideally) the entire thing
-    #       can be pre-compiled instead of just the loops. But these are the
-    #       most important part.
     @staticmethod
     @njit
-    def numba_loop(ui, taui, tstim, i):
-        a = 1 / taui[i][0]
-        ustim = 1.0 / taui[i] + ui[i] * tstim[i, :]
+    def _inner_loop(u, tau, input, i):
+        """TODO: docs.
+        
+        Internal for `evaluate`.
+        
+        """
+
+        a = 1 / tau[i]
+        ustim = 1.0 / tau[i] + u[i] * input[:, i]
         s = ustim.shape[0]
         td = [1]  # initialize dep state vector
 
-        if ui[i] == 0:
+        if u[i] == 0:
             # passthru, no STP, preserve stim_out = tstim
             pass
         else:
-            if ui[i] > 0:
+            if u[i] > 0:
                 depression = True
             else:
                 depression = False
@@ -269,20 +241,20 @@ class ShortTermPlasticity(Layer):
 
 
     @staticmethod
-    def cumulative_integral_trapz(y, dx=1.0, axis=1):
+    def _cumulative_integral_trapz(y):
         """Cumulative integral of y(x) using the trapezoid method.
         
         Compare to `scipy.integrate.cumtrapz`. This method is slightly faster
-        due to supporting fewer options.
+        due to supporting fewer options, with fixed parameters:
+            `x = None`
+            `dx = 1`
+            `axis = 0`
+            `initial = 0`
         
         Parameters
         ----------
         y : np.ndarray.
             Values to integrate.
-        dx : int; default=1.0.
-            Spacing between elements of `y`.
-        axis : int; default=1.
-            Specifies the axis over which to compute the cumulative sum.
 
         Returns
         -------
@@ -290,9 +262,9 @@ class ShortTermPlasticity(Layer):
             Integrated values, with the same shape as `y`.
         
         """
-        y = (y[:, :-1] + y[:, 1:]) / 2.0
-        y = np.concatenate([np.zeros((y.shape[0], 1)), y], axis=1)
-        y = np.multiply(np.cumsum(y, axis=axis), dx)
+        y = (y[:-1, :] + y[1:, :]) / 2.0
+        y = np.concatenate([np.zeros((1, y.shape[1])), y], axis=0)
+        y = np.cumsum(y, axis=0)
 
         return y
 
