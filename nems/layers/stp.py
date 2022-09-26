@@ -1,7 +1,8 @@
 import numpy as np
 
 from nems.registry import layer
-from nems.layers.base import Layer, Phi, Parameter, require_shape
+from nems.layers.base import Layer, Phi, Parameter
+from nems.layers.tools import require_shape, pop_shape
 from nems.distributions import Normal, HalfNormal
 
 
@@ -198,13 +199,8 @@ class ShortTermPlasticity(Layer):
     @layer('stp')
     def from_keyword(keyword):
         """TODO: docs"""
-        shape = None
-
         options = keyword.split('.')
-        for op in options:
-            if ('x' in op) and (op[0].isdigit()):
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
 
         return ShortTermPlasticity(shape=shape)
 
