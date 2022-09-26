@@ -272,8 +272,11 @@ class ShortTermPlasticity(Layer):
 
         options = keyword.split('.')
         for op in options:
-            if ('x' in op) and (op[0].isdigit()):
-                dims = op.split('x')
+            if (op[0].isdigit()):
+                if 'x' in op:
+                    dims = op.split('x')
+                else:
+                    dims = [op]
                 shape = tuple([int(d) for d in dims])
 
         return ShortTermPlasticity(shape=shape)
