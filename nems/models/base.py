@@ -1,6 +1,7 @@
 import copy
 import textwrap
 import itertools
+import warnings
 
 import numpy as np
 
@@ -16,7 +17,7 @@ del nems.layers
 
 class Model:
 
-    def __init__(self, layers=None, name=None, dtype=np.float32, meta=None):
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
         """A structured collection of Layers.
         
         This is the primary class for interacting with NEMS. Conceptually, a
@@ -31,7 +32,7 @@ class Model:
             Layers that will define the Model's data transformations.
         name : str; optional.
             Name for the Model.
-        dtype : type; default=np.float32.
+        dtype : type; default=np.float64.
             TODO: docs. float64 not supported by all TensorFlow ops.
         meta : dict; optional.
             A general-purpose dictionary for storing additional information
@@ -96,6 +97,14 @@ class Model:
         if layers is not None:
             self.add_layers(*layers)
         self.name = name if name is not None else 'UnnamedModel'
+
+        # TODO: remove warning after fixing issues w/ scipy
+        if dtype != np.float64:
+            warnings.warn(
+                "Using `Model(dtype=...)` is currently experimental. For best "
+                "results, leave dtype as the default. TF Backend will overwrite "
+                "this setting to np.float32 for the time being."
+            )
         self.set_dtype(dtype)
 
         # Store optional metadata. This is a generic dictionary for information
