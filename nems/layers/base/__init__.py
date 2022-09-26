@@ -11,4 +11,4 @@ from .layer import Layer
 from .phi import Phi
 from .parameter import Parameter
 from .map import DataMap
-from .errors import ShapeError, require_shape
+from .errors import ShapeError
