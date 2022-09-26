@@ -3,7 +3,8 @@ import numexpr as ne
 
 from nems.registry import layer
 from nems.distributions import Normal
-from .base import Layer, Phi, Parameter, require_shape
+from .base import Layer, Phi, Parameter
+from .tools import require_shape, pop_shape
 
 
 class StaticNonlinearity(Layer):
@@ -138,11 +139,7 @@ class LevelShift(StaticNonlinearity):
 
         """
         options = keyword.split('.')
-        shape = None
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
 
         return LevelShift(shape=shape)
 
@@ -229,12 +226,8 @@ class DoubleExponential(StaticNonlinearity):
         Layer.from_keyword
         
         """
-        shape = None
         options = keyword.split('.')
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
         
         return DoubleExponential(shape=shape)
 
@@ -345,13 +338,10 @@ class RectifiedLinear(StaticNonlinearity):
         no_shift = True
         no_offset = True
         no_gain = True
-        shape=None
+        shape = pop_shape(options)
 
         for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
-            elif op == 's':
+            if op == 's':
                 no_shift = False
             elif op == 'o':
                 no_offset = False
