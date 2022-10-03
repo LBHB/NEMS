@@ -61,34 +61,47 @@ response = training_dict['response']
 # Installation instructions
 ## Recommended: Intall from source.
 NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
+
 1. Download source code
 ```
 git clone https://github.com/lbhb/nems
 ```
-2. Create a new virtual environment using your preferred environment manager (examples for `conda` below).
+
+2a. Create and activate a new virtual environment using your preferred environment manager (example for `venv` below).
 ```
-conda create -n nems-env python=3.9 pip        # manually
-# OR (don't do both)
-conda env create -f NEMS/environment.yml  # or with .yml
+python -m venv ./nems-env
+./nems-env/scripts/activate
 ```
 
-3. Install in editable mode with optional development tools.
+2b. Install frozen dependencies. This will install the exact versions used during development.
+```
+pip install -r .\NEMS\requirements.txt
+```
+
+2c. Alternatively, use `conda` to replace both step 2a and step 2b.
+```
+conda env create -f NEMS/environment.yml
+conda activate nems-env
+```
+
+3. Install NEMS in editable mode along with optional development tools.
 ```
 pip install -e NEMS[dev]
 ```
+
 4. Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
 ```
 pytest NEMS
 ```
 
 ## Alternative: PyPI (pip)
-Create a new environment using your preferred environment manager, then use pip install.
+Create a new environment using your preferred environment manager, then use `pip install`.
 ```
-conda create -n nems-env python=3.9 pip
-pip install PyNEMS
+conda create -n nems-env python=3.9 pip  # note that python=3.9 is currently required
+pip install PyNEMS                       # note the leading Py
 ```
 
-## Alternative: Conda
+## Alternative: `conda install`.
 Coming soon.
 
 
