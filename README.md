@@ -43,6 +43,18 @@ print(correlation(prediction, response))
 # OR
 print(model.score(test_spectrogram, response, metric='correlation'))
 ```
+Try the above examples with real data:
+```
+import nems
+
+nems.download_demo()
+training_dict, test_dict = nems.load_demo()
+
+# Each dictionary contains a 100 hz natural sound spectrogram and
+# the PSTH / firing rate of the recorded spiking response.
+spectrogram = training_dict['spectrogram']
+response = training_dict['response']
+```
 
 
 
