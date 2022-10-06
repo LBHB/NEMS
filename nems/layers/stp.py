@@ -8,7 +8,7 @@ from nems.distributions import HalfNormal
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, fs=100, quick_eval=True, crosstalk=0, x0=None,
+    def __init__(self, fs=100, quick_eval=False, crosstalk=0, x0=None,
                  dep_only=True, chunksize=5, reset_signal=None,
                  **kwargs):
         """TODO: docs
@@ -82,7 +82,7 @@ class ShortTermPlasticity(Layer):
         #       if so, explain why
         tau_min = max(0.0001, 2/self.fs)
         tau_bounds = (tau_min, np.inf)
-        u_bounds = (1e-6, np.inf)
+        u_bounds = (1e-6, 0.5)
 
         u = Parameter('u', shape=self.shape, prior=u_prior, bounds=u_bounds)
         tau = Parameter('tau', shape=self.shape, prior=tau_prior,
@@ -138,7 +138,7 @@ class ShortTermPlasticity(Layer):
         # TODO: If the above truncation is kept in, only need to check (u > 0).
         #       And since quick_eval only supports depression anyway, that's
         #       always true, so don't need to bother with these checks at all.
-        if (u > 0) and np.all(tstim > 0):
+        if np.all(u > 0) and np.all(tstim > 0):
             # Can skip checking `imu > 0` in inner loop of quick_eval.
             # Saves a lot of time for large arrays / small chunk size.
             skip_sign_check = True
