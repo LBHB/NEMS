@@ -143,7 +143,7 @@ class FitResults:
         self.misc = misc
 
     def __repr__(self):
-        attrs = self.__dict__
+        attrs = self.__dict__.copy()
         x0 = attrs.pop('initial_parameters')  # TODO: maybe not worth printing?
         x1 = attrs.pop('final_parameters')
         misc = attrs.pop('misc')
