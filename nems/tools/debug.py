@@ -2,6 +2,7 @@
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.gridspec import GridSpec
 import numpy as np
 
 from .io import PrintingBlocked, progress_bar
@@ -43,9 +44,15 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
                 )
         models.append(fitted_model)
 
-    fig = plt.figure(figsize=(12,5))
-    fig1, fig2 = fig.subfigures(1,2)
-    a1, a2 = fig1.subplots(2,1)
+    fig = plt.figure(figsize=(14,14), constrained_layout=True)
+    grid = GridSpec(14, 14, figure=fig)
+    #                           row,  col
+    a1 = fig.add_subplot(grid[  :3,   :8])   # top left timeseries
+    a2 = fig.add_subplot(grid[ 3:6,   :8])   # top left time series 2
+    a3 = fig.add_subplot(grid[  :6,  8: ])  # top right scatter
+    a4 = fig.add_subplot(grid[ 6:10,  : ])    # middle timeseries
+    a5 = fig.add_subplot(grid[10:14,  : ])   # bottom timeseries
+
 
     # Plot iterations vs error
     errors = [m.results.final_error for m in models[1:]]
@@ -79,7 +86,6 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
     pcs = parameters @ evecs  # principal component projections
     percent_variance = [e/np.sum(evals)*100 for e in evals]
 
-    a3 = fig2.subplots(1,1)
     a3.plot(pcs[:,0], pcs[:,1], c='black', zorder=-1)
     a3.scatter(pcs[:,0], pcs[:,1], c=errors, s=50)
     a3.scatter(pcs[0,0], pcs[0,1], marker='o', edgecolors='red',
@@ -89,13 +95,25 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
 
     colors = a3.get_children()[2]
     plt.colorbar(colors, label='error', ax=a3)
-    a3.legend()
+    a3.legend(frameon=False)
     a3.set_xlabel(f'Parameter PC1 ({percent_variance[0]:.0f}% var)')
     a3.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.0f}% var)')
     a3.set_xticks([])
     a3.set_yticks([])
 
-    # TODO: add initial and final pred vs actual
+    # Plot actual vs predicted firing rate for initial and final parameters
+    a4.plot(target, c='black', alpha=0.3, label='actual')
+    a4.plot(models[0].predict(input), c='black', label='predicted')
+    a4.set_ylabel('Firing Rate (Hz)')
+    a4.set_title('Initial model')
+
+    a5.plot(target, c='black', alpha=0.4, label='actual')
+    a5.plot(models[-1].predict(input), c='black', label='predicted')
+    a5.set_ylabel('Firing Rate(Hz)')
+    a5.set_xlabel('Time (s)')  # TODO: convert from bins
+    a5.set_title('Final model')
+    a5.legend(frameon=False)
+
     # TODO: refactor for animation
     # TODO: split pieces off into subroutines
 
