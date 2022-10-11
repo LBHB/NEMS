@@ -115,14 +115,11 @@ conda install -c conda-forge numpy
 
 # Upcoming features/updates
 Roughly in order of priority:
-* Add more Layers from nems0.
 * Add core pre-processing and scoring from nems0.
 * Set up readthedocs.
-* Demo data.
 * Other core features (like jackknifed fits, cross-validation, etc.).
 * Enable Travis build (.travis.yml is already there, but not yet tested).
 * Publish through conda.
 * Backwards-compatibility tools for loading nems0 models.
-* Try Numba for Layer.evaluate and cost functions.
 * Implement Jax back-end.
 * ... (see issues tracker).
