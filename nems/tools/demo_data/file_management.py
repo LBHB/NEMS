@@ -3,6 +3,8 @@ import pathlib
 
 import numpy as np
 
+from nems.tools.arrays import apply_to_dict
+
 
 # E.g. "/path/to/NEMS/nems/tools/demo_data/saved_data/"
 basepath = pathlib.Path(__file__).parent / 'saved_data'
@@ -68,8 +70,11 @@ def load_demo(tutorial_subset=False):
             }
 
     if tutorial_subset:
-        # TODO: extract small subset for use with tutorials and pytest
-        raise NotImplementedError
+        # TODO: 2900 is hard-coded for TAR010c-18-2, maybe make this its own
+        #       file instead?
+        select_subset = lambda a: a[:2900]  # first 5 stimuli
+        training_dict = apply_to_dict(select_subset, training_dict)
+        test_dict = apply_to_dict(select_subset, training_dict)
 
     # TODO: how to report meta information? maybe just print here?
 
