@@ -544,6 +544,37 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
     return fig
 
 
+def input_heatmap(input, ax=None, title='Input', xlabel='Time (bins)',
+                  ylabel='Channel'):
+    """Plot heatmap of `input` with channels increasing from bottom to top.
+    
+    Parameters
+    ----------
+    input : np.ndarray, dict, or DataSet.
+        Input to `model`. See `nems.Model.evaluate`.
+    ax : Matplotlib.axes.Axes; optional.
+        Axes on which to plot.
+    title : str; optional.
+    xlabel : str; default='Time (bins)'.
+    ylabel : str; default='Firing Rate (Hz)'.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    
+    """
+
+    if ax is None: ax = plt.gca()
+    im = ax.imshow(input.T, aspect='auto', cmap='Greys', interpolation='none',
+              origin='lower')
+    plt.colorbar(im, ax=ax, label='Intensity')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    return ax
+
+
 def checkerboard(array):
     """Get checkerboard-spaced indices for a numpy array.
 
