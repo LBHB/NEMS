@@ -166,8 +166,12 @@ def get_parameter_pcs(model_list):
     
     # Get eigenvalues and eigenvectors, project parameters and compute 
     # percent variance explained.
-    evals, evecs = np.linalg.eigh(cov)  # eigh b/c cov always real, symmetric
-    projections = parameters @ evecs    # principal component projections
+    evals, evecs = np.linalg.eigh(cov)  # cov always real, symmetric, P.S.D.
+    # Switch from increasing to decreasing order.
+    evals = np.flip(evals, axis=0)
+    evecs = np.flip(evecs, axis=1)
+    # Project parameters on to principal components, get pct variance explained
+    projections = parameters @ evecs
     percent_variance = [e/np.sum(evals)*100 for e in evals]
 
     return projections, percent_variance
@@ -202,7 +206,7 @@ def parameter_space_pca(model_list, ax=None):
     colors = ax.get_children()[2]
     plt.colorbar(colors, label='Error', ax=ax)
     ax.legend(frameon=False)
-    ax.set_xlabel(f'Parameter PC1 ({percent_variance[0]:.0f}% var)')
-    ax.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.0f}% var)')
+    ax.set_xlabel(f'Parameter PC1 ({percent_variance[0]:.1f}% var)')
+    ax.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.1f}% var)')
     ax.set_xticks([])
     ax.set_yticks([])
