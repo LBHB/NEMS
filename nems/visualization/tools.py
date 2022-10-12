@@ -1,4 +1,5 @@
 from fractions import Fraction
+from functools import partial
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -63,4 +64,48 @@ def ax_bins_to_seconds(axes=None, sampling_rate=1.0, time_axis='x',
             denom = conversion_factor
         units = f'{Fraction(1/conversion_factor).limit_denominator(denom)} '
     set_label(f'Time ({units}s)')
+
+
+def make_axes_plotter(plot_fn, sampling_rate=None, time_kwargs=None,
+                      x_margin=False):
+    """Create a standardized plotting utility for matplotlib Axes objects.
     
+    Parameters
+    ----------
+    plot_fn : callable.
+        Determines what will be plotted on the Axes. Must axcept 'ax' as a
+        keyword argument.
+    sampling_rate : float; optional.
+        If specified, time axis will be labeled with units of seconds.
+    time_kwargs : dict; optional.
+        Additional keyword arguments for `ax_bins_to_seconds`.
+    x_margin : bool; default=False.
+        If False, remove whitespace margins from xlim
+        (i.e. timeseries will fill the full time axis)
+
+    Returns
+    -------
+    plotter : callable
+    
+    """
+
+    if time_kwargs is None: time_kwargs = {}
+
+    def _plotter(sampling_rate, time_kwargs, *args, ax=None, **kwargs):
+        if ax is None:
+            ax = plt.gca()
+
+        plot_fn(*args, ax=ax, **kwargs)
+        if sampling_rate is not None:
+            # convert bins to seconds
+            ax_bins_to_seconds(ax, sampling_rate, **time_kwargs)
+        ax_remove_box(ax)    # remove right and top box borders
+        if not x_margin:
+            ax.margins(x=0)  # remove white space around xlim
+
+        return ax
+
+    plotter = partial(_plotter, sampling_rate, time_kwargs)
+    plotter.__doc__ = plot_fn.__doc__
+
+    return plotter
