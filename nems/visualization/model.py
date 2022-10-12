@@ -544,8 +544,8 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
     return fig
 
 
-def input_heatmap(input, ax=None, title='Input', xlabel='Time (bins)',
-                  ylabel='Channel'):
+def input_heatmap(input, ax=None, extent=None, title='Input',
+                  xlabel='Time (bins)', ylabel='Channel', add_colorbar=True):
     """Plot heatmap of `input` with channels increasing from bottom to top.
     
     Parameters
@@ -565,9 +565,10 @@ def input_heatmap(input, ax=None, title='Input', xlabel='Time (bins)',
     """
 
     if ax is None: ax = plt.gca()
-    im = ax.imshow(input.T, aspect='auto', cmap='Greys', interpolation='none',
-              origin='lower')
-    plt.colorbar(im, ax=ax, label='Intensity')
+    im = ax.imshow(input.T, aspect='auto', cmap='binary', interpolation='none',
+                   origin='lower', extent=extent)
+    if add_colorbar:
+        plt.colorbar(im, ax=ax, label='Intensity')
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title)

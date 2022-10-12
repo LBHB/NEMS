@@ -3,9 +3,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .model import input_heatmap
 
-def prediction_vs_target(input, target, model, ax=None, title=None,
-                         xlabel='Time (bins)', ylabel='Firing Rate (Hz)'):
+
+def prediction_vs_target(input, target, model, ax=None, show_input=False,
+                         title=None, xlabel='Time (bins)',
+                         ylabel='Firing Rate (Hz)'):
     """Plot actual target, overlay with model prediction.
 
     Parameters
@@ -36,7 +39,17 @@ def prediction_vs_target(input, target, model, ax=None, title=None,
     if ax is None: ax = plt.gca()
     ax.plot(target, c='black', alpha=0.3, label='actual')
     ax.plot(model.predict(input), c='black', label='predicted')
-    ax.legend(frameon=False)
+
+    if show_input:
+        # Add input heatmap above prediction
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        extent = [xmin, xmax, ymax*(21/20), ymax*(5/4)]
+        input_heatmap(input, ax=ax, extent=extent, add_colorbar=False)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax*(5/4))
+
+    ax.legend(frameon=False, bbox_to_anchor=(1.0, 0.65), loc='lower right')
     # Check not None so that existing title is not erased.
     if title is not None:  ax.set_title(title)
     ax.set_xlabel(xlabel)
@@ -180,11 +193,11 @@ def parameter_space_pca(model_list, ax=None):
 
     if ax is None: ax = plt.gca()
     ax.plot(pcs[:,0], pcs[:,1], c='black', zorder=-1)
-    ax.scatter(pcs[:,0], pcs[:,1], c=errors, s=50)
+    ax.scatter(pcs[:,0], pcs[:,1], c=errors, s=100)
     ax.scatter(pcs[0,0], pcs[0,1], marker='o', edgecolors='red',
-               facecolors='none', s=150, label='Initial')
+               facecolors='none', s=200, label='Initial')
     ax.scatter(pcs[-1,0], pcs[-1,1], marker='D', edgecolors='red',
-               facecolors='none', s=150, label='Final')
+               facecolors='none', s=200, label='Final')
 
     colors = ax.get_children()[2]
     plt.colorbar(colors, label='Error', ax=ax)
