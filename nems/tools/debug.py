@@ -5,11 +5,16 @@ import matplotlib.animation as animation
 from matplotlib.gridspec import GridSpec
 import numpy as np
 
+from nems.visualization import (
+    prediction_vs_target, iteration_vs_error, evals_per_iteration,
+    parameter_space_pca, input_heatmap, make_axes_plotter
+    )
 from .io import PrintingBlocked, progress_bar
 
 
 def debug_fitter(model, input, target, iterations=100, backend='scipy',
-                 fitter_options=None, **fit_kwargs):
+                 fitter_options=None, figsize=(14,14), sampling_rate=None,
+                 **fit_kwargs):
     """TODO: docs
 
     Parameters
@@ -18,6 +23,9 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
         Number of fit iterations to record. For `backend='scipy'` this is
         interpreted as `{'options': {'maxiter': iterations}}`. For `backend='tf'`
         this is interpreted as `epochs=iterations`.
+    sampling_rate : float; optional.
+        If given, label time-axis of some plots with real units (seconds
+        by default). See `nems.visualization.tools.ax_bins_to_seconds`.
     
     """
     if fitter_options is None: fitter_options = {}
@@ -44,77 +52,35 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
                 )
         models.append(fitted_model)
 
-    fig = plt.figure(figsize=(14,14), constrained_layout=True)
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
     grid = GridSpec(14, 14, figure=fig)
     #                           row,  col
     a1 = fig.add_subplot(grid[  :3,   :8])   # top left timeseries
     a2 = fig.add_subplot(grid[ 3:6,   :8])   # top left time series 2
-    a3 = fig.add_subplot(grid[  :6,  8: ])  # top right scatter
-    a4 = fig.add_subplot(grid[ 6:10,  : ])    # middle timeseries
-    a5 = fig.add_subplot(grid[10:14,  : ])   # bottom timeseries
+    a3 = fig.add_subplot(grid[  :6,  8: ])   # top right scatter
+    a4 = fig.add_subplot(grid[ 6:9,   : ])   # top bottom timeseries
+    a5 = fig.add_subplot(grid[ 9:11,  : ])   # middle bottom timeseries
+    a6 = fig.add_subplot(grid[11:14,  : ])   # bottom bottom timeseries
 
-
-    # Plot iterations vs error
-    errors = [m.results.final_error for m in models[1:]]
-    errors.insert(0, models[1].results.initial_error)
-    a1.plot(errors, c='black')
-    a1.set_ylabel('error')
-
+    # Plot iteration vs error, number of fn evaluations.
+    # Wrap with `make_axes_plotter` to standardize axes formatting
+    # (remove upper and right box border, convert bins to time, etc)
+    make_axes_plotter(iteration_vs_error, sampling_rate)(models, ax=a1)
     if backend == 'scipy':
-        # Plot number of function evaluations used in each iteration
-        evals_per_iter = [m.results.misc['scipy_fit_result'].nfev
-                          for m in models[1:]]
-        evals_per_iter.insert(0, np.nan)
-        a2.plot(evals_per_iter, c='red')
-        a2.set_ylabel('evaluations per iteration')
-        a2.set_xlabel('iteration')
-    else:
-        a1.set_xlabel('iteration')
+        make_axes_plotter(evals_per_iteration, sampling_rate)(models, ax=a2)
 
-    # Project parameters at each iteration onto first and second PC,
-    # treating individual parameters as "variables" and iterations as
-    # "observations". Color by error.
-    parameters = np.array([m.results.final_parameters if m.results is not None
-                        else m.get_parameter_vector() for m in models])
-    # TODO: currently treating every coef of FIR, for example, as an individual parameter.
-    #       maybe better to combine each parameter array into one number and then use
-    #       those to form the vector?
-    parameters -= parameters.mean(axis=0)  # mean 0 for each parameter
-    parameters /= parameters.std(axis=0)   # std 1
-    cov = np.cov(parameters.T)
-    evals, evecs = np.linalg.eig(cov)
-    pcs = parameters @ evecs  # principal component projections
-    percent_variance = [e/np.sum(evals)*100 for e in evals]
+    # Visualize path of optimization through parameter space using PCA
+    make_axes_plotter(parameter_space_pca, x_margin=True)(models, ax=a3)
 
-    a3.plot(pcs[:,0], pcs[:,1], c='black', zorder=-1)
-    a3.scatter(pcs[:,0], pcs[:,1], c=errors, s=50)
-    a3.scatter(pcs[0,0], pcs[0,1], marker='o', edgecolors='red',
-               facecolors='none', s=200, label='initial')
-    a3.scatter(pcs[-1,0], pcs[-1,1], marker='D', edgecolors='red',
-               facecolors='none', s=200, label='final')
+    # Plot predicted vs actual response, input heatmap
+    pvt = make_axes_plotter(prediction_vs_target, sampling_rate)
+    pvt(input, target, models[0], ax=a4, title='Initial_model')
+    pvt(input, target, models[-1], ax=a6, title='Final model')
+    make_axes_plotter(input_heatmap, sampling_rate)(input, ax=a5)
+    a4.set_xlabel(None)
+    a5.set_xlabel(None)
 
-    colors = a3.get_children()[2]
-    plt.colorbar(colors, label='error', ax=a3)
-    a3.legend(frameon=False)
-    a3.set_xlabel(f'Parameter PC1 ({percent_variance[0]:.0f}% var)')
-    a3.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.0f}% var)')
-    a3.set_xticks([])
-    a3.set_yticks([])
-
-    # Plot actual vs predicted firing rate for initial and final parameters
-    a4.plot(target, c='black', alpha=0.3, label='actual')
-    a4.plot(models[0].predict(input), c='black', label='predicted')
-    a4.set_ylabel('Firing Rate (Hz)')
-    a4.set_title('Initial model')
-
-    a5.plot(target, c='black', alpha=0.4, label='actual')
-    a5.plot(models[-1].predict(input), c='black', label='predicted')
-    a5.set_ylabel('Firing Rate(Hz)')
-    a5.set_xlabel('Time (s)')  # TODO: convert from bins
-    a5.set_title('Final model')
-    a5.legend(frameon=False)
 
     # TODO: refactor for animation
-    # TODO: split pieces off into subroutines
 
     return fig, models
