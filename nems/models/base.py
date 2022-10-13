@@ -897,6 +897,7 @@ class Model:
         for layer in self.layers:
             vector = layer.get_parameter_vector(as_list=as_list)
             vectors.append(vector)
+
         # flatten list
         if as_list:
             model_vector = [v for vector in vectors for v in vector]
@@ -904,6 +905,40 @@ class Model:
             model_vector = np.concatenate(vectors)
         
         return model_vector
+
+    def get_parameter_from_index(self, *indices):
+        """Get reference(s) to Parameter(s) from index in parameter vector.
+        
+        Parameters
+        ----------
+        indices : N-tuple of int.
+            Indices corresponding to result of `Model.get_parameter_vector()`.
+        
+        Returns
+        -------
+        dict of nems.layers.base.Parameter
+            With structure {integer index : Parameter}
+        
+        """
+        # collect all layer vectors
+        layer_counts = {}
+        for layer in self.layers:
+            layer_counts[layer.parameter_count] = layer
+
+        parameters = {}
+        for i in indices:
+            j = 0
+            for count, layer in layer_counts.items():
+                j += count
+                if i >= j:
+                    # Parameter is not in this layer
+                    continue
+                else:
+                    # Parameter is in this layer
+                    parameters[i] = layer.get_parameter_from_index(i-(j-count))
+                    break
+
+        return parameters
 
     def set_parameter_vector(self, vector, ignore_checks=False):
         """Set all parameter values with a single vector.
