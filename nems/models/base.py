@@ -805,8 +805,10 @@ class Model:
         # Get Backend sublass.
         backend_class = get_backend(name=backend)
         # Build backend model.
-        backend_obj = backend_class(new_model, data, eval_kwargs=eval_kwargs,
-                                    **backend_options)
+        backend_obj = backend_class(
+            new_model, data, eval_kwargs=eval_kwargs,
+            **backend_options
+            )
         # Fit backend, save results.
         fit_results = backend_obj._fit(
             data, eval_kwargs=eval_kwargs, **fitter_options
@@ -1223,12 +1225,13 @@ class Model:
         `nems.tools.json`
 
         """
-        # TODO: Should .backend or .results be saved?
+
         data = {
             'layers': list(self._layers.values()),
             'name': self.name,
             'dtype': self.dtype.__name__,
-            'meta': self.meta
+            'meta': self.meta,
+            'results': self.results
         }
 
         return data
@@ -1259,12 +1262,9 @@ class Model:
         state-dependent objects from other packages that cannot copy correctly.
         
         """
-        results = self.results
         backend = self.backend
-        self.results = None
         self.backend = None
         copied_model = copy.deepcopy(self)
-        self.results = results
         self.backend = backend
     
         return copied_model

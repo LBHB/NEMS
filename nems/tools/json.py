@@ -70,10 +70,11 @@ import numpy as np
 from nems.distributions.base import Distribution
 from nems.layers.base import Layer, Phi, Parameter
 from nems.models.base import Model
+from nems.backends.base import FitResults
 
 
 _NEMS_classes_to_encode = [
-    Distribution, Layer, Phi, Parameter, Model
+    Distribution, Layer, Phi, Parameter, Model, FitResults
     ]
 
 
