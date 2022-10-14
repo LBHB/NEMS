@@ -10,7 +10,7 @@ import numpy as np
 
 from nems.visualization import (
     prediction_vs_target, iteration_vs_error, evals_per_iteration,
-    parameter_space_pca, input_heatmap, make_axes_plotter
+    parameter_space_pca, parameter_pca_table, make_axes_plotter
     )
 from .io import PrintingBlocked, progress_bar
 from .json import save_model, load_model
@@ -75,13 +75,18 @@ def get_model_fits(model, input, target, iterations=100, backend='scipy',
     return models
 
 
-def debug_plot(models, input, target, figsize=None, sampling_rate=None):
+def debug_plot(models, input, target, figsize=None, sampling_rate=None,
+               xlim=None):
     """TODO: docs
     
     Returns
     -------
     fig : matplotlib.pyplot.figure
     models : list of nems.Model
+    xlim : tuple; optional.
+        Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
+        If `sampling_rate` is not None, specified in units of seconds instead
+        of bins.
     
     """
 
@@ -105,10 +110,15 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None):
     # Visualize path of optimization through parameter space using PCA
     make_axes_plotter(parameter_space_pca, x_margin=True)(models, ax=a3)
 
+    if (xlim is not None) and (sampling_rate is not None):
+        # Scale xlim from units of seconds to units of bins
+        xmin, xmax = xlim
+        xlim = (xmin*sampling_rate, xmax*sampling_rate)
+
     # Plot predicted vs actual response, input heatmap
     make_axes_plotter(prediction_vs_target, sampling_rate)(
         input, target, models[0], ax=a4, title='Model prediction',
-        show_input=True
+        show_input=True, xlim=xlim
         )
 
     return fig
@@ -116,7 +126,7 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None):
 
 def debug_fitter(model, input, target, iterations=100, backend='scipy',
                  fitter_options=None, figsize=None, sampling_rate=None,
-                 save_path=None, load_path=None, **fit_kwargs):
+                 save_path=None, load_path=None, xlim=None, **fit_kwargs):
     """TODO: docs
 
     Parameters
@@ -128,6 +138,10 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
     sampling_rate : float; optional.
         If given, label time-axis of some plots with real units (seconds
         by default). See `nems.visualization.tools.ax_bins_to_seconds`.
+    xlim : tuple; optional.
+        Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
+        If `sampling_rate` is not None, specified in units of seconds instead
+        of bins.
     
     """
 
@@ -141,7 +155,7 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
 
     # Create static plot
     fig = debug_plot(models, input, target, figsize=figsize,
-                     sampling_rate=sampling_rate)
+                     sampling_rate=sampling_rate, xlim=xlim)
 
     return fig, models
 
@@ -149,8 +163,17 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
 def animated_debug(model, input, target, iterations=100, backend='scipy',
                    fitter_options=None, figsize=None, sampling_rate=None,
                    save_path=None, load_path=None, animation_save_path=None,
-                   frame_interval=500, **fit_kwargs):
-    """TODO: docs"""
+                   frame_interval=500, xlim=None, **fit_kwargs):
+    """TODO: docs
+
+    Parameters
+    ----------
+    xlim : tuple; optional.
+        Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
+        If `sampling_rate` is not None, specified in units of seconds instead
+        of bins.
+    
+    """
     
     # Get list of models, starting with initial model and appending one per
     # fit iteration.
@@ -162,7 +185,7 @@ def animated_debug(model, input, target, iterations=100, backend='scipy',
 
     # Start with full figure to set limits and color scales.
     fig = debug_plot(models, input, target, figsize=figsize,
-                     sampling_rate=sampling_rate)
+                     sampling_rate=sampling_rate, xlim=xlim)
 
     # Get references to figure artists and their x/ydata for each iteration.
     artists, xdata, ydata = _get_animation_data(fig, input, models, iterations)
@@ -240,5 +263,10 @@ def _get_animation_data(fig, input, models, iterations):
 
 
 # TODO: multiple initial conditions.
-# TODO: gradient informations.
+# TODO: gradient information. for scipy can use scipy_result.jac
+#       (one gradient value per parameter)
 # TODO: keep fit results in saved models
+# TODO: specify subset for pred/act plots, otherwise they'll be massive
+#       when fitting to full data
+# TODO: truncate iterations if stopped b/c under tolerance, otherwise it ends
+#       up w/a long tail at all the same error.

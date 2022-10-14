@@ -7,7 +7,7 @@ from .model import input_heatmap
 
 
 def prediction_vs_target(input, target, model, ax=None, show_input=False,
-                         title=None, xlabel='Time (bins)',
+                         xlim=None, title=None, xlabel='Time (bins)',
                          ylabel='Firing Rate (Hz)'):
     """Plot actual target, overlay with model prediction.
 
@@ -21,6 +21,10 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
         Model to generate prediction with.
     ax : Matplotlib.axes.Axes; optional.
         Axes on which to plot.
+    show_input : bool; default=False.
+        If True, add a heatmap of input above response and prediction.
+    xlim : tuple; optional.
+        Positional arguments for: `ax.set_xlim(*xlim)`.
     title : str; optional.
     xlabel : str; default='Time (bins)'.
     ylabel : str; default='Firing Rate (Hz)'.
@@ -37,8 +41,9 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
     """
 
     if ax is None: ax = plt.gca()
+    if xlim is None: xlim = (None, None)
     ax.plot(target, c='black', alpha=0.3, label='actual')
-    ax.plot(model.predict(input), c='black', label='predicted')
+    ax.plot(model.predict(input), c='black', label='predicted') 
 
     if show_input:
         # Add input heatmap above prediction
@@ -54,6 +59,7 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
     if title is not None:  ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    ax.set_xlim(*xlim)
 
     return ax
 
@@ -90,6 +96,8 @@ def iteration_vs_error(model_list, ax=None):
     errors = get_model_errors(model_list)
     ax.plot(errors, c='black')
     ax.set_ylabel('Error')
+
+    return ax
 
 
 def evals_per_iteration(model_list, ax=None):
@@ -129,6 +137,8 @@ def evals_per_iteration(model_list, ax=None):
     ax.set_ylabel('Evaluations per iteration')
     ax.set_xlabel('Iteration')
 
+    return ax
+
 
 def get_parameter_pcs(model_list):
     """Treat models as observations, project parameters onto PC space.
@@ -151,6 +161,7 @@ def get_parameter_pcs(model_list):
     -------
     projections : np.ndarray.
     percent_variance : np.ndarray.
+    evecs : np.ndarray
 
     """
 
@@ -174,7 +185,7 @@ def get_parameter_pcs(model_list):
     projections = parameters @ evecs
     percent_variance = [e/np.sum(evals)*100 for e in evals]
 
-    return projections, percent_variance
+    return projections, percent_variance, evecs
 
 
 def parameter_space_pca(model_list, ax=None):
@@ -192,7 +203,7 @@ def parameter_space_pca(model_list, ax=None):
 
     """
 
-    pcs, percent_variance = get_parameter_pcs(model_list)
+    pcs, percent_variance, _ = get_parameter_pcs(model_list)
     errors = get_model_errors(model_list)
 
     if ax is None: ax = plt.gca()
@@ -203,10 +214,55 @@ def parameter_space_pca(model_list, ax=None):
     ax.scatter(pcs[-1,0], pcs[-1,1], marker='D', edgecolors='red',
                facecolors='none', s=200, label='Final')
 
-    colors = ax.get_children()[2]
+    colors = ax.get_children()[1]
     plt.colorbar(colors, label='Error', ax=ax)
     ax.legend(frameon=False)
     ax.set_xlabel(f'Parameter PC1 ({percent_variance[0]:.1f}% var)')
     ax.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.1f}% var)')
     ax.set_xticks([])
     ax.set_yticks([])
+
+    return ax
+
+
+def parameter_pca_table(model_list, n=None, ax=None, fontsize=16):
+    """Generate a table showing Parameters with top 5 weights from first n PCs.
+    
+    Parameters
+    ----------
+    model_list : list of nems.Model.
+        Must contain at least 2 Models. The Model at index 0 is interpreted as
+        the "original" (un-fit) Model. Other models are interpreted as the
+        results of a successive fit iterations. In particular, `model.results`
+        must not be None for Models at indices 1 or greater.
+    n : int; optional.
+        Number of PCs to show. All shown by default.
+    ax : Matplotlib.axes.Axes.
+        Axes on which to plot.
+
+    """
+
+    _, percent_variance, evecs = get_parameter_pcs(model_list)
+    first_n_pcs = evecs[:,:n].T
+    top_five_idx = [np.flip(np.argsort(np.abs(e)))[:5] for e in first_n_pcs]
+    row_labels = [f'PC{i} ({percent_variance[i]:.1f}%)' for i in range(1,n+1)]
+    table_text = []
+
+    for i, (ev, idx) in enumerate(zip(first_n_pcs, top_five_idx)):
+        table_text.append(['', '', '', '', ''])
+        parameters = [
+            f'{k}: {p.name}' for k, p in
+            model_list[0].get_parameter_from_index(*idx).items()
+            ]
+
+        for j, p in enumerate(parameters):
+            table_text[i][j] = (p + f';   {ev[j]:.3f}')
+
+    if ax is None: ax = plt.gca()
+    table = ax.table(table_text, rowLabels=row_labels, loc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(fontsize)
+    table.scale(fontsize/10, fontsize/10)
+    ax.axis('off')
+
+    return ax
