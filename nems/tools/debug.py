@@ -16,7 +16,7 @@ from .io import PrintingBlocked, progress_bar
 from .json import save_model, load_model
 
 
-def get_model_fits(model, input, target, iterations=100, backend='scipy',
+def get_model_fits(model, input, target, iterations=None, backend='scipy',
                    fitter_options=None, save_path=None, load_path=None,
                    **fit_kwargs):
     """TODO: docs.
@@ -36,7 +36,6 @@ def get_model_fits(model, input, target, iterations=100, backend='scipy',
     """
 
     if load_path is not None:
-        raise NotImplementedError()
         directory = Path(load_path).glob('**/*')
         models = [load_model(f) for f in directory if f.is_file()]
         return models
@@ -58,6 +57,9 @@ def get_model_fits(model, input, target, iterations=100, backend='scipy',
         raise NotImplementedError('backend not implemented for `debug_fitter`.')
 
     models = [model]
+    if iterations is None: raise NotImplementedError(
+        "Must specify iterations in advance for now"
+    )
     for _ in progress_bar(range(iterations), prefix="Fitting iteration: "):
         with PrintingBlocked():
             fitted_model = models[-1].fit(
@@ -66,7 +68,6 @@ def get_model_fits(model, input, target, iterations=100, backend='scipy',
             models.append(fitted_model)
 
     if save_path is not None:
-        raise NotImplementedError()
         directory = Path(save_path)
         for i, m in enumerate(models):
             p = directory / f'{i}.json'
@@ -124,14 +125,14 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
     return fig
 
 
-def debug_fitter(model, input, target, iterations=100, backend='scipy',
+def debug_fitter(model, input, target, iterations=None, backend='scipy',
                  fitter_options=None, figsize=None, sampling_rate=None,
                  save_path=None, load_path=None, xlim=None, **fit_kwargs):
     """TODO: docs
 
     Parameters
     ----------
-    iterations : int; default=100.
+    iterations : int; optional.
         Number of fit iterations to record. For `backend='scipy'` this is
         interpreted as `{'options': {'maxiter': iterations}}`. For `backend='tf'`
         this is interpreted as `epochs=iterations`.
@@ -160,7 +161,7 @@ def debug_fitter(model, input, target, iterations=100, backend='scipy',
     return fig, models
 
 
-def animated_debug(model, input, target, iterations=100, backend='scipy',
+def animated_debug(model, input, target, iterations=None, backend='scipy',
                    fitter_options=None, figsize=None, sampling_rate=None,
                    save_path=None, load_path=None, animation_save_path=None,
                    frame_interval=500, xlim=None, **fit_kwargs):
@@ -265,8 +266,6 @@ def _get_animation_data(fig, input, models, iterations):
 # TODO: multiple initial conditions.
 # TODO: gradient information. for scipy can use scipy_result.jac
 #       (one gradient value per parameter)
-# TODO: keep fit results in saved models
-# TODO: specify subset for pred/act plots, otherwise they'll be massive
-#       when fitting to full data
 # TODO: truncate iterations if stopped b/c under tolerance, otherwise it ends
 #       up w/a long tail at all the same error.
+# TODO: option to not specify iterations, go until it stops
