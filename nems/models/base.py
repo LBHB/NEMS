@@ -94,9 +94,6 @@ class Model:
         
         """
         self._layers = {}  #  layer.name : layer obj, increment on clashes
-        if layers is not None:
-            self.add_layers(*layers)
-        self.name = name if name is not None else 'UnnamedModel'
 
         # TODO: remove warning after fixing issues w/ scipy
         if dtype != np.float64:
@@ -105,7 +102,11 @@ class Model:
                 "results, leave dtype as the default. TF Backend will overwrite "
                 "this setting to np.float32 for the time being."
             )
-        self.set_dtype(dtype)
+        self.dtype = dtype
+
+        if layers is not None:
+            self.add_layers(*layers)
+        self.name = name if name is not None else 'UnnamedModel'
 
         # Store optional metadata. This is a generic dictionary for information
         # about the model. Any type can be stored here as long as it can be
@@ -217,6 +218,8 @@ class Model:
             # Also update `Layer.name` so that there's no mismatch between
             # a Layer's name and its key in the Model.
             layer._name = key
+
+        self.set_dtype(self.dtype)
 
     def get_layer_index(self, name):
         """Get integer index for Layer with `.name == name`."""
@@ -917,7 +920,7 @@ class Model:
         Returns
         -------
         dict of nems.layers.base.Parameter
-            With structure {integer index : Parameter}
+            With structure {Layer.name : Parameter}
         
         """
         # collect all layer vectors
@@ -935,7 +938,9 @@ class Model:
                     continue
                 else:
                     # Parameter is in this layer
-                    parameters[i] = layer.get_parameter_from_index(i-(j-count))
+                    parameters[layer.name] = layer.get_parameter_from_index(
+                        i-(j-count)
+                        )
                     break
 
         return parameters
