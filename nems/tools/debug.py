@@ -10,7 +10,8 @@ import numpy as np
 
 from nems.visualization import (
     prediction_vs_target, iteration_vs_error, evals_per_iteration,
-    parameter_space_pca, parameter_pca_table, make_axes_plotter
+    parameter_space_pca, parameter_pca_table, make_axes_plotter,
+    scipy_gradient
     )
 from .io import PrintingBlocked, progress_bar
 from .json import save_model, load_model
@@ -38,7 +39,7 @@ def get_model_fits(model, input, target, iterations=None, backend='scipy',
     if load_path is not None:
         directory = Path(load_path).glob('**/*')
         models = [load_model(f) for f in directory if f.is_file()]
-        return models
+        return models[:iterations+1]
 
     if fitter_options is None: fitter_options = {}
 
@@ -91,25 +92,35 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
     
     """
 
-    if figsize is None: figsize = (10, 7.5)
+    if figsize is None: figsize = (10, 10)
     fig = plt.figure(figsize=figsize, constrained_layout=True)
-    grid = GridSpec(9, 12, figure=fig)
+    grid = GridSpec(12, 12, figure=fig)
 
-    #                           row,  col
-    a1 = fig.add_subplot(grid[  :3,   :7])   # top left timeseries
-    a2 = fig.add_subplot(grid[ 3:5,   :7])   # top left time series 2
-    a3 = fig.add_subplot(grid[  :5,  7: ])   # top right scatter
-    a4 = fig.add_subplot(grid[ 5:9,  : ])   # bottom timeseries
+    #                         row,   col
+    a1 = fig.add_subplot(grid[ :3,   :7])   # top left timeseries
+    a2 = fig.add_subplot(grid[3:5,   :7])   # top left time series 2
+    a3 = fig.add_subplot(grid[ :5,  7: ])   # top right scatter
+    a4 = fig.add_subplot(grid[6:8,   :7])   # middle left timeseries
+    a5 = fig.add_subplot(grid[6:8,  7: ])   # middle right table
+    a6 = fig.add_subplot(grid[8:12,  : ])   # bottom timeseries
 
     # Plot iteration vs error, number of fn evaluations.
     # Wrap with `make_axes_plotter` to standardize axes formatting
     # (remove upper and right box border, convert bins to time, etc)
-    make_axes_plotter(iteration_vs_error, sampling_rate)(models, ax=a1)
+    make_axes_plotter(iteration_vs_error)(models, ax=a1)
     if models[1].results.backend == 'SciPy':
-        make_axes_plotter(evals_per_iteration, sampling_rate)(models, ax=a2)
+        # Number of cost function evals vs iterations
+        make_axes_plotter(evals_per_iteration)(models, ax=a2)
+        # Norm of gradient vs iterations
+        make_axes_plotter(scipy_gradient)(models, ax=a4)
 
     # Visualize path of optimization through parameter space using PCA
     make_axes_plotter(parameter_space_pca, x_margin=True)(models, ax=a3)
+
+    # TODO: Can't get this to work right with gridspec
+    # Table of first 5 PCs and parameter with largest weight for each PC
+    # parameter_pca_table(models, n=5, m=1, fontsize=12, ax=a5)
+    a5.axis('off')
 
     if (xlim is not None) and (sampling_rate is not None):
         # Scale xlim from units of seconds to units of bins
@@ -118,7 +129,7 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
 
     # Plot predicted vs actual response, input heatmap
     make_axes_plotter(prediction_vs_target, sampling_rate)(
-        input, target, models[0], ax=a4, title='Model prediction',
+        input, target, models[0], ax=a6, title='Model prediction',
         show_input=True, xlim=xlim
         )
 
@@ -185,8 +196,10 @@ def animated_debug(model, input, target, iterations=None, backend='scipy',
         )
 
     # Start with full figure to set limits and color scales.
-    fig = debug_plot(models, input, target, figsize=figsize,
-                     sampling_rate=sampling_rate, xlim=xlim)
+    fig = debug_plot(
+        models, input, target, figsize=figsize, sampling_rate=sampling_rate,
+        xlim=xlim
+        )
 
     # Get references to figure artists and their x/ydata for each iteration.
     artists, xdata, ydata = _get_animation_data(fig, input, models, iterations)
@@ -214,7 +227,7 @@ def animated_debug(model, input, target, iterations=None, backend='scipy',
             )
         anim.save(animation_save_path, writer=writer)
 
-    return anim
+    return anim, models
 
 
 def _get_animation_data(fig, input, models, iterations):
@@ -238,7 +251,7 @@ def _get_animation_data(fig, input, models, iterations):
             # TODO: change this if more plots added, and/or refactor to not need
             #       a "magic numbers" here
             # TODO: this will break for TF b/c one line plot will be missing
-            if j <= 3:
+            if j <= 4:
                 if isinstance(a, matplotlib.lines.Line2D):
                     # iterations on x-axis
                     new_x = a.get_xdata()[:i]
@@ -248,7 +261,7 @@ def _get_animation_data(fig, input, models, iterations):
                     new_x = a.get_offsets().data[:i]
                     new_y = []
 
-            elif j == 4:
+            elif j == 5:
                 # Actual response doesn't change, input heatmap isn't in artists.
                 new_x = a.get_xdata()
                 new_y = a.get_ydata()
@@ -264,8 +277,6 @@ def _get_animation_data(fig, input, models, iterations):
 
 
 # TODO: multiple initial conditions.
-# TODO: gradient information. for scipy can use scipy_result.jac
-#       (one gradient value per parameter)
 # TODO: truncate iterations if stopped b/c under tolerance, otherwise it ends
 #       up w/a long tail at all the same error.
 # TODO: option to not specify iterations, go until it stops

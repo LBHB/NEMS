@@ -1,6 +1,7 @@
 """Utilities for visualizing the model fitting process."""
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 
 from .model import input_heatmap
@@ -136,6 +137,7 @@ def evals_per_iteration(model_list, ax=None):
     ax.plot(evals_per_iter, c='red')
     ax.set_ylabel('Evaluations per iteration')
     ax.set_xlabel('Iteration')
+    ax.set_xlim(0, len(model_list)-1)
 
     return ax
 
@@ -225,7 +227,7 @@ def parameter_space_pca(model_list, ax=None):
     return ax
 
 
-def parameter_pca_table(model_list, n=None, ax=None, fontsize=16):
+def parameter_pca_table(model_list, n=None, m=3, ax=None, fontsize=16):
     """Generate a table showing Parameters with top 5 weights from first n PCs.
     
     Parameters
@@ -237,6 +239,8 @@ def parameter_pca_table(model_list, n=None, ax=None, fontsize=16):
         must not be None for Models at indices 1 or greater.
     n : int; optional.
         Number of PCs to show. All shown by default.
+    m : int; default=3.
+        List Parameters with the top `m` weights.
     ax : Matplotlib.axes.Axes.
         Axes on which to plot.
 
@@ -244,12 +248,12 @@ def parameter_pca_table(model_list, n=None, ax=None, fontsize=16):
 
     _, percent_variance, evecs = get_parameter_pcs(model_list)
     first_n_pcs = evecs[:,:n].T
-    top_five_idx = [np.flip(np.argsort(np.abs(e)))[:5] for e in first_n_pcs]
-    row_labels = [f'PC{i} ({percent_variance[i]:.1f}%)' for i in range(1,n+1)]
+    top_m_idx = [np.flip(np.argsort(np.abs(e)))[:m] for e in first_n_pcs]
+    row_labels = [f'PC{i} ({percent_variance[i-1]:.1f}%)' for i in range(1,n+1)]
     table_text = []
 
-    for i, (ev, idx) in enumerate(zip(first_n_pcs, top_five_idx)):
-        table_text.append(['', '', '', '', ''])
+    for i, (ev, idx) in enumerate(zip(first_n_pcs, top_m_idx)):
+        table_text.append(['']*m)
         parameters = [
             f'{k}: {p.name}' for k, p in
             model_list[0].get_parameter_from_index(*idx).items()
@@ -259,10 +263,31 @@ def parameter_pca_table(model_list, n=None, ax=None, fontsize=16):
             table_text[i][j] = (p + f';   {ev[j]:.3f}')
 
     if ax is None: ax = plt.gca()
+    ax.imshow([[0]], cmap='Greys')
     table = ax.table(table_text, rowLabels=row_labels, loc='center')
     table.auto_set_font_size(False)
     table.set_fontsize(fontsize)
     table.scale(fontsize/10, fontsize/10)
     ax.axis('off')
+    ax.axis('tight')
+
+    return ax
+
+
+def scipy_gradient(model_list, ax=None):
+    """TODO: docs"""
+
+    grads = np.array([m.results.misc['scipy_fit_result'].jac
+                      for m in model_list[1:]])
+    # Use all nan gradient for first iteration (not fit).
+    all_nan = np.full(shape=(1, grads.shape[1]), fill_value=np.nan)
+    grads = np.concatenate([all_nan, grads])
+    norm = np.sqrt(np.sum(grads**2, axis=1))
+
+    if ax is None: ax = plt.gca()
+    ax.plot(norm, c='black')
+    ax.set_xlabel('Iteration')
+    ax.set_ylabel('L2 Norm of Gradient')
+    ax.set_xlim(0, len(model_list)-1)
 
     return ax
