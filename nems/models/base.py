@@ -749,7 +749,7 @@ class Model:
 
         Parameters
         ----------
-        input : np.ndarray, dict, or Dataset.
+        input : np.ndarray or dict.
             See `Model.evaluate`.
         target : np.ndarray or dict of np.ndarray.
             TODO: support dict
