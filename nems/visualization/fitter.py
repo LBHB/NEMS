@@ -1,15 +1,15 @@
 """Utilities for visualizing the model fitting process."""
 
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 
 from .model import input_heatmap
+from .tools import standardize_axes
 
 
-def prediction_vs_target(input, target, model, ax=None, show_input=False,
-                         xlim=None, title=None, xlabel='Time (bins)',
-                         ylabel='Firing Rate (Hz)'):
+def prediction_vs_target(input, target, model, ax=None, sampling_rate=None,
+                         show_input=False, xlim=None, title=None,
+                         xlabel='Time (bins)', ylabel='Firing Rate (Hz)'):
     """Plot actual target, overlay with model prediction.
 
     Parameters
@@ -32,7 +32,7 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
 
     Returns
     -------
-    None
+    matplotlib.axes.Axes
 
     Notes
     -----
@@ -44,7 +44,9 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
     if ax is None: ax = plt.gca()
     if xlim is None: xlim = (None, None)
     ax.plot(target, c='black', alpha=0.3, label='actual')
-    ax.plot(model.predict(input), c='black', label='predicted') 
+    ax.plot(model.predict(input), c='black', label='predicted')
+    # Have to do this after each plot to get margins to adjust correctly.
+    standardize_axes(ax, sampling_rate=None)
 
     if show_input:
         # Add input heatmap above prediction
@@ -61,6 +63,7 @@ def prediction_vs_target(input, target, model, ax=None, show_input=False,
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_xlim(*xlim)
+    standardize_axes(ax, sampling_rate=sampling_rate)
 
     return ax
 
@@ -85,6 +88,10 @@ def iteration_vs_error(model_list, ax=None):
     ax : Matplotlib.axes.Axes.
         Axes on which to plot.
 
+    Returns
+    -------
+    matplotlib.axes.Axes
+
     Notes
     -----
     While the Model at index 0 is not actually used by this function, it is
@@ -97,6 +104,7 @@ def iteration_vs_error(model_list, ax=None):
     errors = get_model_errors(model_list)
     ax.plot(errors, c='black')
     ax.set_ylabel('Error')
+    standardize_axes(ax)
 
     return ax
 
@@ -138,6 +146,7 @@ def evals_per_iteration(model_list, ax=None):
     ax.set_ylabel('Evaluations per iteration')
     ax.set_xlabel('Iteration')
     ax.set_xlim(0, len(model_list)-1)
+    standardize_axes(ax)
 
     return ax
 
@@ -191,7 +200,13 @@ def get_parameter_pcs(model_list):
 
 
 def parameter_space_pca(model_list, ax=None):
-    """TODO: docs
+    """Plot parameters of each model projected onto first two PCs.
+
+    Principal components are determined by treating each entry in a length-N
+    vector returned by `Model.get_parameter_vector()` as a feature, and the
+    vector associated with each of the M models in `model_list` as one
+    observation, then computing principal components for the resulting
+    M x N matrix.
     
     Parameters
     ----------
@@ -202,6 +217,10 @@ def parameter_space_pca(model_list, ax=None):
         must not be None for Models at indices 1 or greater.
     ax : Matplotlib.axes.Axes.
         Axes on which to plot.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
 
     """
 
@@ -223,6 +242,7 @@ def parameter_space_pca(model_list, ax=None):
     ax.set_ylabel(f'Parameter PC2 ({percent_variance[1]:.1f}% var)')
     ax.set_xticks([])
     ax.set_yticks([])
+    standardize_axes(ax, x_margin=True)
 
     return ax
 
@@ -243,6 +263,10 @@ def parameter_pca_table(model_list, n=None, m=3, ax=None, fontsize=16):
         List Parameters with the top `m` weights.
     ax : Matplotlib.axes.Axes.
         Axes on which to plot.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
 
     """
 
@@ -289,5 +313,6 @@ def scipy_gradient(model_list, ax=None):
     ax.set_xlabel('Iteration')
     ax.set_ylabel('L2 Norm of Gradient')
     ax.set_xlim(0, len(model_list)-1)
+    standardize_axes(ax)
 
     return ax

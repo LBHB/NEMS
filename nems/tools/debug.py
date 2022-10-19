@@ -10,8 +10,7 @@ import numpy as np
 
 from nems.visualization import (
     prediction_vs_target, iteration_vs_error, evals_per_iteration,
-    parameter_space_pca, parameter_pca_table, make_axes_plotter,
-    scipy_gradient
+    parameter_space_pca, parameter_pca_table, scipy_gradient
     )
 from .io import PrintingBlocked, progress_bar
 from .json import save_model, load_model
@@ -107,15 +106,15 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
     # Plot iteration vs error, number of fn evaluations.
     # Wrap with `make_axes_plotter` to standardize axes formatting
     # (remove upper and right box border, convert bins to time, etc)
-    make_axes_plotter(iteration_vs_error)(models, ax=a1)
+    iteration_vs_error(models, ax=a1)
     if models[1].results.backend == 'SciPy':
         # Number of cost function evals vs iterations
-        make_axes_plotter(evals_per_iteration)(models, ax=a2)
+        evals_per_iteration(models, ax=a2)
         # Norm of gradient vs iterations
-        make_axes_plotter(scipy_gradient)(models, ax=a4)
+        scipy_gradient(models, ax=a4)
 
     # Visualize path of optimization through parameter space using PCA
-    make_axes_plotter(parameter_space_pca, x_margin=True)(models, ax=a3)
+    parameter_space_pca(models, ax=a3)
 
     # TODO: Can't get this to work right with gridspec
     # Table of first 5 PCs and parameter with largest weight for each PC
@@ -128,9 +127,9 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
         xlim = (xmin*sampling_rate, xmax*sampling_rate)
 
     # Plot predicted vs actual response, input heatmap
-    make_axes_plotter(prediction_vs_target, sampling_rate)(
+    prediction_vs_target(
         input, target, models[0], ax=a6, title='Model prediction',
-        show_input=True, xlim=xlim
+        show_input=True, sampling_rate=sampling_rate, xlim=xlim
         )
 
     return fig
