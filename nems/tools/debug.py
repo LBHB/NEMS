@@ -16,26 +16,55 @@ from .io import PrintingBlocked, progress_bar
 from .json import save_model, load_model
 
 
-def get_model_fits(model, input, target, iterations=None, backend='scipy',
-                   fitter_options=None, save_path=None, load_path=None,
+def get_model_fits(model, input, target, iterations=None, save_path=None,
+                   load_path=None, backend='scipy', fitter_options=None, 
                    **fit_kwargs):
-    """TODO: docs.
-
-    TODO: save/load won't actually work yet b/c Model.results is not saved since
-          it can contain arbitrary objects. need to refactor so that FitResults
-          are still saved but w/o any problematic objects, add to/from_json for
-          FitResults.
+    """Generate a list of Models by fitting one iteration at a time.
     
+    TODO: Truncate iterations if fit is terminating b/c of tolerance criteria.
+    TODO: Implement `iterations=None` (i.e. fit until stop critiera are met).
+
     Parameters
     ----------
+    model : nems.Model.
+        Initial model to base fits on.
+    input : np.ndarray, dict, or DataSet.
+        See `nems.models.base.Model.evaluate`.
+    target : np.ndarray or dict.
+        See `nems.models.base.Model.fit`.
+    iterations : int; optional.
+        Number of fit iterations to record. For `backend='scipy'` this is
+        interpreted as `{'options': {'maxiter': iterations}}`. For `backend='tf'`
+        this is interpreted as `epochs=iterations`.
     save_path : str or Path; optional.
-        Must point to a directory.
+        Path where models should be saved after each fit iteration. Must point
+        to a directory.
     load_path : str or Path; optional.
-        Must point to a directory.
+        Path to load previously fit models from. Must point to a directory
+        containing NEMS models saved to json format.
+    backend : str; default='scipy'.
+        Name of backend to use for fitting. See `nems.models.base.Model.fit`.
+    fitter_options : dict; optional.
+        See `nems.models.base.Model.fit` and backend documentation.
+    fit_kwargs : dict; optional.
+        Additional keyword arguments for `nems.models.base.Model.fit`.
+
+    Returns
+    -------
+    list of nems.Model.
+        Length iterations + 1.
+
+    See also
+    --------
+    nems.models.base.Model
+    nems.tools.json.save_model
+    nems.tools.json.load_model
     
     """
 
     if load_path is not None:
+        # TODO: How to ensure these are loaded in the correct order?
+        #       Currently assumes they're ordered numerically, increasing.
         directory = Path(load_path).glob('**/*')
         models = [load_model(f) for f in directory if f.is_file()]
         return models[:iterations+1]
@@ -54,16 +83,19 @@ def get_model_fits(model, input, target, iterations=None, backend='scipy',
         iterations = fitter_options.get('epochs', iterations)
         fitter_options['epochs'] = 1
     else:
-        raise NotImplementedError('backend not implemented for `debug_fitter`.')
+        raise NotImplementedError(
+            f'{backend} backend not implemented for `get_model_fits`.'
+            )
 
     models = [model]
     if iterations is None: raise NotImplementedError(
-        "Must specify iterations in advance for now"
+        "Must specify iterations in advance for now."
     )
     for _ in progress_bar(range(iterations), prefix="Fitting iteration: "):
         with PrintingBlocked():
             fitted_model = models[-1].fit(
-                input, target, fitter_options=fitter_options, **fit_kwargs
+                input, target, fitter_options=fitter_options, backend=backend,
+                **fit_kwargs
                 )
             models.append(fitted_model)
 
@@ -76,18 +108,33 @@ def get_model_fits(model, input, target, iterations=None, backend='scipy',
     return models
 
 
-def debug_plot(models, input, target, figsize=None, sampling_rate=None,
-               xlim=None):
-    """TODO: docs
+def debug_plot(models, input, target, sampling_rate=None, xlim=None,
+               figsize=None):
+    """Plot error, gradient, parameters, and prediction for each Model.
     
-    Returns
-    -------
-    fig : matplotlib.pyplot.figure
+    Parameters
+    ----------
     models : list of nems.Model
+        Model.results must not be None for all but the first Model, and all
+        models must have the same layers and hyperparameters.
+        For example, as returned by `get_model_fits`.
+    input : np.ndarray, dict, or DataSet.
+        See `nems.models.base.Model.evaluate`.
+    target : np.ndarray or dict.
+        See `nems.models.base.Model.fit`.
+    sampling_rate : float; optional.
+        If given, label time-axis of some plots with real units (seconds
+        by default). See `nems.visualization.tools.ax_bins_to_seconds`.
     xlim : tuple; optional.
         Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
         If `sampling_rate` is not None, specified in units of seconds instead
         of bins.
+    figsize : 2-tuple of int; optional.
+         Figure size in inches, (width, height).
+
+    Returns
+    -------
+    fig : matplotlib.pyplot.figure
     
     """
 
@@ -135,13 +182,19 @@ def debug_plot(models, input, target, figsize=None, sampling_rate=None,
     return fig
 
 
-def debug_fitter(model, input, target, iterations=None, backend='scipy',
-                 fitter_options=None, figsize=None, sampling_rate=None,
-                 save_path=None, load_path=None, xlim=None, **fit_kwargs):
-    """TODO: docs
+def debug_fitter(model, input, target, iterations=None, sampling_rate=None,
+                 xlim=None, figsize=None, save_path=None, load_path=None,
+                 backend='scipy', fitter_options=None, **fit_kwargs):
+    """Plot error, gradient, parameters, and prediction for each fit iteration.
 
     Parameters
     ----------
+    model : nems.Model.
+        Initial model to base fits on.
+    input : np.ndarray, dict, or DataSet.
+        See `nems.models.base.Model.evaluate`.
+    target : np.ndarray or dict.
+        See `nems.models.base.Model.fit`.
     iterations : int; optional.
         Number of fit iterations to record. For `backend='scipy'` this is
         interpreted as `{'options': {'maxiter': iterations}}`. For `backend='tf'`
@@ -153,6 +206,26 @@ def debug_fitter(model, input, target, iterations=None, backend='scipy',
         Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
         If `sampling_rate` is not None, specified in units of seconds instead
         of bins.
+    figsize : 2-tuple of int; optional.
+         Figure size in inches, (width, height).
+    save_path : str or Path; optional.
+        Path where models should be saved after each fit iteration. Must point
+        to a directory.
+    load_path : str or Path; optional.
+        Path to load previously fit models from. Must point to a directory
+        containing NEMS models saved to json format.
+    backend : str; default='scipy'.
+        Name of backend to use for fitting. See `nems.models.base.Model.fit`.
+    fitter_options : dict; optional.
+        See `nems.models.base.Model.fit` and backend documentation.
+    fit_kwargs : dict; optional.
+        Additional keyword arguments for `nems.models.base.Model.fit`.
+
+    Returns
+    -------
+    matplotlib.pyplot.figure
+    list of nems.Model
+        Length iterations + 1.
     
     """
 
@@ -171,19 +244,71 @@ def debug_fitter(model, input, target, iterations=None, backend='scipy',
     return fig, models
 
 
-def animated_debug(model, input, target, iterations=None, backend='scipy',
-                   fitter_options=None, figsize=None, sampling_rate=None,
-                   save_path=None, load_path=None, animation_save_path=None,
-                   frame_interval=500, xlim=None, **fit_kwargs):
-    """TODO: docs
+def animated_debug(model, input, target, iterations=None, sampling_rate=None,
+                   xlim=None, figsize=None, save_path=None, load_path=None,
+                   animation_save_path=None, frame_interval=500, backend='scipy',
+                   fitter_options=None, **fit_kwargs):
+    """Animate error, gradient, parameters, and prediction for each fit iteration.
 
     Parameters
     ----------
+    model : nems.Model.
+        Initial model to base fits on.
+    input : np.ndarray, dict, or DataSet.
+        See `nems.models.base.Model.evaluate`.
+    target : np.ndarray or dict.
+        See `nems.models.base.Model.fit`.
+    iterations : int; optional.
+        Number of fit iterations to record. For `backend='scipy'` this is
+        interpreted as `{'options': {'maxiter': iterations}}`. For `backend='tf'`
+        this is interpreted as `epochs=iterations`.
+    sampling_rate : float; optional.
+        If given, label time-axis of some plots with real units (seconds
+        by default). See `nems.visualization.tools.ax_bins_to_seconds`.
     xlim : tuple; optional.
         Positional arguments for: `ax.set_xlim(*xlim)` for prediction plot.
         If `sampling_rate` is not None, specified in units of seconds instead
         of bins.
-    
+    figsize : 2-tuple of int; optional.
+         Figure size in inches, (width, height).
+    save_path : str or Path; optional.
+        Path where models should be saved after each fit iteration. Must point
+        to a directory.
+    load_path : str or Path; optional.
+        Path to load previously fit models from. Must point to a directory
+        containing NEMS models saved to json format.
+    animation_save_path : str or Path; optional.
+        Path where animation should be saved. Rendering will be handled by
+        `matplotlib.animation.FFMpegWriter`.
+    frame_interval : int; default=500.
+        Delay between frames in milliseconds.
+    backend : str; default='scipy'.
+        Name of backend to use for fitting. See `nems.models.base.Model.fit`.
+    fitter_options : dict; optional.
+        See `nems.models.base.Model.fit` and backend documentation.
+    fit_kwargs : dict; optional.
+        Additional keyword arguments for `nems.models.base.Model.fit`.
+
+    Returns
+    -------
+    matplotlib.pyplot.figure
+    list of nems.Model
+        Length iterations + 1.
+
+    See also
+    --------
+    matplotlib.animation.FuncAnimation
+    matplotlib.animation.FFMpegWriter
+
+    Notes
+    -----
+    Matplotlib animation seems to be very dependent on backend, IDE, OS, etc.
+    For example, the animation will likely not play in a jupyter notebook. One
+    work-around is to save the animation as a movie to watch separately, which
+    is what the `animation_save_path` option is for. However, the FFmpeg encoder
+    may or may not already be available on your system. If it is not, try
+    `conda install -c conda-forge ffmpeg` (or use your preferred method).
+
     """
     
     # Get list of models, starting with initial model and appending one per
@@ -221,6 +346,8 @@ def animated_debug(model, input, target, iterations=None, backend='scipy',
 
     if animation_save_path is not None:
         fps = int(np.ceil(1/(frame_interval/1000)))
+        # NOTE: You may need to install the FFmpeg encoder, for example using
+        #       `conda install -c conda-forge ffmpeg`.
         writer = animation.FFMpegWriter(
             fps=fps, metadata=dict(artist='Me'), bitrate=1800
             )
@@ -230,7 +357,7 @@ def animated_debug(model, input, target, iterations=None, backend='scipy',
 
 
 def _get_animation_data(fig, input, models, iterations):
-    """TODO: docs. Internal for animate_debug."""
+    """Get matplotlib artists and data. Internal for `animated_debug`."""
     # Extract artists for initial figure, and get list of artist data for each
     # subsequent iteration.
     artists = []
@@ -275,7 +402,5 @@ def _get_animation_data(fig, input, models, iterations):
     return artists, updated_xdata, updated_ydata
 
 
-# TODO: multiple initial conditions.
-# TODO: truncate iterations if stopped b/c under tolerance, otherwise it ends
-#       up w/a long tail at all the same error.
-# TODO: option to not specify iterations, go until it stops
+# TODO: multiple initial conditions instead of iterations.
+# TODO: demo script

@@ -22,6 +22,9 @@ def prediction_vs_target(input, target, model, ax=None, sampling_rate=None,
         Model to generate prediction with.
     ax : Matplotlib.axes.Axes; optional.
         Axes on which to plot.
+    sampling_rate : float; optional.
+        If given, label time-axis of some plots with real units (seconds
+        by default). See `nems.visualization.tools.ax_bins_to_seconds`.
     show_input : bool; default=False.
         If True, add a heatmap of input above response and prediction.
     xlim : tuple; optional.
@@ -299,7 +302,23 @@ def parameter_pca_table(model_list, n=None, m=3, ax=None, fontsize=16):
 
 
 def scipy_gradient(model_list, ax=None):
-    """TODO: docs"""
+    """Plot L2-norm of gradient for each model.
+    
+    Parameters
+    ----------
+    model_list : list of nems.Model.
+        Must contain at least 2 Models. The Model at index 0 is interpreted as
+        the "original" (un-fit) Model. Other models are interpreted as the
+        results of a successive fit iterations. In particular, `model.results`
+        must not be None for Models at indices 1 or greater.
+    ax : Matplotlib.axes.Axes.
+        Axes on which to plot.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+
+    """
 
     grads = np.array([m.results.misc['scipy_fit_result'].jac
                       for m in model_list[1:]])
