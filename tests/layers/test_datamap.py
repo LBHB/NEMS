@@ -80,7 +80,8 @@ def test_outputs():
 def test_evaluate():
     input = {'input': np.array([['input']])}
 
-    model = Model(dtype=str)
+    model = Model()
+    model.set_dtype('str')
     # Will get an error in here somewhere if input/output routing is broken.
     model.add_layers(
         # input should be 'input', the Model default
