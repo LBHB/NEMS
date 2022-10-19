@@ -403,4 +403,3 @@ def _get_animation_data(fig, input, models, iterations):
 
 
 # TODO: multiple initial conditions instead of iterations.
-# TODO: demo script
