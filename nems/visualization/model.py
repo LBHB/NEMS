@@ -247,7 +247,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         if not isinstance(target, list):
             target = [target]
         for i, y in enumerate(target):
-            last_ax.plot(y, label=f'{target_name} {i}')
+            last_ax.plot(y, label=f'{target_name} {i}', alpha=0.3, color='black')
         last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
 
