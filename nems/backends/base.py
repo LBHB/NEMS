@@ -159,3 +159,33 @@ class FitResults:
         string += "="*11
 
         return string
+
+    def to_json(self):
+        args = [
+            self.initial_parameters,
+            self.final_parameters,
+            self.initial_error,
+            self.final_error,
+            self.backend,
+        ]
+
+        kwargs = self.misc.copy()
+        if self.backend == 'SciPy':
+            h = kwargs['scipy_fit_result'].hess_inv
+            kwargs['scipy_fit_result'].hess_inv = h.todense()  # np array
+
+        return {'args': args, 'kwargs': kwargs}
+
+    @classmethod
+    def from_json(cls, json):
+        if json['args'][-1] == 'SciPy':  # backend
+            # Convert dict back to object
+            class ReloadedOptimizeResult:
+                pass
+            o = ReloadedOptimizeResult()
+
+            for k, v in json['kwargs']['scipy_fit_result'].items():
+                setattr(o, k, v)
+            json['kwargs']['scipy_fit_result'] = o
+
+        return FitResults(*json['args'], **json['kwargs'])
