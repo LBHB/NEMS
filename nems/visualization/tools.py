@@ -1,4 +1,5 @@
 from fractions import Fraction
+from functools import partial
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -63,4 +64,31 @@ def ax_bins_to_seconds(axes=None, sampling_rate=1.0, time_axis='x',
             denom = conversion_factor
         units = f'{Fraction(1/conversion_factor).limit_denominator(denom)} '
     set_label(f'Time ({units}s)')
+
+
+def standardize_axes(axes, sampling_rate=None, time_kwargs=None, x_margin=False):
+    """Apply NEMS formatting to a matplotlib Axes in-place.
+
+    Dependent upon specified parameters, this function will:
+        - Remove the right and top axes border.
+        - Remove extra whitespace on the x-axis.
+        - Convert units of bins to seconds, based on `sampling_rate`.
+
+    Parameters
+    ----------
+    sampling_rate : float; optional.
+        If specified, time axis will be labeled with units of seconds.
+    time_kwargs : dict; optional.
+        Additional keyword arguments for `ax_bins_to_seconds`.
+    x_margin : bool; default=False.
+        If False, remove whitespace margins from xlim
+        (i.e. timeseries will fill the full x-axis)
     
+    """
+    if time_kwargs is None: time_kwargs = {}
+    if sampling_rate is not None:
+        # convert bins to seconds
+        ax_bins_to_seconds(axes, sampling_rate, **time_kwargs)
+    ax_remove_box(axes)    # remove right and top box borders
+    if not x_margin:
+        axes.set_xmargin(0)  # remove white space around xlim

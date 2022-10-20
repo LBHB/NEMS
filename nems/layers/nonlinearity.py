@@ -1,9 +1,10 @@
-from tkinter import FALSE
 import numpy as np
+import numexpr as ne
 
 from nems.registry import layer
 from nems.distributions import Normal
-from .base import Layer, Phi, Parameter, require_shape
+from .base import Layer, Phi, Parameter
+from .tools import require_shape, pop_shape
 
 
 class StaticNonlinearity(Layer):
@@ -138,13 +139,40 @@ class LevelShift(StaticNonlinearity):
 
         """
         options = keyword.split('.')
-        shape = None
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
 
         return LevelShift(shape=shape)
+
+    @property
+    def plot_kwargs(self):
+        """Add incremented labels to each output channel for plot legend.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        kwargs = {
+            'label': [f'Channel {i}' for i in range(self.shape[1])]
+        }
+        return kwargs
+
+    @property
+    def plot_options(self):
+        """Add legend at right of plot, with default formatting.
+
+        Notes
+        -----
+        The legend will grow quite large if there are many output channels,
+        but for common use cases (< 10) this should not be an issue. If needed,
+        increase figsize to accomodate the labels.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        return {'legend': False}
 
 
 class DoubleExponential(StaticNonlinearity):
@@ -183,23 +211,33 @@ class DoubleExponential(StaticNonlinearity):
         zero = np.zeros(shape=self.shape)
         one = np.ones(shape=self.shape)
         phi = Phi(
-            Parameter('base', shape=self.shape, prior=Normal(zero, one/5)),
-            Parameter('amplitude', shape=self.shape,
-                      prior=Normal(one, one/5)),
+            Parameter('base', shape=self.shape, prior=Normal(-one, one/5)),
+            Parameter('amplitude', shape=self.shape, prior=Normal(2*one, one/5)),
             Parameter('shift', shape=self.shape, prior=Normal(zero, one/5)),
             Parameter('kappa', shape=self.shape, prior=Normal(one, one/5))
             )
         return phi
 
     def nonlinearity(self, input):
-        """Apply double exponential sigmoid to input x: $b+a*exp[-exp(k(x-s)]$.
+        """Apply sigmoid transform to input x: $b+a*exp[-exp(-exp(k)(x-s)]$.
         
         See Thorson, Liénard, David (2015).
         
         """
         base, amplitude, shift, kappa = self.get_parameter_values()
-        inner_exp = (-np.exp(kappa) * (input - shift))
-        output = base + amplitude * np.exp(-np.exp(inner_exp))
+
+        if (input.shape[-1] < base.shape[-1]) or (not self._inplace_ok):
+            # First condition means output will be larger than input, so we
+            # can't store it in the same array.
+            out = None
+        else:
+            out = input
+
+        output = ne.evaluate(
+            "base + amplitude*exp(-exp(-exp(kappa)*(input+shift)))",
+            out=out
+            )
+
         return output
 
     @layer('dexp')
@@ -219,12 +257,8 @@ class DoubleExponential(StaticNonlinearity):
         Layer.from_keyword
         
         """
-        shape = None
         options = keyword.split('.')
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
         
         return DoubleExponential(shape=shape)
 
@@ -239,7 +273,7 @@ class DoubleExponential(StaticNonlinearity):
             class DoubleExponentialTF(NemsKerasLayer):
                 def call(self, inputs):
                     exp = tf.math.exp(-tf.math.exp(
-                        -tf.math.exp(self.kappa) * (inputs - self.shift)
+                        -tf.math.exp(self.kappa) * (inputs + self.shift)
                         ))
                     return self.base + self.amplitude * exp
 
@@ -301,9 +335,18 @@ class RectifiedLinear(StaticNonlinearity):
         `StaticNonlinearity.evaluate` is the same as for other subclasses.
         
         """
+
         shift, offset, gain = self.get_parameter_values()
-        rectified = (input+shift) * (input > -shift)
-        return offset + gain*rectified
+
+        if (input.shape[-1] < shift.shape[-1]) or (not self._inplace_ok):
+            # First condition means output will be larger than input, so we
+            # can't store it in the same array.
+            out = None
+        else:
+            out = input
+
+        output = ne.evaluate('offset + gain*((input + shift)*(input > -shift))')
+        return output
 
     @layer('relu')
     def from_keyword(keyword):
@@ -326,13 +369,10 @@ class RectifiedLinear(StaticNonlinearity):
         no_shift = True
         no_offset = True
         no_gain = True
-        shape=None
+        shape = pop_shape(options)
 
         for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
-            elif op == 's':
+            if op == 's':
                 no_shift = False
             elif op == 'o':
                 no_offset = False

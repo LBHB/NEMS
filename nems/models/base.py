@@ -1,6 +1,7 @@
 import copy
 import textwrap
 import itertools
+import warnings
 
 import numpy as np
 
@@ -8,6 +9,7 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model
+from nems.tools.arrays import one_or_more_nan
 from .dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
@@ -16,7 +18,7 @@ del nems.layers
 
 class Model:
 
-    def __init__(self, layers=None, name=None, meta=None):
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
         """A structured collection of Layers.
         
         This is the primary class for interacting with NEMS. Conceptually, a
@@ -31,6 +33,8 @@ class Model:
             Layers that will define the Model's data transformations.
         name : str; optional.
             Name for the Model.
+        dtype : type; default=np.float64.
+            TODO: docs. float64 not supported by all TensorFlow ops.
         meta : dict; optional.
             A general-purpose dictionary for storing additional information
             about the model.
@@ -91,9 +95,20 @@ class Model:
         
         """
         self._layers = {}  #  layer.name : layer obj, increment on clashes
+
+        # TODO: remove warning after fixing issues w/ scipy
+        if dtype != np.float64:
+            warnings.warn(
+                "Using `Model(dtype=...)` is currently experimental. For best "
+                "results, leave dtype as the default. TF Backend will overwrite "
+                "this setting to np.float32 for the time being."
+            )
+        self.dtype = dtype
+
         if layers is not None:
             self.add_layers(*layers)
         self.name = name if name is not None else 'UnnamedModel'
+
         # Store optional metadata. This is a generic dictionary for information
         # about the model. Any type can be stored here as long as it can be
         # encoded by `json.dumps`.
@@ -166,6 +181,12 @@ class Model:
 
         return info
 
+    def set_dtype(self, dtype):
+        """Change dtype of Parameters in-place, set dtype for fit/evaluate."""
+        for layer in self.layers:
+            layer.set_dtype(dtype)
+        self.dtype = dtype
+
     def add_layers(self, *layers):
         """Add Layers to this Model, stored in `Model._layers`.
 
@@ -199,6 +220,8 @@ class Model:
             # a Layer's name and its key in the Model.
             layer._name = key
 
+        self.set_dtype(self.dtype)
+
     def get_layer_index(self, name):
         """Get integer index for Layer with `.name == name`."""
         return list(self.layers.keys()).index(name)
@@ -216,7 +239,7 @@ class Model:
     def evaluate(self, input, state=None, input_name=None, state_name=None,
                  output_name=None, n=None, return_full_data=True,
                  as_dataset=False, use_existing_maps=False, batch_size=0,
-                 permute_batches=False):
+                 permute_batches=False, debug_nans=False):
         """Transform input(s) by invoking `Layer.evaluate` for each Layer.
 
         Evaluation encapsulates three steps:
@@ -295,6 +318,10 @@ class Model:
             so the outputs won't be concatenated in the right order.
             If True, randomly shuffle batches prior to evaluation. Typically
             used during fitting, to shuffle between epochs.
+        debug_nans : bool; default=False.
+            If True, raise ValueError if a Layer's output contains NaN values.
+            Useful for narrowing down the source of unexpected NaNs in the final
+            model output.
 
         Returns
         -------
@@ -320,6 +347,7 @@ class Model:
             data = DataSet(
                 input=input, state=state, input_name=input_name,
                 state_name=state_name, output_name=output_name,
+                dtype=self.dtype
             )
         else:
             # Input should already be a properly formatted DataSet
@@ -332,6 +360,7 @@ class Model:
             # number of output channels.
             data_generator = self.generate_layer_data(
                                 data, use_existing_maps=use_existing_maps,
+                                debug_nans=debug_nans
                                 )
             data = self.get_layer_data(data_generator, n, n)[-1]['data']
 
@@ -342,7 +371,8 @@ class Model:
             batch_out = list(self.generate_batch_data(
                 input, state=state, input_name=input_name, state_name=state_name,
                 output_name=output_name, n=n, batch_size=batch_size,
-                permute_batches=permute_batches, use_existing_maps=use_existing_maps
+                permute_batches=permute_batches, debug_nans=debug_nans,
+                use_existing_maps=use_existing_maps
                 ))
             all_outputs = DataSet.concatenate_sample_outputs(batch_out)
             # Inputs (and any targets) should not have changed
@@ -404,11 +434,15 @@ class Model:
             for sample in samples:
                 data_generator = self.generate_layer_data(
                     sample, use_existing_maps=use_existing_maps,
+                    **eval_kwargs
                 )
 
                 # Get data for the final layer only, to reduce memory use.
                 layer_data = self.get_layer_data(data_generator, n, n)[-1]
                 sample_out.append(layer_data['data'].prepend_samples())
+                # Make sure memory is freed up between loops.
+                del data_generator
+                del layer_data
 
             batch_out = DataSet.concatenate_sample_outputs(sample_out)
             batch.outputs = batch_out
@@ -418,7 +452,7 @@ class Model:
     # TODO: possibly move this method and any related subroutines to a separate
     #       module (inside a new `base` directory), with simple wrappers in
     #       Model as the public-facing API.
-    def generate_layer_data(self, input, copy_data=False,
+    def generate_layer_data(self, input, copy_data=False, debug_nans=False,
                             use_existing_maps=False, **eval_kwargs):
         """Generate input and output arrays for each Layer in Model.
         
@@ -497,10 +531,35 @@ class Model:
             data = input
 
         max_n = len(self.layers)
+        previous_output = 'not None'  # Only for setting `inplace_ok` flag.
         for n, layer in enumerate(self.layers):
             if not use_existing_maps:
                 layer.reset_map()
-            a, k, o = self._evaluate_layer(layer, data)
+
+            inplace_ok = False
+            # If previous output was None, then it will be overwritten after
+            # this Layer is evaluated anyway. But also need to make sure input
+            # arrays are not overwritten.
+            if previous_output is None:       # never True for first layer.
+                if layer.input is None:       # so this must point to an output
+                    inplace_ok = True
+                else:
+                    # Need to check if any of the keys in `args` or `kwargs`
+                    # points to an input rather than an intermediate output.
+                    arg_keys = layer.data_map.args
+                    kwarg_keys = list(layer.data_map.kwargs.values())
+                    keys = [*arg_keys, *kwarg_keys]
+                    if all([k not in data.inputs for k in keys]):
+                        inplace_ok = True
+
+            a, k, o = self._evaluate_layer(layer, data, inplace_ok=inplace_ok,
+                                           debug_nans=debug_nans)
+
+            # TODO: last thing to consider (I think) on `inplace_ok`: overwriting
+            #       previous output would change the reference to `o` in the
+            #       already-yielded layer data. This wouldn't hurt anything in
+            #       the model.evaluate implementation b/c only the final data
+            #       is used anyway. However, that could make debugging confusing.
             layer_data = {
                 'index': n, 'layer': layer.name,
                 'args': a, 'kwargs': k, 'out': o
@@ -512,6 +571,9 @@ class Model:
                 else:
                     layer_data['data'] = data
                 yield layer_data
+            
+            # Track last output for determining `inplace_ok`.
+            previous_output = layer.output
 
         # On final layer, only update data after evaluation
         data.finalize_data(final_layer=layer)
@@ -522,7 +584,7 @@ class Model:
 
         yield layer_data
 
-    def _evaluate_layer(self, layer, data):
+    def _evaluate_layer(self, layer, data, inplace_ok=False, debug_nans=False):
         """Evaluates one Layer. Internal for `Model.generate_layer_data`.
         
         Returns
@@ -537,7 +599,10 @@ class Model:
         """
         
         # Get input & output arrays
-        args, kwargs, output = layer._evaluate(data)
+        args, kwargs, output = layer._evaluate(
+            data, inplace_ok=inplace_ok, dtype=self.dtype,
+            debug_nans=debug_nans
+            )
 
         # Save output (or don't) based on Layer.DataMap.
         # data_keys is always a list, but output might be a list or one array.
@@ -694,7 +759,7 @@ class Model:
 
         Parameters
         ----------
-        input : np.ndarray, dict, or Dataset.
+        input : np.ndarray or dict.
             See `Model.evaluate`.
         target : np.ndarray or dict of np.ndarray.
             TODO: support dict
@@ -750,8 +815,10 @@ class Model:
         # Get Backend sublass.
         backend_class = get_backend(name=backend)
         # Build backend model.
-        backend_obj = backend_class(new_model, data, eval_kwargs=eval_kwargs,
-                                    **backend_options)
+        backend_obj = backend_class(
+            new_model, data, eval_kwargs=eval_kwargs,
+            **backend_options
+            )
         # Fit backend, save results.
         fit_results = backend_obj._fit(
             data, eval_kwargs=eval_kwargs, **fitter_options
@@ -845,6 +912,7 @@ class Model:
         for layer in self.layers:
             vector = layer.get_parameter_vector(as_list=as_list)
             vectors.append(vector)
+
         # flatten list
         if as_list:
             model_vector = [v for vector in vectors for v in vector]
@@ -852,6 +920,42 @@ class Model:
             model_vector = np.concatenate(vectors)
         
         return model_vector
+
+    def get_parameter_from_index(self, *indices):
+        """Get reference(s) to Parameter(s) from index in parameter vector.
+        
+        Parameters
+        ----------
+        indices : N-tuple of int.
+            Indices corresponding to result of `Model.get_parameter_vector()`.
+        
+        Returns
+        -------
+        dict of nems.layers.base.Parameter
+            With structure {Layer.name : Parameter}
+        
+        """
+        # collect all layer vectors
+        layer_counts = {}
+        for layer in self.layers:
+            layer_counts[layer.parameter_count] = layer
+
+        parameters = {}
+        for i in indices:
+            j = 0
+            for count, layer in layer_counts.items():
+                j += count
+                if i >= j:
+                    # Parameter is not in this layer
+                    continue
+                else:
+                    # Parameter is in this layer
+                    parameters[layer.name] = layer.get_parameter_from_index(
+                        i-(j-count)
+                        )
+                    break
+
+        return parameters
 
     def set_parameter_vector(self, vector, ignore_checks=False):
         """Set all parameter values with a single vector.
@@ -1131,11 +1235,13 @@ class Model:
         `nems.tools.json`
 
         """
-        # TODO: Should .backend or .results be saved?
+
         data = {
             'layers': list(self._layers.values()),
             'name': self.name,
-            'meta': self.meta
+            'dtype': self.dtype.__name__,
+            'meta': self.meta,
+            'results': self.results
         }
 
         return data
@@ -1153,7 +1259,9 @@ class Model:
         `nems.tools.json`
 
         """
-        model = cls(layers=json['layers'], name=json['name'], meta=json['meta'])
+        model = cls(layers=json['layers'], name=json['name'], 
+                    dtype=getattr(np, json['dtype']), meta=json['meta'])
+        model.results = json['results']
         return model
 
     def copy(self):
@@ -1165,12 +1273,9 @@ class Model:
         state-dependent objects from other packages that cannot copy correctly.
         
         """
-        results = self.results
         backend = self.backend
-        self.results = None
         self.backend = None
         copied_model = copy.deepcopy(self)
-        self.results = results
         self.backend = backend
     
         return copied_model

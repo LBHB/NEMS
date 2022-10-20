@@ -1,9 +1,8 @@
-import copy
-
 import numpy as np
 
 from nems.registry import layer
 from nems.visualization import plot_layer
+from nems.tools.arrays import one_or_more_nan
 from .phi import Phi
 from .map import DataMap
 
@@ -24,6 +23,12 @@ class Layer:
         `Layer.input is None` and a `state` array is provided to
         `Model.evaluate`, then `state` will be added to other inputs as a
         keyword argument, i.e.: `layer.evaluate(*inputs, **state)`.
+    _inplace_ok : bool; default=False.
+        Layer.evaluate can reference this flag to determine if it can safely
+        overwrite input arrays with new values to reduce memory usage within
+        the scope of `evaluate`. A parent Model will set `inplace_ok=True`
+        only if the output of the previous Layer will not be saved. Setting
+        this attribute directly is not recommended except when debugging.
 
     """
 
@@ -35,6 +40,7 @@ class Layer:
         cls.subclasses[cls.__name__] = cls
 
     state_arg = None
+    _inplace_ok = False
 
     def __init__(self, shape=None, input=None, output=None, parameters=None,
                  priors=None, bounds=None, name=None):
@@ -158,11 +164,11 @@ class Layer:
         #       (so that other code doesn't need to check for None name)
         self._name = name 
         self.default_name = f'{type(self).__name__}'
-        self.model = None  # pointer to parent ModelSpec
+        self.model = None  # pointer to parent Model
 
         if parameters is None:
             parameters = self.initial_parameters()
-        self.parameters = parameters
+        self.parameters = parameters 
 
         # Overwrite defaults set by `initial_parameters` if priors, bounds
         # kwargs were specified.
@@ -210,6 +216,10 @@ class Layer:
         # TODO: rename unfrozen -> trainable, frozen -> untrainable?
         return {'total': total, 'unfrozen': unfrozen, 'frozen': frozen,
                 'permanent': permanent}
+
+    def set_dtype(self, dtype):
+        """Change dtype of all Parameter values in-place."""
+        self.parameters.set_dtype(dtype)
 
     @layer('baseclass')
     def from_keyword(keyword):
@@ -339,13 +349,23 @@ class Layer:
         """
         self.data_map = DataMap(self)
 
-    def _evaluate(self, data):
+    def _evaluate(self, data, inplace_ok=False, dtype=np.float32,
+                  debug_nans=False):
         """Get inputs from `data`, evaluate them, and update `Layer.data_map`.
 
         Parameters
         ----------
         data : dict
             See `Model.evaluate` for details on structure.
+        inplace_ok : bool; default=False.
+            If True, informs `Layer.evaluate` that it can safely overwrite
+            `inputs` to reduce memory usage.
+        dtype : type, default=np.float32.
+            Output of `Layer.evaluate` will be cast to this type with
+            `copy=False`.
+        debug_nans : bool; default=False.
+            If True, raise ValueError if output of `Layer.evaluate` contains
+            NaN values.
 
         Returns
         -------
@@ -369,13 +389,31 @@ class Layer:
 
         """
         args, kwargs = self.data_map.get_inputs(data)
+        self._inplace_ok = inplace_ok  # Set flag for `evaluate` behavior.
         output = self.evaluate(*args, **kwargs)
+        self._inplace_ok = False       # Always reset to default of False.
 
-        # Add singleton channel axis to each array if missing.
+        # Add singleton channel axis to each array if missing, and cast dtype
+        # if necessary.
         if isinstance(output, (list, tuple)):
-            output = [x[..., np.newaxis] if x.ndim == 1 else x for x in output]
-        elif output.ndim == 1:
-            output = output[..., np.newaxis]
+            output = [
+                x[..., np.newaxis].astype(dtype, copy=False)
+                if x.ndim == 1
+                else x.astype(dtype, copy=False)
+                for x in output
+                ]
+            if debug_nans and any([one_or_more_nan(o) for o in output]):
+                raise ValueError(
+                    f"Output of layer {self.name} contains NaNs."
+                )
+        else:
+            output = output.astype(dtype, copy=False)
+            if output.ndim == 1:
+                output = output[..., np.newaxis]
+            if debug_nans and one_or_more_nan(output):
+                raise ValueError(
+                    f"Output of layer {self.name} contains NaNs."
+                )
         
         # Add output information to DataMap
         self.data_map.map_outputs(output)
@@ -551,6 +589,10 @@ class Layer:
 
         """
         return self.parameters.get_vector(as_list=as_list)
+
+    def get_parameter_from_index(self, index):
+        """Get reference to Parameter corresponding to vector index."""
+        return self.parameters.get_parameter_from_index(index)
 
     def set_parameter_vector(self, vector, ignore_checks=False):
         """Set parameter values with a single vector.

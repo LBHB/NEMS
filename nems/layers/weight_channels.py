@@ -2,7 +2,8 @@ import numpy as np
 
 from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
-from .base import Layer, Phi, Parameter, ShapeError, require_shape
+from .base import Layer, Phi, Parameter, ShapeError
+from .tools import require_shape, pop_shape
 
 
 # TODO: double check all shape references after dealing w/ data order etc,
@@ -123,13 +124,11 @@ class WeightChannels(Layer):
         """
         wc_class = WeightChannels
         kwargs = {}
-
         options = keyword.split('.')
+        kwargs['shape'] = pop_shape(options)
+
         for op in options:
-            if ('x' in op) and (op[0].isdigit()):
-                dims = op.split('x')
-                kwargs['shape'] = tuple([int(d) for d in dims])
-            elif op == 'g':
+            if op == 'g':
                 wc_class = WeightChannelsGaussian
             elif op == 'b':
                 wc_class = WeightChannelsMulti
@@ -186,7 +185,7 @@ class WeightChannels(Layer):
         Layer.plot
         
         """
-        return {'legend': True}
+        return {'legend': False}
 
 
 class WeightChannelsMulti(WeightChannels):
@@ -218,9 +217,9 @@ class WeightChannelsMulti(WeightChannels):
         """Multiply `input[...,i]` by `WeightChannels.coefficients[...,i]`."""
 
         try:
-            output = np.moveaxis(
-                np.matmul(np.rollaxis(input, 2), np.rollaxis(self.coefficients, 2)),
-                [0,1,2],[2,0,1])
+            output = np.moveaxis(np.matmul(np.moveaxis(input, [0,1], [-2,-1]), 
+                                           np.moveaxis(self.coefficients, [0,1], [-2,-1])),
+                                 [-2,-1], [0, 1])
         except ValueError as e:
             # Check for dimension swap, to give more informative error message.
             if 'mismatch in core dimension' in str(e):
@@ -242,12 +241,12 @@ class WeightChannelsMulti(WeightChannels):
             def call(self, inputs):
                 # reshape inputs and coefficients so that mult can happen on last
                 # two dimensions. Broadcasting seems to work fine this way
-                out = tf.transpose(
+                out = tf.experimental.numpy.moveaxis(
                     tf.matmul(
-                        tf.transpose(inputs, perm=[0, 3, 1, 2]),
-                        tf.transpose(self.coefficients, perm=[2, 0, 1])
+                        tf.experimental.numpy.moveaxis(inputs, [1, 2], [-2, -1]),
+                        tf.experimental.numpy.moveaxis(self.coefficients, [0, 1], [-2, -1])
                         ),
-                    perm=[0, 2, 3, 1]
+                    [-2, -1], [1, 2]
                     )
                 return out
 
@@ -341,7 +340,8 @@ class WeightChannelsGaussian(WeightChannels):
             def call(self, inputs):
                 mean = tf.expand_dims(self.mean, -1)
                 sd = tf.expand_dims(self.sd/10, -1)
-                input_features = tf.cast(tf.shape(inputs)[-1], dtype='float32')
+                input_features = tf.cast(tf.shape(inputs)[-1],
+                                         dtype=inputs.dtype)
                 temp = tf.range(input_features) / input_features
                 temp = tf.transpose((temp-mean)/sd, [1,0])
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
@@ -358,3 +358,138 @@ class WeightChannelsGaussian(WeightChannels):
 
         return WeightChannelsGaussianTF(self, new_values=new_values,
                                         new_bounds=new_bounds, **kwargs)
+
+    
+class WeightChannelsMultiGaussian(WeightChannels):
+    """WeightChannels specialized for multichannel input (eg, binaural) and with Gaussian tuning.
+
+    TODO : actually make this work -- current pasted together fomr WeightChannelsMulti and WeightChannelsGaussian, but not tested
+
+    Parameters
+    ----------
+    shape : N-tuple (usually N=3)
+
+    See also
+    --------
+    nems.layers.base.Layer
+    nems.layers.weight_channels.WeightChannels
+
+    Examples
+    --------
+    >>> wc = WeightChannelsMultiGaussian(shape=(18,4,2))
+    >>> spectrogram = np.random.rand(1000, 18, 2)  # (time, spectral_channels, ear)
+    >>> # wc.evaluate(spectrogram) equivalent...
+    >>> out = np.empty((spectrogram.shape[0], wc.shape[1], wc.shape[2]))
+    >>> for i in range(wc.shape[-1]):
+            out[:,:,i] = spectrogram[:,:,i] @ wc.coefficients[:,:,i]
+    >>> out.shape
+    (1000, 4, 2)
+
+    """
+
+    def initial_parameters(self):
+        """Get initial values for `WeightChannelsGaussian.parameters`.
+
+        Layer parameters
+        ----------------
+        mean : scalar or ndarray
+            Mean of gaussian, shape is `self.shape[1:]`.
+            Prior:  TODO  # Currently using defaults
+            Bounds: (0, 1)
+        sd : scalar or ndarray
+            Standard deviation of gaussian, shape is `self.shape[1:]`.
+            Prior:  TODO  # Currently using defaults
+            Bounds: (0*, np.inf)
+            * Actually set to machine epsilon to avoid division by zero.
+
+        Returns
+        -------
+        nems.layers.base.Phi
+
+        """
+
+        mean_bounds = (0, 1)
+        sd_bounds = (0, np.inf)
+
+        rank = self.shape[1]
+        other_dims = self.shape[2:]
+        shape = (rank,) + other_dims
+        # Pick means so that the centers of the gaussians are spread across the 
+        # available frequencies.
+        channels = np.arange(rank + 1)[1:]
+        tiled_means = channels / (rank*2 + 2) + 0.25
+        for dim in other_dims:
+            # Repeat tiled gaussian structure for other dimensions.
+            tiled_means = tiled_means[...,np.newaxis].repeat(dim, axis=-1)
+
+        mean_prior = Normal(tiled_means, np.full_like(tiled_means, 0.2))
+        sd_prior = HalfNormal(np.full_like(tiled_means, 0.4))
+            
+        parameters = Phi(
+            Parameter(name='mean', shape=shape, bounds=mean_bounds,
+                        prior=mean_prior),
+            Parameter(name='sd', shape=shape, bounds=sd_bounds,
+                        prior=sd_prior, zero_to_epsilon=True)
+            )
+
+        return parameters
+
+    @property
+    def coefficients(self):
+        """Return N discrete gaussians with T bins, where `shape=(T,N)`."""
+        mean = self.parameters['mean'].values
+        sd = self.parameters['sd'].values
+        n_input_channels = self.shape[0]
+
+        x = np.arange(n_input_channels)/n_input_channels
+        mean = np.asanyarray(mean)[..., np.newaxis]
+        sd = np.asanyarray(sd)[..., np.newaxis]
+        coefficients = np.exp(-0.5*((x-mean)/sd)**2)  # (rank, ..., outputs, T)
+        reordered = np.moveaxis(coefficients, -1, 0)  # (T, rank, ..., outputs)
+        # Normalize by the cumulative sum for each channel
+        cumulative_sum = np.sum(reordered, axis=-1, keepdims=True)
+        # If all coefficients for a channel are 0, skip normalization
+        cumulative_sum[cumulative_sum == 0] = 1
+        normalized = reordered/cumulative_sum
+
+        return normalized
+
+    def evaluate(self, input):
+        """Multiply `input[...,i]` by `WeightChannels.coefficients[...,i]`."""
+
+        try:
+            output = np.moveaxis(
+                np.matmul(np.rollaxis(input, 2), np.rollaxis(self.coefficients, 2)),
+                [0,1,2],[2,0,1])
+        except ValueError as e:
+            # Check for dimension swap, to give more informative error message.
+            if 'mismatch in core dimension' in str(e):
+                raise ShapeError(self, input=input.shape,
+                                 coefficients=self.coefficients.shape)
+            else:
+                # Otherwise let the original error through.
+                raise e
+
+        return output
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        class WeightChannelsMultiTF(NemsKerasLayer):
+            @tf.function
+            def call(self, inputs):
+                # reshape inputs and coefficients so that mult can happen on last
+                # two dimensions. Broadcasting seems to work fine this way
+                out = tf.transpose(
+                    tf.matmul(
+                        tf.transpose(inputs, perm=[0, 3, 1, 2]),
+                        tf.transpose(self.coefficients, perm=[2, 0, 1])
+                        ),
+                    perm=[0, 2, 3, 1]
+                    )
+                return out
+
+        return WeightChannelsMultiTF(self, **kwargs)
+

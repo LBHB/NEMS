@@ -9,6 +9,12 @@ from .cost import get_cost
 
 class TensorFlowBackend(Backend):
 
+    def __init__(self, nems_model, data, eval_kwargs=None):
+        # TODO: Remove this after issues with using float32 in scipy have
+        #       been fixed.
+        nems_model.set_dtype(np.float32)
+        super().__init__(nems_model, data, eval_kwargs=eval_kwargs)
+
     def _build(self, data, eval_kwargs=None):
         """Build a TensorFlow Keras model that corresponds to a NEMS Model. 
 
@@ -48,7 +54,7 @@ class TensorFlowBackend(Backend):
         for k, v in inputs.items():
             # Skip trial/sample dimension when determining shape.
             tf_in = Input(shape=v.shape[1:], name=k, batch_size=batch_size,
-                          dtype='float32')  # TODO: don't hard-code float32
+                          dtype=self.nems_model.dtype)
             tf_input_dict[k] = tf_in
         unused_inputs = list(tf_input_dict.keys())
 
@@ -167,6 +173,7 @@ class TensorFlowBackend(Backend):
 
         # Replace cost_function name with function object.
         if isinstance(cost_function, str):
+            print(f"cost_function: {cost_function}")
             cost_function = get_cost(cost_function)
 
         # TODO: support more keys in `fitter_options`.
@@ -207,6 +214,7 @@ class TensorFlowBackend(Backend):
             tf.constant(target, dtype=tf.float32),
             tf.constant(self.model.predict(inputs), dtype=tf.float32)
             ).numpy()
+        print(f"Initialial loss: {initial_error:.5f}")
         
         history = self.model.fit(
             inputs, {final_layer: target}, epochs=epochs,

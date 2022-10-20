@@ -48,6 +48,14 @@ class Phi:
         self._vector_mask = None
         self._update_vector_mask()
 
+    @property
+    def dtype(self):
+        return self._array.dtype
+
+    def set_dtype(self, dtype):
+        """Change dtype of all Parameter values in-place."""
+        self._array = self._array.astype(dtype)
+
     # TODO: if it becomes necessary, we can relax this restriction and allow
     #       for adding/removing Parameters. But I can't think of a case where
     #       it would really be needed since Layer parameters aren't meant to
@@ -128,6 +136,18 @@ class Phi:
         if as_list:
             vector = vector.tolist()
         return vector
+
+    def get_parameter_from_index(self, i):
+        """Get reference to Parameter corresponding to vector index."""
+        j = 0
+        for p in self._dict.values():
+            j += p.size
+            if i >= j:
+                # Not part of this Parameter
+                continue
+            else:
+                # Part of this Parameter
+                return p
 
     def get_bounds_vector(self, none_for_inf=True):
         """Return a list of bounds from each parameter in `Phi._dict`.

@@ -247,7 +247,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         if not isinstance(target, list):
             target = [target]
         for i, y in enumerate(target):
-            last_ax.plot(y, label=f'{target_name} {i}')
+            last_ax.plot(y, label=f'{target_name} {i}', alpha=0.3, color='black')
         last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
 
@@ -425,12 +425,11 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
             last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
         last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
-    if 'state' in eval_kwargs.keys():
-        if eval_kwargs['state'] is not None:
-            state_name = eval_kwargs.get('state_name','state')
-            last_ax.plot(eval_kwargs['state'], label=f'{state_name}', lw=0.5)
+        cc=np.corrcoef(target[0][:,0], output[:,0])[0,1]
+    else:
+        cc = model.meta.get('r_test',[0])[0]
 
-    figure.suptitle(f"{model.name} cc={model.meta.get('r_test',[0])[0]}", fontsize=10)
+    figure.suptitle(f"{model.name} cc={cc}", fontsize=10)
 
     return figure
 
@@ -546,6 +545,38 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
             ax.plot(output, **plot_kwargs)
 
     return fig
+
+
+def input_heatmap(input, ax=None, extent=None, title='Input',
+                  xlabel='Time (bins)', ylabel='Channel', add_colorbar=True):
+    """Plot heatmap of `input` with channels increasing from bottom to top.
+    
+    Parameters
+    ----------
+    input : np.ndarray, dict, or DataSet.
+        Input to `model`. See `nems.Model.evaluate`.
+    ax : Matplotlib.axes.Axes; optional.
+        Axes on which to plot.
+    title : str; optional.
+    xlabel : str; default='Time (bins)'.
+    ylabel : str; default='Firing Rate (Hz)'.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+    
+    """
+
+    if ax is None: ax = plt.gca()
+    im = ax.imshow(input.T, aspect='auto', cmap='binary', interpolation='none',
+                   origin='lower', extent=extent)
+    if add_colorbar:
+        plt.colorbar(im, ax=ax, label='Intensity')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+    return ax
 
 
 def checkerboard(array):

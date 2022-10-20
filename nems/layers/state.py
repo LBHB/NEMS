@@ -3,7 +3,8 @@ import numexpr as ne
 
 from nems.registry import layer
 from nems.distributions import Normal
-from .base import Layer, Phi, Parameter, require_shape
+from .base import Layer, Phi, Parameter
+from .tools import require_shape, pop_shape
 
 
 class StateGain(Layer):
@@ -89,11 +90,7 @@ class StateGain(Layer):
         """
         # TODO: other options from old NEMS
         options = keyword.split('.')
-        shape = None
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
 
         return StateGain(shape=shape)
 
