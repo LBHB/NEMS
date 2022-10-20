@@ -1,9 +1,8 @@
-import copy
-
 import numpy as np
 
 from nems.registry import layer
 from nems.visualization import plot_layer
+from nems.tools.arrays import one_or_more_nan
 from .phi import Phi
 from .map import DataMap
 
@@ -350,13 +349,23 @@ class Layer:
         """
         self.data_map = DataMap(self)
 
-    def _evaluate(self, data, inplace_ok=False, dtype=np.float32):
+    def _evaluate(self, data, inplace_ok=False, dtype=np.float32,
+                  debug_nans=False):
         """Get inputs from `data`, evaluate them, and update `Layer.data_map`.
 
         Parameters
         ----------
         data : dict
             See `Model.evaluate` for details on structure.
+        inplace_ok : bool; default=False.
+            If True, informs `Layer.evaluate` that it can safely overwrite
+            `inputs` to reduce memory usage.
+        dtype : type, default=np.float32.
+            Output of `Layer.evaluate` will be cast to this type with
+            `copy=False`.
+        debug_nans : bool; default=False.
+            If True, raise ValueError if output of `Layer.evaluate` contains
+            NaN values.
 
         Returns
         -------
@@ -393,10 +402,18 @@ class Layer:
                 else x.astype(dtype, copy=False)
                 for x in output
                 ]
+            if debug_nans and any([one_or_more_nan(o) for o in output]):
+                raise ValueError(
+                    f"Output of layer {self.name} contains NaNs."
+                )
         else:
             output = output.astype(dtype, copy=False)
             if output.ndim == 1:
                 output = output[..., np.newaxis]
+            if debug_nans and one_or_more_nan(output):
+                raise ValueError(
+                    f"Output of layer {self.name} contains NaNs."
+                )
         
         # Add output information to DataMap
         self.data_map.map_outputs(output)

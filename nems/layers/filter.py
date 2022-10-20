@@ -11,7 +11,7 @@ from nems.tools.arrays import broadcast_axes
 
 class FiniteImpulseResponse(Layer):
 
-    def __init__(self, **kwargs):
+    def __init__(self, stride=1, **kwargs):
         """Convolve linear filter(s) with input.
 
         Parameters
@@ -55,6 +55,7 @@ class FiniteImpulseResponse(Layer):
 
         """
         require_shape(self, kwargs, minimum_ndim=2)
+        self.stride = stride
         super().__init__(**kwargs)
 
 
@@ -125,7 +126,8 @@ class FiniteImpulseResponse(Layer):
         output = np.stack(outputs, axis=-1)
         # Squeeze out rank dimension
         output = np.squeeze(output, axis=1)
-        
+        if self.stride > 1:
+            output = output[::self.stride, ...]
         return output
 
     def _reshape_coefficients(self):
@@ -212,7 +214,8 @@ class FiniteImpulseResponse(Layer):
                 kwargs['n_poles'] = int(op[1:zeros_idx])
                 kwargs['n_zeros'] = int(op[zeros_idx+1:fs_idx])
                 kwargs['fs'] = int(op[fs_idx+2:])
-
+            elif op.startswith('s'):
+                kwargs['stride'] = int(op[1:])
         fir = fir_class(**kwargs)
 
         return fir
@@ -372,6 +375,7 @@ class FiniteImpulseResponse(Layer):
         """
 
         num_gpus = len(tf.config.list_physical_devices('GPU'))
+        stride = self.stride
         if num_gpus == 0:
             # Use CPU-compatible (but slower) version.
             @tf.function
@@ -381,12 +385,12 @@ class FiniteImpulseResponse(Layer):
                     tf.transpose(coefficients, [2, 0, 1]), -1
                     )
                 padded_input = tf.pad(
-                    inputs, [[0,0], [filter_width-1,0], [0,0], [0,0]]
+                    inputs, [[0, 0], [filter_width-1, 0], [0, 0], [0, 0]]
                     )
                 # Reorder input to shape (n outputs, batch, time, rank)
                 x = tf.transpose(padded_input, [3, 0, 1, 2])
                 fn = lambda t: tf.cast(tf.nn.conv1d(  # TODO: don't like forcing dtype here
-                    t[0], t[1], stride=1, padding='VALID'
+                    t[0], t[1], stride=stride, padding='VALID'
                     ), tf.float64)
                 # Apply convolution for each output
                 y = tf.map_fn(
@@ -415,7 +419,7 @@ class FiniteImpulseResponse(Layer):
                     )
                 # Convolve filters with input slices in groups of size `rank`.
                 y = tf.nn.conv1d(
-                    padded_input, coefficients, stride=1, padding='VALID'
+                    padded_input, coefficients, stride=stride, padding='VALID'
                     )
                 return y 
 

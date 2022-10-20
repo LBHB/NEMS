@@ -425,8 +425,11 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
             last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
         last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
+        cc=np.corrcoef(target[0][:,0], output[:,0])[0,1]
+    else:
+        cc = model.meta.get('r_test',[0])[0]
 
-    figure.suptitle(f"{model.name} cc={model.meta.get('r_test',[0])[0]}", fontsize=10)
+    figure.suptitle(f"{model.name} cc={cc}", fontsize=10)
 
     return figure
 

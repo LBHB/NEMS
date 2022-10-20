@@ -55,7 +55,7 @@ class Distribution:
     def shape(self):
         return self.mean().shape
 
-    def sample(self, n=1, bounds=None):
+    def sample(self, n=1, bounds=None, max_tries=None):
         """Draw random sample(s) from a (truncated) distribution.
         
         Parameters
@@ -72,19 +72,28 @@ class Distribution:
         good_sample : ndarray
         
         """
+        if max_tries is None:
+            max_tries = 100*n
+
         size = [n] + list(self.shape)
         good_sample = np.full(shape=size, fill_value=np.nan)
 
+        i = 0
         while np.sum(np.isnan(good_sample)) > 0:
             sample = self.distribution.rvs(size=size)
             if bounds is not None:
+                if i > max_tries:
+                    raise ValueError(
+                        "Resampling within bounds exceeded `max_tries` for "
+                        f"{self.tolist()}. with bounds: {bounds}."
+                    )
                 lower, upper = bounds
                 keep = (sample >= lower) & (sample <= upper)
                 good_sample[keep] = sample[keep]
             else:
                 good_sample = sample
                 break
-
+                
         # Drop first dimension if n = 1
         if n == 1:
             good_sample = np.squeeze(good_sample, axis=0)

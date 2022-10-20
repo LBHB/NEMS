@@ -9,6 +9,7 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model
+from nems.tools.arrays import one_or_more_nan
 from .dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
@@ -238,7 +239,7 @@ class Model:
     def evaluate(self, input, state=None, input_name=None, state_name=None,
                  output_name=None, n=None, return_full_data=True,
                  as_dataset=False, use_existing_maps=False, batch_size=0,
-                 permute_batches=False):
+                 permute_batches=False, debug_nans=False):
         """Transform input(s) by invoking `Layer.evaluate` for each Layer.
 
         Evaluation encapsulates three steps:
@@ -317,6 +318,10 @@ class Model:
             so the outputs won't be concatenated in the right order.
             If True, randomly shuffle batches prior to evaluation. Typically
             used during fitting, to shuffle between epochs.
+        debug_nans : bool; default=False.
+            If True, raise ValueError if a Layer's output contains NaN values.
+            Useful for narrowing down the source of unexpected NaNs in the final
+            model output.
 
         Returns
         -------
@@ -355,6 +360,7 @@ class Model:
             # number of output channels.
             data_generator = self.generate_layer_data(
                                 data, use_existing_maps=use_existing_maps,
+                                debug_nans=debug_nans
                                 )
             data = self.get_layer_data(data_generator, n, n)[-1]['data']
 
@@ -365,7 +371,8 @@ class Model:
             batch_out = list(self.generate_batch_data(
                 input, state=state, input_name=input_name, state_name=state_name,
                 output_name=output_name, n=n, batch_size=batch_size,
-                permute_batches=permute_batches, use_existing_maps=use_existing_maps
+                permute_batches=permute_batches, debug_nans=debug_nans,
+                use_existing_maps=use_existing_maps
                 ))
             all_outputs = DataSet.concatenate_sample_outputs(batch_out)
             # Inputs (and any targets) should not have changed
@@ -427,6 +434,7 @@ class Model:
             for sample in samples:
                 data_generator = self.generate_layer_data(
                     sample, use_existing_maps=use_existing_maps,
+                    **eval_kwargs
                 )
 
                 # Get data for the final layer only, to reduce memory use.
@@ -444,7 +452,7 @@ class Model:
     # TODO: possibly move this method and any related subroutines to a separate
     #       module (inside a new `base` directory), with simple wrappers in
     #       Model as the public-facing API.
-    def generate_layer_data(self, input, copy_data=False,
+    def generate_layer_data(self, input, copy_data=False, debug_nans=False,
                             use_existing_maps=False, **eval_kwargs):
         """Generate input and output arrays for each Layer in Model.
         
@@ -544,7 +552,8 @@ class Model:
                     if all([k not in data.inputs for k in keys]):
                         inplace_ok = True
 
-            a, k, o = self._evaluate_layer(layer, data, inplace_ok=inplace_ok)
+            a, k, o = self._evaluate_layer(layer, data, inplace_ok=inplace_ok,
+                                           debug_nans=debug_nans)
 
             # TODO: last thing to consider (I think) on `inplace_ok`: overwriting
             #       previous output would change the reference to `o` in the
@@ -575,7 +584,7 @@ class Model:
 
         yield layer_data
 
-    def _evaluate_layer(self, layer, data, inplace_ok=False):
+    def _evaluate_layer(self, layer, data, inplace_ok=False, debug_nans=False):
         """Evaluates one Layer. Internal for `Model.generate_layer_data`.
         
         Returns
@@ -591,7 +600,8 @@ class Model:
         
         # Get input & output arrays
         args, kwargs, output = layer._evaluate(
-            data, inplace_ok=inplace_ok, dtype=self.dtype
+            data, inplace_ok=inplace_ok, dtype=self.dtype,
+            debug_nans=debug_nans
             )
 
         # Save output (or don't) based on Layer.DataMap.
