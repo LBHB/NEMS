@@ -45,6 +45,7 @@ def loss_tf_nmse(response, prediction, per_cell=True):
     mE, sE = tf_nmse(response, prediction, per_cell=per_cell)
     if per_cell:
         return tf.math.reduce_mean(mE)
+        #return tf.reduce_mean(tf.boolean_mask(mE, tf.math.is_finite(mE)))
     else:
         return mE
 
@@ -96,14 +97,15 @@ def tf_nmse(response, prediction, per_cell=True):
     """
     # TODO: This won't work with higher D data, assumes placement of time.
     #       Also not clear what the n_drop thing is about? Why does it matter
-    #       if the number of time bins is divisble by 10?
-    n_drop = response.get_shape().as_list()[-2] % 10
+    #       if the number of time bins is divisble by 10? 
+    #       -- hardcoded to 10 jackknifes for error estimate
+    n_drop = response.get_shape().as_list()[1] % 10
     if n_drop:
         # use slices to handle varying tensor shapes
         drop_slice = [slice(None) for i in range(len(response.shape))]
 
-        # second last dim is time
-        drop_slice[-2] = slice(None, -n_drop)
+        # second dim is time
+        drop_slice[1] = slice(None, -n_drop)
         drop_slice = tuple(drop_slice)
 
         _response = response[drop_slice]
@@ -111,22 +113,32 @@ def tf_nmse(response, prediction, per_cell=True):
     else:
         _response = response
         _prediction = prediction
+    print("In tf_nmse:" , _response.shape, _prediction.shape, 'n_drop:', n_drop)
 
     if per_cell:
         # Put last dimension (number of output channels) first.
-        _response = tf.transpose(_response, np.roll(np.arange(len(response.shape)), 1))
-        _prediction = tf.transpose(_prediction, np.roll(np.arange(len(response.shape)), 1))
+        #_response = tf.transpose(_response, np.roll(np.arange(len(response.shape)), 1))
+        #_prediction = tf.transpose(_prediction, np.roll(np.arange(len(response.shape)), 1))
+        _response = tf.experimental.numpy.moveaxis(_response, [-1, 1], [0, 1])
+        _prediction = tf.experimental.numpy.moveaxis(_prediction, [-1, 1], [0, 1])
+        print("after transpose:" , _response.shape, _prediction.shape)
 
         # What are the hardcoded 10s about? Related to n_drop?
         _response = tf.reshape(_response, shape=(_response.shape[0], 10, -1))
         _prediction = tf.reshape(_prediction, shape=(_prediction.shape[0], 10, -1))
+        print("after reshape:" , _response.shape, _prediction.shape)
     else:
         _response = tf.reshape(_response, shape=(10, -1))
         _prediction = tf.reshape(_prediction, shape=(10, -1))
 
     squared_error = ((_response - _prediction) ** 2)
-    nmses = (tf.math.reduce_mean(squared_error, axis=-1) /
-             tf.math.reduce_mean(_response**2, axis=-1)) ** 0.5
+    numers = tf.math.reduce_mean(squared_error, axis=-1)
+    denoms = tf.math.reduce_mean(_response**2, axis=-1)
+    denoms = tf.where(tf.equal(denoms, 0), tf.ones_like(denoms), denoms)
+    
+    nmses = (numers / denoms) ** 0.5
+    
+    print("nmses shape:" , nmses.shape)
 
     # Hard-coded 10 again? Why?
     mE = tf.math.reduce_mean(nmses, axis=-1)

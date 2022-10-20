@@ -167,6 +167,7 @@ class TensorFlowBackend(Backend):
 
         # Replace cost_function name with function object.
         if isinstance(cost_function, str):
+            print(f"cost_function: {cost_function}")
             cost_function = get_cost(cost_function)
 
         # TODO: support more keys in `fitter_options`.
@@ -207,6 +208,7 @@ class TensorFlowBackend(Backend):
             tf.constant(target, dtype=tf.float32),
             tf.constant(self.model.predict(inputs), dtype=tf.float32)
             ).numpy()
+        print(f"Initialial loss: {initial_error:.5f}")
         
         history = self.model.fit(
             inputs, {final_layer: target}, epochs=epochs,

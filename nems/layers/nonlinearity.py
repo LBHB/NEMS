@@ -146,6 +146,37 @@ class LevelShift(StaticNonlinearity):
 
         return LevelShift(shape=shape)
 
+    @property
+    def plot_kwargs(self):
+        """Add incremented labels to each output channel for plot legend.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        kwargs = {
+            'label': [f'Channel {i}' for i in range(self.shape[1])]
+        }
+        return kwargs
+
+    @property
+    def plot_options(self):
+        """Add legend at right of plot, with default formatting.
+
+        Notes
+        -----
+        The legend will grow quite large if there are many output channels,
+        but for common use cases (< 10) this should not be an issue. If needed,
+        increase figsize to accomodate the labels.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        return {'legend': False}
+
 
 class DoubleExponential(StaticNonlinearity):
     """TODO: doc here? maybe just copy .evaluate?"""
