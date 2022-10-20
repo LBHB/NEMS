@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "PyNEMS"
-version = "0.0.1"
+version = "0.0.2"
 description = "Fit and evaluate models of sensory encoding and decoding."
 readme = "README.md"
 authors = [
