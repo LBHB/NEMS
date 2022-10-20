@@ -43,40 +43,65 @@ print(correlation(prediction, response))
 # OR
 print(model.score(test_spectrogram, response, metric='correlation'))
 ```
+Try the above examples with real data:
+```
+import nems
+
+nems.download_demo()
+training_dict, test_dict = nems.load_demo()
+
+# Each dictionary contains a 100 hz natural sound spectrogram and
+# the PSTH / firing rate of the recorded spiking response.
+spectrogram = training_dict['spectrogram']
+response = training_dict['response']
+```
 
 
 
 # Installation instructions
 ## Recommended: Intall from source.
 NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
+
 1. Download source code
 ```
 git clone https://github.com/lbhb/nems
 ```
-2. Create a new virtual environment using your preferred environment manager (examples for `conda` below).
+
+2a. Create and activate a new virtual environment using your preferred environment manager (example for `venv` below).
 ```
-conda create -n nems-env python=3.9 pip        # manually
-# OR (don't do both)
-conda env create -f NEMS/environment.yml  # or with .yml
+python -m venv ./nems-env
+./nems-env/scripts/activate
 ```
 
-3. Install in editable mode with optional development tools.
+2b. Install frozen dependencies. This will install the exact versions used during development.
+```
+pip install -r .\NEMS\requirements.txt
+```
+
+2c. Alternatively, use `conda` to replace both step 2a and step 2b.
+```
+conda env create -f NEMS/environment.yml
+conda activate nems-env
+```
+
+3. Install NEMS in editable mode along with optional development tools.
 ```
 pip install -e NEMS[dev]
 ```
+
 4. Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
 ```
 pytest NEMS
 ```
 
 ## Alternative: PyPI (pip)
-Create a new environment using your preferred environment manager, then use pip install.
+Create a new environment using your preferred environment manager, then use `pip install`.
 ```
-conda create -n nems-env python=3.9 pip
-pip install PyNEMS
+conda create -n nems-env python=3.9 pip  # note that python=3.9 is currently required
+pip install PyNEMS                       # note the leading Py
 ```
 
-## Alternative: Conda
+## Alternative: `conda install`.
 Coming soon.
 
 
@@ -90,14 +115,11 @@ conda install -c conda-forge numpy
 
 # Upcoming features/updates
 Roughly in order of priority:
-* Add more Layers from nems0.
 * Add core pre-processing and scoring from nems0.
 * Set up readthedocs.
-* Demo data.
 * Other core features (like jackknifed fits, cross-validation, etc.).
 * Enable Travis build (.travis.yml is already there, but not yet tested).
 * Publish through conda.
 * Backwards-compatibility tools for loading nems0 models.
-* Try Numba for Layer.evaluate and cost functions.
 * Implement Jax back-end.
 * ... (see issues tracker).

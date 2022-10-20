@@ -9,6 +9,12 @@ from .cost import get_cost
 
 class TensorFlowBackend(Backend):
 
+    def __init__(self, nems_model, data, eval_kwargs=None):
+        # TODO: Remove this after issues with using float32 in scipy have
+        #       been fixed.
+        nems_model.set_dtype(np.float32)
+        super().__init__(nems_model, data, eval_kwargs=eval_kwargs)
+
     def _build(self, data, eval_kwargs=None):
         """Build a TensorFlow Keras model that corresponds to a NEMS Model. 
 

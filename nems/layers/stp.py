@@ -2,9 +2,16 @@ import numpy as np
 from numba import njit
 
 from nems.registry import layer
-from nems.layers.base import Layer, Phi, Parameter, require_shape
-from nems.distributions import HalfNormal
-from nems.tools.arrays import one_or_more_negative
+from nems.layers.base import Layer, Phi, Parameter
+from nems.layers.tools import require_shape, pop_shape
+from nems.distributions import Normal, HalfNormal
+
+
+def _cumtrapz(x, dx=1., initial=0., axis=1):
+    x = (x[:, :-1] + x[:, 1:]) / 2.0
+    x = np.pad(x, ((0, 0), (1, 0)), 'constant', constant_values=(initial, initial))
+    # x = tf.pad(x, ((0, 0), (1, 0), (0, 0)), constant_values=initial)
+    return np.cumsum(x, axis=axis) * dx
 
 
 class ShortTermPlasticity(Layer):
@@ -269,16 +276,8 @@ class ShortTermPlasticity(Layer):
     @layer('stp')
     def from_keyword(keyword):
         """TODO: docs"""
-        shape = None
-
         options = keyword.split('.')
-        for op in options:
-            if (op[0].isdigit()):
-                if 'x' in op:
-                    dims = op.split('x')
-                else:
-                    dims = [op]
-                shape = tuple([int(d) for d in dims])
+        shape = pop_shape(options)
 
         return ShortTermPlasticity(shape=shape)
 

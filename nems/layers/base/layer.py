@@ -590,6 +590,10 @@ class Layer:
         """
         return self.parameters.get_vector(as_list=as_list)
 
+    def get_parameter_from_index(self, index):
+        """Get reference to Parameter corresponding to vector index."""
+        return self.parameters.get_parameter_from_index(index)
+
     def set_parameter_vector(self, vector, ignore_checks=False):
         """Set parameter values with a single vector.
 

@@ -137,6 +137,18 @@ class Phi:
             vector = vector.tolist()
         return vector
 
+    def get_parameter_from_index(self, i):
+        """Get reference to Parameter corresponding to vector index."""
+        j = 0
+        for p in self._dict.values():
+            j += p.size
+            if i >= j:
+                # Not part of this Parameter
+                continue
+            else:
+                # Part of this Parameter
+                return p
+
     def get_bounds_vector(self, none_for_inf=True):
         """Return a list of bounds from each parameter in `Phi._dict`.
         

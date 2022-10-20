@@ -1,6 +1,7 @@
 import copy
 import textwrap
 import itertools
+import warnings
 
 import numpy as np
 
@@ -17,7 +18,7 @@ del nems.layers
 
 class Model:
 
-    def __init__(self, layers=None, name=None, dtype=np.float32, meta=None):
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
         """A structured collection of Layers.
         
         This is the primary class for interacting with NEMS. Conceptually, a
@@ -32,7 +33,7 @@ class Model:
             Layers that will define the Model's data transformations.
         name : str; optional.
             Name for the Model.
-        dtype : type; default=np.float32.
+        dtype : type; default=np.float64.
             TODO: docs. float64 not supported by all TensorFlow ops.
         meta : dict; optional.
             A general-purpose dictionary for storing additional information
@@ -94,10 +95,19 @@ class Model:
         
         """
         self._layers = {}  #  layer.name : layer obj, increment on clashes
+
+        # TODO: remove warning after fixing issues w/ scipy
+        if dtype != np.float64:
+            warnings.warn(
+                "Using `Model(dtype=...)` is currently experimental. For best "
+                "results, leave dtype as the default. TF Backend will overwrite "
+                "this setting to np.float32 for the time being."
+            )
+        self.dtype = dtype
+
         if layers is not None:
             self.add_layers(*layers)
         self.name = name if name is not None else 'UnnamedModel'
-        self.set_dtype(dtype)
 
         # Store optional metadata. This is a generic dictionary for information
         # about the model. Any type can be stored here as long as it can be
@@ -209,6 +219,8 @@ class Model:
             # Also update `Layer.name` so that there's no mismatch between
             # a Layer's name and its key in the Model.
             layer._name = key
+
+        self.set_dtype(self.dtype)
 
     def get_layer_index(self, name):
         """Get integer index for Layer with `.name == name`."""
@@ -747,7 +759,7 @@ class Model:
 
         Parameters
         ----------
-        input : np.ndarray, dict, or Dataset.
+        input : np.ndarray or dict.
             See `Model.evaluate`.
         target : np.ndarray or dict of np.ndarray.
             TODO: support dict
@@ -803,8 +815,10 @@ class Model:
         # Get Backend sublass.
         backend_class = get_backend(name=backend)
         # Build backend model.
-        backend_obj = backend_class(new_model, data, eval_kwargs=eval_kwargs,
-                                    **backend_options)
+        backend_obj = backend_class(
+            new_model, data, eval_kwargs=eval_kwargs,
+            **backend_options
+            )
         # Fit backend, save results.
         fit_results = backend_obj._fit(
             data, eval_kwargs=eval_kwargs, **fitter_options
@@ -898,6 +912,7 @@ class Model:
         for layer in self.layers:
             vector = layer.get_parameter_vector(as_list=as_list)
             vectors.append(vector)
+
         # flatten list
         if as_list:
             model_vector = [v for vector in vectors for v in vector]
@@ -905,6 +920,42 @@ class Model:
             model_vector = np.concatenate(vectors)
         
         return model_vector
+
+    def get_parameter_from_index(self, *indices):
+        """Get reference(s) to Parameter(s) from index in parameter vector.
+        
+        Parameters
+        ----------
+        indices : N-tuple of int.
+            Indices corresponding to result of `Model.get_parameter_vector()`.
+        
+        Returns
+        -------
+        dict of nems.layers.base.Parameter
+            With structure {Layer.name : Parameter}
+        
+        """
+        # collect all layer vectors
+        layer_counts = {}
+        for layer in self.layers:
+            layer_counts[layer.parameter_count] = layer
+
+        parameters = {}
+        for i in indices:
+            j = 0
+            for count, layer in layer_counts.items():
+                j += count
+                if i >= j:
+                    # Parameter is not in this layer
+                    continue
+                else:
+                    # Parameter is in this layer
+                    parameters[layer.name] = layer.get_parameter_from_index(
+                        i-(j-count)
+                        )
+                    break
+
+        return parameters
 
     def set_parameter_vector(self, vector, ignore_checks=False):
         """Set all parameter values with a single vector.
@@ -1184,12 +1235,13 @@ class Model:
         `nems.tools.json`
 
         """
-        # TODO: Should .backend or .results be saved?
+
         data = {
             'layers': list(self._layers.values()),
             'name': self.name,
             'dtype': self.dtype.__name__,
-            'meta': self.meta
+            'meta': self.meta,
+            'results': self.results
         }
 
         return data
@@ -1209,6 +1261,7 @@ class Model:
         """
         model = cls(layers=json['layers'], name=json['name'], 
                     dtype=getattr(np, json['dtype']), meta=json['meta'])
+        model.results = json['results']
         return model
 
     def copy(self):
@@ -1220,12 +1273,9 @@ class Model:
         state-dependent objects from other packages that cannot copy correctly.
         
         """
-        results = self.results
         backend = self.backend
-        self.results = None
         self.backend = None
         copied_model = copy.deepcopy(self)
-        self.results = results
         self.backend = backend
     
         return copied_model

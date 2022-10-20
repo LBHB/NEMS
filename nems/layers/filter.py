@@ -2,7 +2,8 @@ import numpy as np
 import scipy.signal
 from scipy import interpolate
 
-from .base import Layer, Phi, Parameter, require_shape
+from .base import Layer, Phi, Parameter
+from .tools import require_shape, pop_shape
 from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
 from nems.tools.arrays import broadcast_axes
@@ -203,11 +204,9 @@ class FiniteImpulseResponse(Layer):
         fir_class = FiniteImpulseResponse
 
         options = keyword.split('.')
+        kwargs['shape'] = pop_shape(options)
         for op in options:
-            if ('x' in op) and (op[0].isdigit()):
-                dims = op.split('x')
-                kwargs['shape'] = tuple([int(d) for d in dims])
-            elif op.startswith('p') and op[1].isdigit():
+            if op.startswith('p') and op[1].isdigit():
                 # Pole-zero parameterization
                 fir_class = PoleZeroFIR
                 fs_idx = op.index('fs')

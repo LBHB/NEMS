@@ -2,7 +2,8 @@ import numpy as np
 
 from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
-from .base import Layer, Phi, Parameter, ShapeError, require_shape
+from .base import Layer, Phi, Parameter, ShapeError
+from .tools import require_shape, pop_shape
 
 
 # TODO: double check all shape references after dealing w/ data order etc,
@@ -123,13 +124,11 @@ class WeightChannels(Layer):
         """
         wc_class = WeightChannels
         kwargs = {}
-
         options = keyword.split('.')
+        kwargs['shape'] = pop_shape(options)
+
         for op in options:
-            if ('x' in op) and (op[0].isdigit()):
-                dims = op.split('x')
-                kwargs['shape'] = tuple([int(d) for d in dims])
-            elif op == 'g':
+            if op == 'g':
                 wc_class = WeightChannelsGaussian
             elif op == 'b':
                 wc_class = WeightChannelsMulti

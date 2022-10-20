@@ -2,7 +2,7 @@ import numpy as np
 
 from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
-from .base import Layer, Phi, Parameter, ShapeError, require_shape
+from .base import Layer, Phi, Parameter, ShapeError
 
 
 # TODO: double check all shape references after dealing w/ data order etc,

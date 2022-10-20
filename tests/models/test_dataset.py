@@ -104,3 +104,11 @@ def test_batches(spectrogram, response, state_with_samples):
     for batch in batch_generator:
         assert batch.has_samples
         assert batch.n_samples == 1
+
+
+def test_1d_target(spectrogram, response):
+    response_1d = response[:, 0]
+    d = DataSet(input=spectrogram, target=response_1d)
+    assert response_1d.ndim == 1
+    assert d.targets[d.target_name].ndim == 2
+    assert np.allclose(response_1d, d.targets[d.target_name].flatten())

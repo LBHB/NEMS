@@ -130,3 +130,8 @@ dmypy.json
 
 # pycharms project data
 .idea/
+
+# downloaded demo data for NEMS
+nems/tools/demo_data/saved_data/*
+# but still keep the parent folder
+!nems/tools/demo_data/saved_data/.gitkeep
