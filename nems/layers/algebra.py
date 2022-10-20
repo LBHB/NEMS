@@ -1,24 +1,11 @@
 import numpy as np
 
 from nems.registry import layer
-from nems.distributions import Normal, HalfNormal
-from .base import Layer, Phi, Parameter, ShapeError
+from .base import Layer, Phi, Parameter
 
 
-# TODO: double check all shape references after dealing w/ data order etc,
-#       make sure correct dims are lined up.
 class SwapDims(Layer):
-    """Compute linear weighting of input channels, akin to a dense layer.
-
-    Parameters
-    ----------
-    shape : N-tuple (usually N=2)
-        Determines the shape of `WeightChannels.coefficients`.
-        First dimension should match the spectral dimension of the input,
-        second dimension should match the spectral dimension of the output.
-        Note that higher-dimesional shapes are also allowed and should work
-        as-is for this base class, but overall Layer design is intended for
-        2-dimensional data so subclasses might not support other shapes.
+    """Swap two dimensions of an input array.
 
     See also
     --------
@@ -33,90 +20,53 @@ class SwapDims(Layer):
     (10000, 2, 18)
 
     """
+ 
     def __init__(self, dim1=1, dim2=2, **kwargs):
-        self.dim1=dim1
-        self.dim2=dim2
+        self.dim1 = dim1
+        self.dim2 = dim2
         super().__init__(**kwargs)
 
-    def initial_parameters(self):
-        """No parameters
-
-        """
-        return Phi()
-
     def evaluate(self, input):
-        """Multiply input by WeightChannels.coefficients.
-
-        Computes $y = XA$ for input $X$, where $A$ is
-        `WeightChannels.coefficients` and $y$ is the output.
-        
-        Parameters
-        ----------
-        input : np.ndarray
-
-        Returns
-        -------
-        np.ndarray
-        
-        """
-
+        """Swap two dimensions of the input."""
         return np.moveaxis(input, [self.dim1, self.dim2], [self.dim2, self.dim1])
 
     @layer('sd')
     def from_keyword(keyword):
-        """Construct WeightChannels (or subclass) from keyword.
+        """Construct SwapDims from keyword.
 
         Keyword options
         ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-        g : Use gaussian function(s) to determine coefficients.
+        {digit} : First dimension to swap; optional, default=1.
+        {digit} : Second dimension to swap; optional, default=2.
 
         See also
         --------
         Layer.from_keyword
         
         """
-        kwargs = {}
-        options = keyword.split('.')
-        
-        if len(options)>1:
-            kwargs['dim1']=int(options[1])
-        if len(options)>2:
-            kwargs['dim2']=int(options[2])
-            
+
+        options = keyword.split('.')[1:3]
+        kwargs = {f'dim{i+1}': d for i, d in enumerate(options)}
         return SwapDims(**kwargs)
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs
+        """TODO: docs."""
         
-        NOTE: This is currently hard-coded to dot the 2nd dim of the input
-        (batch, time, channels, ...) and first dim of coefficients
-        (channels, rank, ...).
-        
-        """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
-        dim1 = self.dim1+1
-        dim2 = self.dim2+1
+  
+        dim1 = self.dim1 + 1
+        dim2 = self.dim2 + 1
+    
         class SwapDimsTF(NemsKerasLayer):
             @tf.function
             def call(self, inputs):
-                out = tf.experimental.numpy.moveaxis(inputs, [dim1, dim2], [dim2, dim1])
+                out = tf.experimental.numpy.moveaxis(
+                    inputs, [dim1, dim2], [dim2, dim1]
+                    )
                 return out
-        
-        return SwapDimsTF(self, **kwargs)
 
-    @property
-    def plot_kwargs(self):
-        """Add incremented labels to each output channel for plot legend.
-        
-        See also
-        --------
-        Layer.plot
-        
-        """
-        kwargs = {}
-        return kwargs
+        return SwapDimsTF(self, **kwargs)
 
     @property
     def plot_options(self):
