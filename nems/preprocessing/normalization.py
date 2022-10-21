@@ -136,3 +136,19 @@ def undo_minmax(y, _min, _max):
     z = y*_max + _min
     z.shape = y.shape
     return z
+
+
+def redo_minmax(x, _min, _max, inplace=False):
+    """Apply pre-computed normalization to a another array.
+    
+    TODO: docs.
+    
+    TODO: N-D support like `minmax`.
+    
+    """
+    if not inplace:
+        x = x.copy()
+    shifted = np.subtract(x, _min, out=x)
+    normalized = np.divide(shifted, _max, out=x)
+
+    return normalized
