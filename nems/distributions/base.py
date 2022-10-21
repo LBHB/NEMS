@@ -14,10 +14,10 @@ class Distribution:
     @classmethod
     def value_to_string(cls, value):
         if value.ndim == 0:
-            return 'scalar'
+            return str(value)
         else:
-            shape = ', '.join(str(v) for v in value.shape)
-            return 'array({})'.format(shape)
+            shape = ','.join(str(v) for v in value.shape)
+            return f'array(shape=({shape}))'
 
     def mean(self):
         """Return the expected value of the distribution."""

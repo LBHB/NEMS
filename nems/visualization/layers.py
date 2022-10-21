@@ -6,19 +6,49 @@ from matplotlib.ticker import MaxNLocator
 
 from nems.layers.stp import ShortTermPlasticity
 from nems.visualization.tools import standardize_axes
-from nems.preprocessing.normalization import minmax, redo_minmax
+from nems.preprocessing.normalization import minmax, joint_minmax
 from nems.distributions import Normal, HalfNormal
+
+
+def stp_test_input():
+    """Generate synthetic data to probe STP's input/output relationship.
+
+    Each channel is structured as:
+        Row 0: Random [0,1)
+        Row 1: Square-wave
+        Row 2: All zero
+
+    Returns
+    -------
+    np.ndarray
+        Shape (100, 3).
+    
+    """
+    input = np.random.rand(100, 3)
+    input[:, 1] = 0
+    input[10:20, 1] = 1
+    input[25:35, 1] = 1
+    input[60:90, 1] = 1
+    input[:, 2] = 0
+
+    return input
 
 
 def stp_input_output(n=5, quick_eval=False, figsize=None):
     """Visualize STP input/output relationship for random parameter values.
     
     Creates a 3x3 grid of input/output plots.
-    Each column is associated with one random parameter sample.
+    Each column is associated with one parameter sample.
+        Column 0: Default parameters.
+        Column >= 1: Randomly sampled (*not* `stp.sample_from_priors`.)
+                     u:       Normal(mean=0.25, sd=0.25)  s.t.   |u| >= 0.001
+                     tau: HalfNormal(           sd=5   )  s.t. |tau| >= 0.100
+        For cases where u < 0 (facilitation), input & output will be normalized
+        such 
     Each row is associated with one channel of the synthetic input data:
-        Channel 0: Random [0,1)
-        Channel 1: Square-wave
-        Channel 2: All zero
+        Row 0: Random [0,1)
+        Row 1: Square-wave
+        Row 2: All zero.
 
     Parameters
     ----------
@@ -38,39 +68,35 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
     """
 
     # Generate synthetic input
-    input = np.random.rand(100, 3)
-    input[:, 1] = 0
-    input[10:20, 1] = 1
-    input[25:35, 1] = 1
-    input[60:90, 1] = 1
-    input[:, 2] = 0
+    # 0: random, 1: square, 2: zero
+    input = stp_test_input()
 
     if figsize is None: figsize = ((n*3)+1, 8)
     fig, axes = plt.subplots(3,5, sharey='col', figsize=figsize)
     titles = ['Random [0,1)', 'Square', 'Zeros']
 
-    # Generate output data for 3 random parameter sets and add it to the figure.
+    # Generate output data for n parameter sets and add it to the figure.
     for i in range(n):
         stp = ShortTermPlasticity(shape=(n,), quick_eval=quick_eval)
-        # Manually sample parameters.
-        u = Normal(mean=0.25, sd=0.25).sample(1).round(3)
-        tau = HalfNormal(5).sample(1).round(3)
-        if u < 0: u = (0.1*u).round(3)
-        if np.abs(u) < 1e-3: u = np.sign(u)*1e-3
-        if tau < 0.1: tau = 0.1
-        # Make parameter values random, but matched for all channels.
-        stp.set_parameter_values(
-            u=[u for _ in range(n)],
-            tau=[tau for _ in range(n)]
-            )
+
+        if i != 0:
+            # Make parameter values random, but matched for all channels.
+            u, tau = _stp_visualization_parameters()
+            stp.set_parameter_values(
+                u=[u for _ in range(n)],
+                tau=[tau for _ in range(n)]
+                )
+        else:
+            # Use default values, don't resample.
+            u = stp.get_parameter_values('u')[0][0]
+            tau = stp.get_parameter_values('tau')[0][0]
 
         # Get Layer output
         output = stp.evaluate(input)
 
         # Normalize between 0 and 1 for easier visualization
         # (already true for depression, but not facilitation)
-        this_output, _min, _max = minmax(output)
-        this_input = redo_minmax(input, _min, _max)
+        this_input, this_output = joint_minmax(input, output)
 
         # Plot input and output for each channel
         for j, ax in enumerate(axes[:,i]):
@@ -81,7 +107,7 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
             standardize_axes(ax)
 
         # Label parameter values
-        ax.text(95, 0.5, f'u: {u}\ntau: {tau}', ha='right')
+        ax.text(95, 0.5, f'u: {u.round(3)}\ntau: {tau.round(3)}', ha='right')
         ax.legend(frameon=False)
         ax.xaxis.set_visible(True)
         ax.set_xlabel('Time (bins)')
@@ -91,3 +117,15 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
     fig.tight_layout()
 
     return fig
+
+
+def _stp_visualization_parameters():
+    """Sample u and tau. Internal for `stp_input_output`."""
+    # Manually sample parameters.
+    u = Normal(mean=0.25, sd=0.25).sample(1)
+    tau = HalfNormal(5).sample(1)
+    if u < 0: u *= 0.1
+    if np.abs(u) < 1e-3: u = np.sign(u)*1e-3
+    if tau < 0.1: tau = 0.1
+
+    return u, tau
