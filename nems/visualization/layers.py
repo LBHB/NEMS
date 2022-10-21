@@ -77,14 +77,14 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
 
     # Generate output data for n parameter sets and add it to the figure.
     for i in range(n):
-        stp = ShortTermPlasticity(shape=(n,), quick_eval=quick_eval)
+        stp = ShortTermPlasticity(shape=(3,), quick_eval=quick_eval)
 
         if i != 0:
             # Make parameter values random, but matched for all channels.
-            u, tau = _stp_visualization_parameters()
+            u, tau = _stp_visualization_parameters(quick_eval=quick_eval)
             stp.set_parameter_values(
-                u=[u for _ in range(n)],
-                tau=[tau for _ in range(n)]
+                u=[u for _ in range(3)],
+                tau=[tau for _ in range(3)]
                 )
         else:
             # Use default values, don't resample.
@@ -119,10 +119,13 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
     return fig
 
 
-def _stp_visualization_parameters():
+def _stp_visualization_parameters(quick_eval=False):
     """Sample u and tau. Internal for `stp_input_output`."""
     # Manually sample parameters.
-    u = Normal(mean=0.25, sd=0.25).sample(1)
+    if not quick_eval:
+        u = Normal(mean=0.25, sd=0.25).sample(1)
+    else:
+        u = HalfNormal(sd=0.1).sample(1)
     tau = HalfNormal(5).sample(1)
     if u < 0: u *= 0.1
     if np.abs(u) < 1e-3: u = np.sign(u)*1e-3
