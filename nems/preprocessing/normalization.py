@@ -138,17 +138,22 @@ def undo_minmax(y, _min, _max):
     return z
 
 
-def redo_minmax(x, _min, _max, inplace=False):
-    """Apply pre-computed normalization to a another array.
-    
-    TODO: docs.
-    
-    TODO: N-D support like `minmax`.
-    
-    """
-    if not inplace:
-        x = x.copy()
-    shifted = np.subtract(x, _min, out=x)
-    normalized = np.divide(shifted, _max, out=x)
+def joint_minmax(*arrays, **minmax_kwargs):
+    """Normalize to min=0, max=1 within channels for all arrays simultaneously.
 
-    return normalized
+    TODO: docs.
+    NOTE: inplace not supported since arrays are concatenated.
+    NOTE: currenly only supports arrays with all dims except 0 same length
+    TODO: support different number of output channels.
+
+    """
+    # Concatenate in time
+    joined = np.concatenate(arrays, axis=0)
+    # Minimize as one array
+    all_normalized, _min, _max = minmax(joined, inplace=False, **minmax_kwargs)
+    # Separate out original arrays
+    lengths = [a.shape[0] for a in arrays]
+    split_indices = np.cumsum(lengths)
+    separate_normalized = np.split(all_normalized, split_indices[:-1], axis=0)
+
+    return separate_normalized

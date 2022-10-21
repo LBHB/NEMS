@@ -14,7 +14,7 @@ Contents:
 """
 
 from .spectrogram import spectrogram, fft_gammagram, gammagram
-from .normalization import minmax, undo_minmax
+from .normalization import minmax, undo_minmax, joint_minmax
 from .raster import raster_to_spike_times, spike_times_to_raster
 from .split import (indices_by_fraction, split_at_indices,
                     get_jackknife_indices, get_jackknife)
