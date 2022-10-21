@@ -4,21 +4,14 @@ from numba import njit
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter
 from nems.layers.tools import require_shape, pop_shape
+from nems.tools.arrays import one_or_more_negative
 from nems.distributions import Normal, HalfNormal
-
-
-def _cumtrapz(x, dx=1., initial=0., axis=1):
-    x = (x[:, :-1] + x[:, 1:]) / 2.0
-    x = np.pad(x, ((0, 0), (1, 0)), 'constant', constant_values=(initial, initial))
-    # x = tf.pad(x, ((0, 0), (1, 0), (0, 0)), constant_values=initial)
-    return np.cumsum(x, axis=axis) * dx
 
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, fs=100, quick_eval=False, crosstalk=0, x0=None,
-                 dep_only=True, chunksize=5, reset_signal=None,
-                 **kwargs):
+    def __init__(self, quick_eval=False, fs=100.0, crosstalk=0, dep_only=False,
+                 chunksize=5, **kwargs):
         """TODO: docs
 
         TODO: additional context.
@@ -35,10 +28,13 @@ class ShortTermPlasticity(Layer):
             TODO: explain why some one might want to use `quick_eval=False`
             (or if there's no good reason, just get rid of it). I think for now
             it's just b/c faciliatation isn't implemented?
+        fs : float; default=100.0.
+            Frequency of sampling, in Hz. Used to determine reasonable bounds
+            for parameters.
         crosstalk : int; default=0;
             TODO: explain what this does.
             TODO: or remove if this isn't used any more?
-        dep_only : bool; default=True.
+        dep_only : bool; default=False.
             TODO: explain what this does.
         chunksize : int; default=5.
             TODO: explain what this does.
@@ -49,6 +45,7 @@ class ShortTermPlasticity(Layer):
 
         require_shape(self, kwargs, minimum_ndim=1)
         self.quick_eval = quick_eval
+        self.fs = fs
         self.crosstalk = crosstalk
         self.dep_only = dep_only
         self.chunksize = chunksize
@@ -72,12 +69,17 @@ class ShortTermPlasticity(Layer):
             Bounds: (1e-6, np.inf)     TODO: should this use epsilon instead?
         
         """
-        tau_sd = np.full(shape=self.shape, fill_value=0.1)
+
+
+        u0, tau0 = self.seconds_to_bins(self.fs, 0.1, 0.1)     # 0.1 frac, 100 ms
+        _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.001) #   1 ms
+
+        tau_sd = np.full(shape=self.shape, fill_value=tau0)
         tau_prior = HalfNormal(tau_sd)
-        u_sd = np.full(shape=self.shape, fill_value=0.1)
+        u_sd = np.full(shape=self.shape, fill_value=u0)
         u_prior = HalfNormal(u_sd)
 
-        tau_bounds = (0.0001, np.inf)
+        tau_bounds = (tau_min, np.inf)
         if self.dep_only or self.quick_eval:
             u_bounds = (1e-6, np.inf)
         else:
@@ -90,19 +92,22 @@ class ShortTermPlasticity(Layer):
         return Phi(u, tau)
 
 
-    def bins_to_seconds(self, fs):
+    def bins_to_seconds(self, fs, u=None, tau=None):
         """Get parameter values in units of seconds based on sampling rate."""
         
-        u, tau = self.get_parameter_values()
-        u_seconds = (u/100)*fs  # TODO: why is there a 100 here?
+        if u is None: u = self.get_parameter_values('u')
+        if tau is None: tau = self.get_parameter_values('tau')
+        u_seconds = (u/100)*fs
         tau_seconds = tau/fs
 
-        return u, tau
+        return u_seconds, tau_seconds
 
-        # TODO: Previous converesion, delete after review by SVD
-        # convert u & tau units from sec to bins
-        taui = tau * self.fs
-        ui = u / self.fs * 100
+    def seconds_to_bins(self, fs, u, tau):
+        """Get parameter values in units of bins based on sampling rate."""
+        u_bins = (u/fs)*100
+        tau_bins = tau*fs
+
+        return u_bins, tau_bins
 
 
     # Authors: SVD, Menoua K.
@@ -179,9 +184,8 @@ class ShortTermPlasticity(Layer):
                 i += self.chunksize
                 j += self.chunksize
 
-            # TODO: Neither of these explanations makes sense to me. Ask for clarification.
-            # shift depression forward in time by one to allow STP to kick in after the stimulus changes (??)
-            # offset depression by one to allow transients
+            # Shift depression forward in time by one to allow STP to kick in
+            # after the stimulus changes.
             out = np.multiply(
                 input, np.concatenate(
                     # Oddly enough, zeros + 1 is twice as fast as using ones
@@ -236,10 +240,10 @@ class ShortTermPlasticity(Layer):
                 if depression and next_td < 0:
                     next_td = 0
                 elif not depression and next_td > 5:
-                    # TODO: why 5?  -- hyperparameter?
-                    #       avoids explosions, and it's big enough that it's
-                    #       essentially "infinity" in biological terms.
-                    td[tt] = 5
+                    # TODO: Make this a hyperparameter?
+                    #       Hard-coded 5 avoids explosions, and it's big enough
+                    #       that it's essentially "infinity" in biological terms.
+                    next_td = 5
                 td.append(next_td)
 
         return np.array(td)
