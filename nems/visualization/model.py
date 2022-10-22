@@ -7,7 +7,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
-from .layers import plot_strf
 
 
 _DEFAULT_PLOT_OPTIONS = {
@@ -459,6 +458,51 @@ def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
     """
     fir_layer, wc_layer = model.layers[fir_idx, wc_idx]
     fig = plot_strf(fir_layer, wc_layer, ax=ax, fig=fig)
+    return fig
+
+
+def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
+    """Generate a heatmap representing a Spectrotemporal Receptive Field (STRF).
+    
+    Parameters
+    ----------
+    fir_layer : nems.layers.FiniteImpulseResponse
+        `fir_layer.coefficients.T` will be used to specify the STRF.
+    wc_layer : nems.layers.WeightChannels; optional.
+        If given, `wc_layer.coefficients @ fir_layer.coefficients.T` will be
+        used to specify the STRF (low-rank representation).
+    ax : Matplotlib axes; optional.
+        Axis on which to generate the plot.
+    fig : Matplotlib Figure; optional.
+        Figure on which to generate the plot.
+
+    Returns
+    -------
+    Matplotlib Figure
+    
+    """
+    if ax is not None:
+        fig = ax.figure
+    else:
+        if fig is None:
+            fig = plt.figure()
+        ax = fig.subplots(1, 1)
+    
+    if wc_layer is None:
+        fir = fir_layer.coefficients
+        if len(fir.shape)>2:
+            fir=fir[:,:,0]
+        strf = fir.T
+    else:
+        wc = wc_layer.coefficients
+        fir = fir_layer.coefficients
+        if len(fir.shape)>2:
+            wc=wc[:,:,0]
+            fir=fir[:,:,0]
+        strf = wc @ fir.T
+
+    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower')
+
     return fig
 
 

@@ -1,5 +1,4 @@
 from fractions import Fraction
-from functools import partial
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
