@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 from nems.layers.stp import ShortTermPlasticity
-from nems.visualization.tools import standardize_axes
 from nems.preprocessing.normalization import minmax, joint_minmax
 from nems.distributions import Normal, HalfNormal
+from .tools import standardize_axes
 
 
 def stp_test_input():
@@ -72,7 +72,8 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
     input = stp_test_input()
 
     if figsize is None: figsize = ((n*3)+1, 8)
-    fig, axes = plt.subplots(3,5, sharey='col', figsize=figsize)
+    fig, axes = plt.subplots(3, n, sharey='col', figsize=figsize)
+    if n == 1: axes = axes[..., np.newaxis]  # so that subsequent indexing works
     titles = ['Random [0,1)', 'Square', 'Zeros']
 
     # Generate output data for n parameter sets and add it to the figure.
@@ -107,7 +108,8 @@ def stp_input_output(n=5, quick_eval=False, figsize=None):
             standardize_axes(ax)
 
         # Label parameter values
-        ax.text(95, 0.5, f'u: {u.round(3)}\ntau: {tau.round(3)}', ha='right')
+        ax.text(95, 0.5, f'u: {np.round(u,3)}\ntau: {np.round(tau,3)}',
+                ha='right')
         ax.legend(frameon=False)
         ax.xaxis.set_visible(True)
         ax.set_xlabel('Time (bins)')
