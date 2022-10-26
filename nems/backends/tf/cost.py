@@ -40,13 +40,15 @@ def loss_tf_nmse_shrinkage(response, prediction):
     return tf_nmse_shrinkage(response, prediction)
 
 
-def loss_tf_nmse(response, prediction, per_cell=True):
+def loss_tf_nmse(response, prediction, per_cell=False):
     """Normalized means squared error loss."""
-    mE, sE = tf_nmse(response, prediction, per_cell=per_cell)
     if per_cell:
+        mE, sE = tf_nmse(response, prediction, per_cell=per_cell)
         return tf.math.reduce_mean(mE)
         #return tf.reduce_mean(tf.boolean_mask(mE, tf.math.is_finite(mE)))
     else:
+        mE, sE = tf_nmse(response, prediction, per_cell=per_cell)
+
         return mE
 
 
@@ -86,7 +88,7 @@ def tf_nmse_shrinkage(response, prediction, shrink_factor=0.5, per_cell=True, th
     return mE
 
 
-def tf_nmse(response, prediction, per_cell=True):
+def tf_nmse(response, prediction, per_cell=False):
     """Calculates the normalized mean squared error across batches.
     Optionally can return an average per cell.
     :param response:
@@ -120,8 +122,12 @@ def tf_nmse(response, prediction, per_cell=True):
         _response = tf.reshape(_response, shape=(_response.shape[0], 10, -1))
         _prediction = tf.reshape(_prediction, shape=(_prediction.shape[0], 10, -1))
     else:
+        _response = tf.experimental.numpy.moveaxis(_response, [1, 0], [0, 1])
+        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 0], [0, 1])
+        print("After move:", _response.shape, _prediction.shape)
         _response = tf.reshape(_response, shape=(10, -1))
         _prediction = tf.reshape(_prediction, shape=(10, -1))
+        print("After reshape:", _response.shape, _prediction.shape)
 
     squared_error = ((_response - _prediction) ** 2)
     numers = tf.math.reduce_mean(squared_error, axis=-1)

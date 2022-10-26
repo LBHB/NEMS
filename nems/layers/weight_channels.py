@@ -293,7 +293,7 @@ class WeightChannelsGaussian(WeightChannels):
 
         mean_prior = Normal(tiled_means, np.full_like(tiled_means, 0.2))
         sd_prior = HalfNormal(np.full_like(tiled_means, 0.4))
-            
+
         parameters = Phi(
             Parameter(name='mean', shape=shape, bounds=mean_bounds,
                         prior=mean_prior),
@@ -343,13 +343,16 @@ class WeightChannelsGaussian(WeightChannels):
                 input_features = tf.cast(tf.shape(inputs)[-1],
                                          dtype=inputs.dtype)
                 temp = tf.range(input_features) / input_features
-                temp = tf.transpose((temp-mean)/sd, [1,0])
+
+                # roll channel dim from -1 to 0
+                sh = np.roll(np.arange(len(mean.shape)),1)
+                temp = tf.transpose((temp-mean)/sd, sh)
+
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
                 norm = tf.math.reduce_sum(temp, axis=-1, keepdims=True)
                 kernel = temp / norm
-
                 return tf.tensordot(inputs, kernel, axes=[[2], [0]])
-            
+
             def weights_to_values(self):
                 values = self.parameter_values
                 # Undo scaling.
