@@ -6,7 +6,7 @@ from nems.layers import (
 
 class LN_STRF(Model):
 
-    def __init__(self, channels, time_bins, rank=None,
+    def __init__(self, time_bins, channels, rank=None,
                  gaussian=True, nonlinearity='DoubleExponential',
                  nl_kwargs=None, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
@@ -26,12 +26,12 @@ class LN_STRF(Model):
 
         Parameters
         ----------
-        channels : int.
-            Number of spectral channels in spectrogram.
         time_bins : int.
             Number of "taps" in FIR filter. We have found that a 150-250ms filter
             typically sufficient for modeling A1 responses, or 15-25 bins for
             a 100 Hz sampling rate.
+        channels : int.
+            Number of spectral channels in spectrogram.
         rank : int; optional.
             Number of spectral weightings used as input to a reduced-rank filter.
             For example, `rank=1` indicates a frequency-time separable STRF.
@@ -84,7 +84,7 @@ class LN_STRF(Model):
         channels = input.shape[-1]
         time_bins = int(filter_duration/1000 * sampling_rate)
         # TODO: modify initial parameters based on stimulus statistics?
-        return LN_STRF(channels, time_bins, **kwargs)
+        return LN_STRF(time_bins, channels, **kwargs)
 
     def fit_LBHB():
         # TODO: 3-stage fit with freezing/unfreezing NL
