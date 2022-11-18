@@ -59,7 +59,7 @@ response = training_dict['response']
 
 
 # Installation instructions
-## Recommended: Intall from source.
+## Recommended: Install from source.
 NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
 
 1. Download source code
