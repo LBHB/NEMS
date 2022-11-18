@@ -54,20 +54,20 @@ def gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01, channels=18,
     """
 
     xe = _gtgram_xe(wave, fs, channels, f_min, f_max)
-    
+
     nwin, hop_samples, ncols = gtgram_strides(
         fs,
         window_time,
         hop_time,
-        xe.shape[1]
+        xe.shape[0]
     )
-    
-    y = np.zeros((channels, ncols))
-    
+
+    y = np.zeros((ncols, channels))
+
     for cnum in range(ncols):
-        segment = xe[:, cnum * hop_samples + np.arange(nwin)]
-        y[:, cnum] = np.sqrt(segment.mean(1))
-    
+        segment = xe[cnum * hop_samples + np.arange(nwin), :]
+        y[cnum, :] = np.sqrt(segment.mean(axis=0))
+
     return y
 
 
