@@ -6,4 +6,4 @@ build:
     python: "3.9"
 
 conda:
-  file: readthedocs-environment.yml
+  file: docs/build/readthedocs-environment.yml
