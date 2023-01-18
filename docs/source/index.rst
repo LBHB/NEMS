@@ -21,6 +21,7 @@ Documentation for the previous iteration of NEMS can be found at
    :caption: Getting started
 
    installation
+   quickstart
 
 
 Indices and tables
