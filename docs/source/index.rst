@@ -13,9 +13,14 @@ develop and test `computational models of how sound is encoded in the
 brains of behaving mammals <https://hearingbrain.org/research.php>`__,
 but it will work with many different types of timeseries data.
 
+Documentation for the previous iteration of NEMS can be found at
+`<https://nems0.readthedocs.io>`
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
+   :caption: Getting started
+
+   installation
 
 
 Indices and tables
