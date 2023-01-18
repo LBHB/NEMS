@@ -1,9 +1,7 @@
 =========================
-Installation instructions
-=========================
 
 Recommended: Install from source
-================================
+--------------------------------
 NEMS is still under rapid development, so this is the best way to ensure you're
 using the most up-to-date version.
 
@@ -47,7 +45,7 @@ after making changes to the source code.
 
 
 Alternative: PyPI (pip)
-=======================
+-----------------------
 
 Create a new environment using your preferred environment manager, then use
 :code:`pip install`.
@@ -58,7 +56,7 @@ Create a new environment using your preferred environment manager, then use
 
 
 Alternative: Conda
-==================
+------------------
 Coming soon.
 
 
