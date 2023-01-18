@@ -44,8 +44,8 @@ after making changes to the source code.
     pytest NEMS
 
 
-Alternative: PyPI (pip)
------------------------
+Alternative: Install with pip
+-----------------------------
 
 Create a new environment using your preferred environment manager, then use
 :code:`pip install`.
@@ -55,8 +55,8 @@ Create a new environment using your preferred environment manager, then use
     pip install PyNEMS                       # note the leading Py
 
 
-Alternative: Conda
-------------------
+Alternative: Install with conda
+-------------------------------
 Coming soon.
 
 
