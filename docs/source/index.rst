@@ -14,7 +14,7 @@ brains of behaving mammals <https://hearingbrain.org/research.php>`__,
 but it will work with many different types of timeseries data.
 
 Documentation for the previous iteration of NEMS can be found at
-`https://nems0.readthedocs.io <https://nems0.readthedocs.io>__`
+`https://nems0.readthedocs.io <https://nems0.readthedocs.io>`__
 
 .. toctree::
    :maxdepth: 1
