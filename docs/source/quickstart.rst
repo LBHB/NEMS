@@ -24,7 +24,8 @@ Or use the customizable keyword system for faster scripting and prototyping.
     same_model = Model.from_keywords('fir.15x18-dexp.1')
 
 
-Fit the model to (fake) evoked neural activity (in this case, in response to a sound represented by a spectrogram).
+Fit the model to (fake) evoked neural activity (in this case, in response to a
+sound represented by a spectrogram).
 ::
 
     import numpy as np
