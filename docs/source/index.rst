@@ -18,10 +18,8 @@ Documentation for the previous iteration of NEMS can be found at
    installation
    quickstart
 
+.. toctree::
+    :maxdepth: 1
+    :caption: API
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+    <api/modules>
