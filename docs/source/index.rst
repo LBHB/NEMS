@@ -22,4 +22,4 @@ Documentation for the previous iteration of NEMS can be found at
     :maxdepth: 1
     :caption: API
 
-    <api/modules>
+   Module Reference <api/modules>
