@@ -19,7 +19,7 @@ Documentation for the previous iteration of NEMS can be found at
    quickstart
 
 .. toctree::
-    :maxdepth: 1
-    :caption: API
+   :maxdepth: 1
+   :caption: API
 
    Module Reference <api/modules>
