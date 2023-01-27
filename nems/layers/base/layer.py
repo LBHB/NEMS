@@ -656,7 +656,7 @@ class Layer:
         return self.parameters.priors
 
     def set_priors(self, *parameter_dict, **parameter_kwargs):
-        """Set all parameter bounds fromm key-value pairs.
+        """Set all parameter bounds from key-value pairs.
         
         Warnings
         --------
