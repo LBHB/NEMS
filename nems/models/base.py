@@ -742,8 +742,9 @@ class Model:
         return self.evaluate(input, return_full_data=return_full_data,
                              **eval_kwargs)
 
-    def fit(self, input, target, target_name=None, backend='scipy',
-            fitter_options=None, backend_options=None, **eval_kwargs):
+    def fit(self, input, target, target_name=None, prediction_name=None,
+            backend='scipy', fitter_options=None, backend_options=None,
+            **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -769,6 +770,10 @@ class Model:
             Would need to also specify a mapping of output -> target.
         target_name : str; optional.
             Key to assign to target, if target is an ndarray.
+        prediction_name : str; optional.
+            TODO support dict for multiple predictions to multiple targets.
+            Name of model output to compare to target. If not specified,
+            the last Layer output will be used.
         backend : str; default='scipy'.
             Determines how the Model will be fit.
             If 'scipy' : Use `scipy.optimize.minimize(method='L-BFGS-B')`.
@@ -798,7 +803,8 @@ class Model:
 
         # Initialize DataSet
         data = DataSet(
-            input, target=target, target_name=target_name, **eval_kwargs
+            input, target=target, target_name=target_name,
+            prediction_name=prediction_name, **eval_kwargs
             )
         if eval_kwargs.get('batch_size', 0) != 0:
             # Broadcast prior to passing to Backend so that those details
@@ -830,7 +836,7 @@ class Model:
 
 
     def score(self, input, target, metric='correlation', metric_kwargs=None,
-              **eval_kwargs):
+              prediction_name=None, **eval_kwargs):
         """Score model performance using post-fit metrics like correlation.
         
         This only supports metrics that expect a model output as a first
@@ -848,6 +854,10 @@ class Model:
             `get_metric(metric)`.
         metric_kwargs : dict; optional.
             Additional keyword arguments for `metric`.
+        prediction_name : str; optional.
+            TODO support dict for multiple predictions to multiple targets.
+            Name of model output to compare to target. If not specified,
+            the last Layer output will be used.
 
         Returns
         -------
@@ -859,7 +869,14 @@ class Model:
         """
 
         if metric_kwargs is None: metric_kwargs = {}
+        if prediction_name is None:
+            output = eval_kwargs.get('output_name', DataSet.default_output)
+            prediction_name = output
+
         prediction = self.predict(input, **eval_kwargs)
+        if isinstance(prediction, dict):
+            # TODO: Compare multiple predictions and targets
+            prediction = prediction[prediction_name]
         if isinstance(metric, str):
             metric = get_metric(metric)
 
