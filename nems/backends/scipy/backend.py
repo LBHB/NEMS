@@ -154,6 +154,7 @@ class _FitWrapper:
         prediction_list, target_list = self._get_arrays()
         if (len(prediction_list) == 1) and (len(target_list) == 1):
             cost = self.fn(prediction_list[0], target_list[0])
+
         else:
             # Dict keys are not stored in a guaranteed order, so can't expect
             # .values() to match up even if the lengths are the same. Need to
@@ -168,6 +169,8 @@ class _FitWrapper:
     def _get_arrays(self):
         """Retrieve outputs and targets from `data` as lists of arrays."""
         prediction = self.data.outputs
+        if self.model.output_name is not None:
+            prediction={self.model.output_name: prediction[self.model.output_name]}
         target = self.data.targets
 
         if len(prediction) == 0:
