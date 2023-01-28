@@ -20,6 +20,12 @@ Documentation for the previous iteration of NEMS can be found at
 
 .. toctree::
    :maxdepth: 1
+   :caption: Tutorials
+
+   tutorials/tutorials
+
+.. toctree::
+   :maxdepth: 1
    :caption: API
 
    Module Reference <api/modules>
