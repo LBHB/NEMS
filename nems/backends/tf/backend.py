@@ -205,6 +205,7 @@ class TensorFlowBackend(Backend):
         #       layers. _build would need to establish a mapping I guess, since
         #       it has the information about which layer generates which output.
         inputs = data.inputs
+
         if len(data.targets) > 1:
             raise NotImplementedError("Only one target supported currently.")
         target = list(data.targets.values())[0]

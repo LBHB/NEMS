@@ -85,3 +85,29 @@ class SwapDims(Layer):
         """
         return {'legend': True}
 
+class ConcatSignals(Layer):
+
+    def __init__(self, axis=1, **kwargs):
+        self.axis = axis
+        super().__init__(**kwargs)
+
+    def evaluate(self, *inputs):
+        # All inputs are treated the same, no fittable parameters.
+
+        return np.concatenate(inputs, axis=self.axis)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        # TODO: how to deal with batch dimension. Currently, kludged to add 1 to axis
+        ax = self.axis+1
+        class ConcatSignalsTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors
+                # TODO: Use tensor names to not require this arbitrary order.
+                return tf.concat(inputs, ax)
+
+        return ConcatSignalsTF(self, **kwargs)
