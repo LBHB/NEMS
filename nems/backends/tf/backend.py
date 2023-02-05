@@ -230,8 +230,6 @@ class TensorFlowBackend(Backend):
             if not layer.name in [x.name for x in self.model.inputs]
             ]
 
-        #layer_iter = zip(self.nems_model.layers, tf_model_layers)
-
         for tf_layer in tf_model_layers:
             nems_layer = self.nems_model.layers[tf_layer.name]
             nems_layer.set_parameter_values(tf_layer.weights_to_values())
