@@ -1,4 +1,5 @@
 import scipy.optimize
+import numpy as np
 
 from .cost import get_cost
 from ..base import Backend, FitResults
@@ -151,38 +152,18 @@ class _FitWrapper:
 
     def compute_cost(self):
         """Compute cost given current Model parameters."""
-        prediction_list, target_list = self._get_arrays()
-        if (len(prediction_list) == 1) and (len(target_list) == 1):
-            cost = self.fn(prediction_list[0], target_list[0])
-        else:
-            # Dict keys are not stored in a guaranteed order, so can't expect
-            # .values() to match up even if the lengths are the same. Need to
-            # provide a separate mapping of {'pred_key' -> 'target_key'}
-            # (and do something different instead of just getting lists).
+        # Retrieve outputs and targets from `data` as lists of arrays.
+        prediction = self.data.prediction
+        target_list = list(self.data.targets.values())
+        if (len(target_list) > 1) or not (isinstance(prediction, np.ndarray)):
             raise NotImplementedError(
-                "TODO: SciPy cost function for multiple predictions/targets."
+                "SciPy backend not yet compatible with multiple predictions"
+                " or targets."
                 )
-
-        return cost
-
-    def _get_arrays(self):
-        """Retrieve outputs and targets from `data` as lists of arrays."""
-        prediction = self.data.outputs
-        target = self.data.targets
-
-        if len(prediction) == 0:
-            # No predictions, error
-            raise ValueError(f"{self.name}: No predictions found in data.")
         else:
-            predictions = list(prediction.values())
-        
-        if len(target) == 0:
-            # No target, error
-            raise ValueError(f"{self.name}: No targets found in data.")
-        else:
-            targets = list(target.values())
+            target = target_list[0]
 
-        return predictions, targets
+        return self.fn(prediction, target)
 
     def get_fit_result(self, data, **fitter_options):
         """Process one optimization epoch."""

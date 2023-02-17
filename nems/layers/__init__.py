@@ -11,6 +11,6 @@ from .weight_channels import WeightChannels, WeightChannelsMulti, WeightChannels
 from .state import StateGain, StateDexp
 from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
-from .algebra import SwapDims
+from .algebra import SwapDims, ConcatSignals
 
 from .base import Layer, Phi, Parameter

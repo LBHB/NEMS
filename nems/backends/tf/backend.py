@@ -205,16 +205,13 @@ class TensorFlowBackend(Backend):
         #       layers. _build would need to establish a mapping I guess, since
         #       it has the information about which layer generates which output.
         inputs = data.inputs
+
         if len(data.targets) > 1:
             raise NotImplementedError("Only one target supported currently.")
         target = list(data.targets.values())[0]
 
-        loss_fn = self.model.loss[final_layer]
-        initial_error = loss_fn(
-            tf.constant(target, dtype=tf.float32),
-            tf.constant(self.model.predict(inputs), dtype=tf.float32)
-            ).numpy()
-        print(f"Initialial loss: {initial_error:.5f}")
+        initial_error = self.model.evaluate(inputs, target, return_dict=False)
+        print(f"Initial loss: {initial_error[0]}")
         
         history = self.model.fit(
             inputs, {final_layer: target}, epochs=epochs,
@@ -232,8 +229,9 @@ class TensorFlowBackend(Backend):
             layer for layer in self.model.layers
             if not layer.name in [x.name for x in self.model.inputs]
             ]
-        layer_iter = zip(self.nems_model.layers, tf_model_layers)
-        for nems_layer, tf_layer in layer_iter:
+
+        for tf_layer in tf_model_layers:
+            nems_layer = self.nems_model.layers[tf_layer.name]
             nems_layer.set_parameter_values(tf_layer.weights_to_values())
 
         final_parameters = self.nems_model.get_parameter_vector()
