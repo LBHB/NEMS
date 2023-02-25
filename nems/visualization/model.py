@@ -493,16 +493,21 @@ def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
         if len(fir.shape)>2:
             fir=fir[:,:,0]
         strf = fir.T
+        vlines=0
+        vlines_spacing=0
     else:
         wc = wc_layer.coefficients
         fir = fir_layer.coefficients
-        if len(fir.shape)>2:
-            wc=wc[:,:,0]
-            fir=fir[:,:,0]
-        strf = wc @ fir.T
+        strfs = [wc[:,:,i] @ fir[:,:,i].T for i in range(wc.shape[2])]
+        strfs = [s/np.std(s) for s in strfs]
+        vlines = len(strfs)-1
+        vline_spacing = strfs[0].shape[1]
+        strf = np.concatenate(strfs, axis=1)
 
-    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower')
-
+    ax.imshow(strf, aspect='auto', interpolation='none',
+              origin='lower')
+    for i in range(vlines):
+        ax.axvline((i+1)*vline_spacing-0.5, color='white')
     return fig
 
 
