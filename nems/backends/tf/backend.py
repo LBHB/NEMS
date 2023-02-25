@@ -211,6 +211,8 @@ class TensorFlowBackend(Backend):
         target = list(data.targets.values())[0]
 
         initial_error = self.model.evaluate(inputs, target, return_dict=False)
+        if type(initial_error[0]) is float:
+            initial_error=np.array([initial_error])
         print(f"Initial loss: {initial_error[0]}")
         
         history = self.model.fit(
