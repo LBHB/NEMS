@@ -166,14 +166,19 @@ class Layer:
         self.default_name = f'{type(self).__name__}'
         self.model = None  # pointer to parent Model
 
+        no_parameters_given = False
         if parameters is None:
             parameters = self.initial_parameters()
-        self.parameters = parameters 
+            no_parameters_given = True
+        self.parameters = parameters
 
         # Overwrite defaults set by `initial_parameters` if priors, bounds
         # kwargs were specified.
         if priors is not None:
             self.set_priors(**priors)
+            if no_parameters_given:
+                # Set to mean of priors by default
+                self.parameters.mean(inplace=True)
         if bounds is not None:
             self.set_bounds(**bounds)
 
@@ -656,7 +661,7 @@ class Layer:
         return self.parameters.priors
 
     def set_priors(self, *parameter_dict, **parameter_kwargs):
-        """Set all parameter bounds fromm key-value pairs.
+        """Set all parameter bounds from key-value pairs.
         
         Warnings
         --------

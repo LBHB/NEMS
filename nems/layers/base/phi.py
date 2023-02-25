@@ -213,7 +213,7 @@ class Phi:
         else:
             _dct = kwargs
         for k, v in _dct.items():
-            self._dict[k].priors = v
+            self._dict[k].prior = v
 
     def get_indices_outof_range(self, vector, as_bool=True):
         """Get indices where `vector < bounds[0]` or `vector > bounds[1]`."""

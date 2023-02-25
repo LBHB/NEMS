@@ -19,8 +19,8 @@ class DataSet:
 
     def __init__(self, input, state=None, target=None, input_name=None,
                  state_name=None, output_name=None, target_name=None,
-                 dtype=None, has_samples=False, debug_memory=False,
-                 **kwargs):
+                 prediction_name=None, dtype=None, has_samples=False,
+                 debug_memory=False, **kwargs):
         """Container for tracking dictionaries of data arrays.
         
         See `Model.evaluate` and `Model.fit` for detailed documentation of
@@ -35,6 +35,7 @@ class DataSet:
         state_name : str; optional.
         output_name : str; optional.
         target_name : str; optional.
+        prediction_name : str; optional.
         dtype : type; optional.
             TODO: WIP. Want to specify a consistent datatype to cast all
                   arrays to.
@@ -74,6 +75,8 @@ class DataSet:
         for attr, name in names:
             if name is None: name = getattr(self, f'default_{attr}')
             setattr(self, f'{attr}_name', name)
+        if prediction_name is None: prediction_name = self.output_name
+        self.prediction_name = prediction_name
 
         self.has_samples = has_samples
         self.debug_memory = debug_memory
@@ -84,6 +87,12 @@ class DataSet:
             self.dtype = list(self.inputs.values())[0].dtype
         else:
             self.dtype = dtype
+
+    @property
+    def prediction(self):
+        """Return only the data that should be compared to a fit target."""
+        # TODO: multiple predictions
+        return self.outputs[self.prediction_name]
 
     @property
     def n_samples(self):
