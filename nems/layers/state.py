@@ -320,3 +320,140 @@ class StateDexp(Layer):
                 return state_d + state_g * input
 
         return SDexpTF(self, **kwargs)
+
+    
+class StateHinge(Layer):
+    
+    state_arg = 'state'  # see Layer docs for details
+
+    def __init__(self, **kwargs):
+        """Docs TODO.
+        
+        Offset / gain state effect with a hinge. Ie, locally linear in two parts. 
+        
+        Parameters
+        ----------
+        shape : 2-tuple of int.
+            (size of last dimension of state, size of last dimension of input)
+
+        Examples
+        --------
+        TODO
+        
+        """
+        require_shape(self, kwargs, minimum_ndim=2)
+        super().__init__(**kwargs)
+
+    def initial_parameters(self):
+        """Docs TODO
+        
+        Layer parameters
+        ----------------
+        gain : TODO
+            prior:
+            bounds:
+        offset : TODO
+            prior:
+            bounds:
+        
+        """
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+
+        gain_mean = zero.copy()
+        gain_mean[0,:] = 1  # Why - gain for first dim is hard-coded, assuming that first state channel is a constant
+        gain_sd = one/20
+        gain_prior = Normal(gain_mean, gain_sd)
+        gain1 = Parameter('gain1', shape=self.shape, prior=gain_prior)
+        gain_prior2 = Normal(gain_mean, gain_sd)
+        gain2 = Parameter('gain2', shape=self.shape, prior=gain_prior2)
+
+        offset_mean = zero
+        offset_sd = one
+        offset1_prior = Normal(offset_mean, offset_sd)
+        offset1 = Parameter('offset1', shape=self.shape, prior=offset1_prior)
+        offset2_prior = Normal(offset_mean, offset_sd)
+        offset2 = Parameter('offset2', shape=self.shape, prior=offset2_prior)
+        
+        x0_mean = zero
+        x0_sd = one
+        x0_prior = Normal(x0_mean, x0_sd)
+        x0 = Parameter('x0', shape=self.shape, prior=x0_prior)
+        
+        return Phi(gain1, gain2, offset1, offset2, x0)
+
+
+    def evaluate(self, input, state):
+        """Multiply and shift input(s) by weighted sums of state channels.
+        
+        Parameters
+        ----------
+        input : ndarray
+            T x N x ... matrix. Data to be modulated by state, typically the output of a previous
+            Layer.
+        state : ndarray
+            T x S matrix. State data to modulate input with.
+
+        """
+
+        gain1, gain2, offset1, offset2, x0 = self.get_parameter_values()
+        
+        s_ = state[..., np.newaxis]-x0[np.newaxis, ...]
+        sp = s_ * (s_>0)
+        sn = s_ * (s_<0)
+        
+        s_ = state[..., np.newaxis]-x0[np.newaxis, ...]
+        sp = s_ * (s_>0)
+        sn = s_ * (s_<0)
+
+        print(s_.shape)
+        g = (np.tensordot(sn, gain1, (1, 0)) + np.tensordot(sp, gain2, (1, 0)))[:,0,:]
+        out = (np.tensordot(sn, gain1, (1, 0)) + np.tensordot(sp, gain2, (1, 0)))[:,0,:] * input + \
+            (np.tensordot(sn, offset1, (1, 0)) + np.tensordot(sp, offset2, (1, 0)))[:,0,:]
+        
+        # gain applied point-wise to each state channel, split above and below x0
+        return out
+
+    @layer('statehinge')
+    def from_keyword(keyword):
+        """Construct StateHinge from keyword.
+        
+        Keyword options
+        ---------------
+        {digit}x{digit} : specifies shape, (n state channels, n stim channels)
+            n stim channels can also be 1, in which case the same weighted
+            channel will be broadcast to all stim channels (if there is more
+            than 1).
+        
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        # TODO: other options from old NEMS
+        options = keyword.split('.')
+        shape = pop_shape(options)
+
+        return StateHinge(shape=shape)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class StateGainTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors, with state second.
+                # TODO: Use tensor names to not require this arbitrary order.
+                input = inputs[0]
+                state = inputs[1]
+
+                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                with_offset = with_gain + tf.matmul(state, self.offset)
+                
+                return with_offset
+
+        return StateGainTF(self, **kwargs)
+
+
