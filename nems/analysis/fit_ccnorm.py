@@ -8,16 +8,16 @@ import re
 import numpy as np
 from sklearn.decomposition import PCA
 
-from nems.analysis.cost_functions import basic_cost
-from nems.fitters.api import scipy_minimize
-import nems.priors
-import nems.fitters.mappers
-import nems.modelspec as ms
-import nems.metrics.api as metrics
-import nems.segmentors
-import nems.utils
-import nems.recording as recording
-from nems.initializers import modelspec_freeze_layers, modelspec_unfreeze_layers
+from nems0.analysis.cost_functions import basic_cost
+from nems0.fitters.api import scipy_minimize
+import nems0.priors
+import nems0.fitters.mappers
+import nems0.modelspec as ms
+import nems0.metrics.api as metrics
+import nems0.segmentors
+import nems0.utils
+import nems0.recording as recording
+from nems0.initializers import modelspec_freeze_layers, modelspec_unfreeze_layers
 
 log = logging.getLogger(__name__)
 
@@ -66,9 +66,14 @@ def compute_cc_matrices(modelspec, est,
                         shared_pcs: int = 0,
                         force_psth: bool = False,
                         verbose=False,
+                        signal_for_cc='resp',
+                        **ctx
                         ):
 
-    est = modelspec.evaluate(est, stop=2)
+    if ctx.get('IsReload',False):
+        log.info('IsReload: skipping re-eval')
+    else:
+        est = modelspec.evaluate(est, stop=2)
     if ('pred0' in est.signals.keys()) & (not force_psth):
         input_name = 'pred0'
         log.info('Found pred0 for fitting CC')
@@ -90,19 +95,22 @@ def compute_cc_matrices(modelspec, est,
     for c,g in zip(conditions, group_idx):
         log.info(f"cc data for {c} len {g.sum()}")
 
-    resp = est['resp'].as_continuous()
+    resp = est[signal_for_cc].as_continuous()
     pred0 = est[input_name].as_continuous()
+    #print((resp).std(axis=1))
+    #print(pred0.std(axis=1))
     #import pdb; pdb.set_trace()
     if shrink_cc > 0:
         log.info(f'cc approx: shrink_cc={shrink_cc}')
         group_cc = [cc_shrink(resp[:,idx]-pred0[:,idx], sigrat=shrink_cc) for idx in group_idx]
     elif shared_pcs > 0:
         log.info(f'cc approx: shared_pcs={shared_pcs}')
-        cc=np.cov(resp-pred0)
+        rresp = est['resp'].as_continuous()
+        cc=np.cov(rresp-pred0)
         u,s,vh = np.linalg.svd(cc)
         U = u[:, :shared_pcs] @ u[:, :shared_pcs].T
-
         group_cc = [cc_shared_space(resp[:, idx]-pred0[:,idx], U) for idx in group_idx]
+        
     elif noise_pcs > 0:
         log.info(f'cc approx: noise_pcs={noise_pcs}')
         group_cc = [cc_lowrank(resp[:,idx]-pred0[:,idx], n_pcs=noise_pcs) for idx in group_idx]
@@ -119,12 +127,12 @@ def compute_cc_matrices(modelspec, est,
         i = 0
         for g, g_raw, cond in zip(group_cc, group_cc_raw, conditions):
             mm= np.max(np.abs(g))
-            ax[i*2].imshow(g, cmap='bwr', clim=[-mm,mm], origin='lower')
-            ax[i*2+1].imshow(g_raw, cmap='bwr', clim=[-mm,mm], origin='lower')
-            f.suptitle(cond)
+            ax[i*2].imshow(g, cmap='bwr', clim=[-mm,mm], origin='lower', interpolation='none')
+            ax[i*2+1].imshow(g_raw, cmap='bwr', clim=[-mm,mm], origin='lower', interpolation='none')
+            ax[i*2].set_title(cond)
             i += 1
 
-    return group_idx, group_cc
+    return group_idx, group_cc, conditions
 
 def fit_ccnorm(modelspec,
         est: recording.Recording,
@@ -166,8 +174,8 @@ def fit_ccnorm(modelspec,
     # Hard-coded
     cost_function = basic_cost
     fitter=scipy_minimize
-    segmentor=nems.segmentors.use_all_data
-    mapper=nems.fitters.mappers.simple_vector
+    segmentor=nems0.segmentors.use_all_data
+    mapper=nems0.fitters.mappers.simple_vector
     fit_kwargs = {'tolerance': tolerance, 'max_iter': max_iter}
 
     start_time = time.time()
@@ -260,6 +268,20 @@ def fit_ccnorm(modelspec,
         group_cc = [np.cov(resp[:,idx]-pred0[:,idx]) for idx in group_idx]
     group_cc_raw = [np.cov(resp[:,idx]-pred0[:,idx]) for idx in group_idx]
 
+    if 0:
+        import matplotlib.pyplot as plt
+        cols = 4
+        rows = int(np.ceil(len(group_cc)/2))
+        f, ax = plt.subplots(rows, cols, figsize=(8, 4*rows))
+        ax = ax.flatten()
+        i = 0
+        for g, g_raw, cond in zip(group_cc, group_cc_raw, conditions):
+            mm= np.max(np.abs(g))
+            ax[i*2].imshow(g, cmap='bwr', clim=[-mm,mm], origin='lower', interpolation='none')
+            ax[i*2+1].imshow(g_raw, cmap='bwr', clim=[-mm,mm], origin='lower', interpolation='none')
+            ax[i*2].set_title(cond)
+            i += 1
+
     # variance of projection onto PCs (PCs computed above before masking)
     pcproj0 = (resp-pred0).T.dot(pc_axes.T).T
     pcproj_std = pcproj0.std(axis=1)
@@ -307,7 +329,7 @@ def fit_ccnorm(modelspec,
     packer, unpacker, pack_bounds = mapper(modelspec)
 
     # A function to evaluate the modelspec on the data
-    evaluator = nems.modelspec.evaluate
+    evaluator = nems0.modelspec.evaluate
 
     my_cost_function = cost_function
     my_cost_function.counter = 0
@@ -445,8 +467,8 @@ def fit_pcnorm(modelspec,
     # Hard-coded
     cost_function = basic_cost
     fitter = scipy_minimize
-    segmentor = nems.segmentors.use_all_data
-    mapper = nems.fitters.mappers.simple_vector
+    segmentor = nems0.segmentors.use_all_data
+    mapper = nems0.fitters.mappers.simple_vector
     fit_kwargs = {'tolerance': tolerance, 'max_iter': max_iter}
 
     start_time = time.time()
@@ -505,7 +527,7 @@ def fit_pcnorm(modelspec,
     packer, unpacker, pack_bounds = mapper(modelspec)
 
     # A function to evaluate the modelspec on the data
-    evaluator = nems.modelspec.evaluate
+    evaluator = nems0.modelspec.evaluate
 
     my_cost_function = cost_function
     my_cost_function.counter = 0

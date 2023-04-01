@@ -1,5 +1,5 @@
 import numpy as np
-import nems.utils
+import nems0.utils
 import logging
 
 log = logging.getLogger(__name__)
@@ -184,7 +184,7 @@ def nmse_shrink(result, pred_name='pred', resp_name='resp', shrink=0.1):
     # print("me={} se={} shrink={}".format(mE,sE,shrink))
     if mE < 1:
         # apply shrinkage filter to 1-E with factors self.shrink
-        mse = 1 - nems.utils.shrinkage(1 - mE, sE, shrink)
+        mse = 1 - nems0.utils.shrinkage(1 - mE, sE, shrink)
     else:
         mse = mE
 

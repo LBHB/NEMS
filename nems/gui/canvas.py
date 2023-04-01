@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import random
 
-from nems.plots.utils import ax_remove_box
+from nems0.plots.utils import ax_remove_box
 
 class MplWindow(qw.QWidget):
     def __init__(self, parent=None, fig=None):

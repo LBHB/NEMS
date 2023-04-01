@@ -2,7 +2,7 @@ import numpy as np
 from scipy import stats
 
 #from nems_lbhb.gcmodel.figures.equivalence import partial_corr
-from nems.xform_helper import load_model_xform
+from nems0.xform_helper import load_model_xform
 
 # https://gist.github.com/fabianp/9396204419c7b638d38f
 def partial_corr(C):

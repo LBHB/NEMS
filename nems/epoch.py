@@ -611,3 +611,28 @@ def add_epoch(df, regex_a, regex_b, new_name=None, operation='intersection'):
     result = pd.concat((df, new_epochs))
     result.sort_values(['start', 'end', 'name'], inplace=True)
     return result[['name', 'start', 'end']]
+
+def append_epoch(epochs, epoch_name, epoch):
+    '''
+    Add epoch to the internal epochs dataframe
+
+    Parameters
+    ----------
+    epochs : DataFrame or None
+        existing epochs or None to create new epochs
+    epoch_name : string
+        Name of epoch
+    epoch : 2D array of (M x 2)
+        The first column is the start time and second column is the end
+        time. M is the number of occurrences of the epoch.
+    '''
+    # important to match standard column order in case epochs is empty. Some code requires this order??
+    #df = df[['name', 'start', 'end']]
+    _df = pd.DataFrame({'name': epoch_name, 'start': epoch[0], 'end': epoch[1]}, index=[0])
+
+    if epochs is not None:
+        epochs = pd.concat([epochs, _df], ignore_index=True)
+    else:
+        epochs = _df
+
+    return epochs

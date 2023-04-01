@@ -12,16 +12,16 @@ import time
 
 import numpy as np
 
-import nems.analysis.api as analysis
-import nems.fitters.mappers
-import nems.initializers as init
-import nems.metrics.api
-import nems.metrics.api as metrics
-import nems.modelspec as ms
-import nems.priors as priors
-from nems.analysis.cost_functions import basic_cost
-from nems.fitters.api import scipy_minimize, coordinate_descent
-from nems.utils import find_module
+import nems0.analysis.api as analysis
+import nems0.fitters.mappers
+import nems0.initializers as init
+import nems0.metrics.api
+import nems0.metrics.api as metrics
+import nems0.modelspec as ms
+import nems0.priors as priors
+from nems0.analysis.cost_functions import basic_cost
+from nems0.fitters.api import scipy_minimize, coordinate_descent
+from nems0.utils import find_module
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ def init_pop_pca(est, modelspec, flip_pcs=False, IsReload=False,
         if relumod is not None:
             log.info('Temporarily converting relu to lvl')
             m_save = copy.deepcopy(tmodelspec[relumod])
-            tmodelspec[relumod]['fn'] = 'nems.modules.levelshift.levelshift'
+            tmodelspec[relumod]['fn'] = 'nems0.modules.levelshift.levelshift'
             tmodelspec[relumod]['phi'] = {'level': np.array([[0]])}
 
             tmodelspec = init.prefit_LN(rec, tmodelspec,
@@ -516,7 +516,7 @@ def fit_population_channel_fast2(rec, modelspec,
 
         def my_nmse(result):
             '''
-            hacked from nems.metrics.mse.nmse. optimized nMSE for situation when a single
+            hacked from nems0.metrics.mse.nmse. optimized nMSE for situation when a single
             population channel is predicting responses with fixed per-neuron gains and levelshifts
             A1, A2, A3, respstd defined outside of function
             result :  recording object updated by fitter, prediction response of single pop channel
@@ -834,9 +834,9 @@ def fit_population_iteratively(
         est, modelspec,
         cost_function=basic_cost,
         fitter=coordinate_descent, evaluator=ms.evaluate,
-        segmentor=nems.segmentors.use_all_data,
-        mapper=nems.fitters.mappers.simple_vector,
-        metric=lambda data: nems.metrics.api.nmse(data, 'pred', 'resp'),
+        segmentor=nems0.segmentors.use_all_data,
+        mapper=nems0.fitters.mappers.simple_vector,
+        metric=lambda data: nems0.metrics.api.nmse(data, 'pred', 'resp'),
         metaname='fit_basic', fit_kwargs={},
         module_sets=None, invert=False, tolerances=None, tol_iter=50,
         fit_iter=10, IsReload=False, **context
@@ -905,7 +905,7 @@ def fit_population_iteratively(
     # Ensure that phi exists for all modules; choose prior mean if not found
     # for i, m in enumerate(modelspec):
     #    if ('phi' not in m.keys()) and ('prior' in m.keys()):
-    #        m = nems.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
+    #        m = nems0.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
     #        log.debug('Phi not found for module, using mean of prior: {}'
     #                  .format(m))
     #        modelspec[i] = m

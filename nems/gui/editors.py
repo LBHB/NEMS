@@ -81,32 +81,32 @@ if app is None:
     # if it does not exist then a QApplication is created
     app = qw.QApplication(sys.argv)
 
-from nems import xforms
-from nems.gui.models import ArrayModel
-from nems.gui.canvas import NemsCanvas, EpochCanvas, MplWindow
-from nems.modelspec import _lookup_fn_at
-import nems.db as nd
-from nems.registry import keyword_lib
-from nems import get_setting
+from nems0 import xforms
+from nems0.gui.models import ArrayModel
+from nems0.gui.canvas import NemsCanvas, EpochCanvas, MplWindow
+from nems0.modelspec import _lookup_fn_at
+import nems0.db as nd
+from nems0.registry import keyword_lib
+from nems0 import get_setting
 import matplotlib.pyplot as plt
 log = logging.getLogger(__name__)
 
 from configparser import ConfigParser
 import nems
 
-configfile = join(nems.get_setting('SAVED_SETTINGS_PATH') + '/gui.ini')
+configfile = join(nems0.get_setting('SAVED_SETTINGS_PATH') + '/gui.ini')
 
 # These are used as click-once operations
 # TODO: separate initialization from prefitting
 _INIT_FNS = [
-        'nems.initializers.from_keywords',
-        'nems.initializers.prefit_LN'
+        'nems0.initializers.from_keywords',
+        'nems0.initializers.prefit_LN'
         ]
 
 # These can be repeated as needed in small steps
 _FIT_FNS = [
-        'nems.analysis.fit_basic.fit_basic',
-        'nems.analysis.fit_iteratively.fit_iteratively'
+        'nems0.analysis.fit_basic.fit_basic',
+        'nems0.analysis.fit_iteratively.fit_iteratively'
         ]
 
 # TODO: add backwards compatibility shim to add plot_fns, plot_fn_idx etc to
@@ -135,12 +135,12 @@ class EditorWindow(qw.QMainWindow):
         modelspec : ModelSpec
             A NEMS ModelSpec containing at least one module.
         xfspec : nested list
-            A NEMS xforms spec (see nems.xforms) containing at least one step.
+            A NEMS xforms spec (see nems0.xforms) containing at least one step.
         rec : Recording
             A NEMS Recording, generally expected to contain 'stim', 'resp',
             and 'pred' signals.
         ctx : dict
-            A NEMS context dictionary (see nems.xforms)
+            A NEMS context dictionary (see nems0.xforms)
         rec_name : str
             Key used to set rec from ctx instead of passing rec directly,
             e.x. 'val' or 'est'.
@@ -176,12 +176,12 @@ class EditorWidget(qw.QWidget):
         modelspec : ModelSpec
             A NEMS ModelSpec containing at least one module.
         xfspec : nested list
-            A NEMS xforms spec (see nems.xforms) containing at least one step.
+            A NEMS xforms spec (see nems0.xforms) containing at least one step.
         rec : Recording
             A NEMS Recording, generally expected to contain 'stim', 'resp',
             and 'pred' signals.
         ctx : dict
-            A NEMS context dictionary (see nems.xforms).
+            A NEMS context dictionary (see nems0.xforms).
         parent : QWidget*
             Expected to be an instance of EditorWindow.
 
@@ -516,7 +516,7 @@ class ModelspecEditor(qw.QWidget):
         '''Regenerate plot for each module and signal.'''
         for m in self.modules:
             if m.parent.modelspec[m.mod_index]['plot_fns']\
-                    [m.parent.modelspec[m.mod_index]['plot_fn_idx']] != 'nems.plots.api.null':
+                    [m.parent.modelspec[m.mod_index]['plot_fn_idx']] != 'nems0.plots.api.null':
                 m.new_plot()
 
         for m in self.signal_displays:
@@ -648,7 +648,7 @@ class ModuleCanvas(qw.QFrame):
     def check_scrollable(self):
         '''Set self.scrollable based on if current plot type is scrollable.'''
         #plots = self.parent.modelspec[self.mod_index].get(
-        #        'plot_fns', ['nems.plots.api.mod_output']
+        #        'plot_fns', ['nems0.plots.api.mod_output']
         #        )
         fn_ref = _lookup_fn_at(self.plot_list[self.plot_fn_idx])
         if ('scrollable' in dir(fn_ref)) and fn_ref.scrollable:
@@ -728,8 +728,8 @@ class SignalCanvas(qw.QFrame):
         self.highlight_obj = None
 
         # define plot_list here rather than in ModuleControls
-        self.plot_list = ['nems.plots.api.spectrogram',
-                          'nems.plots.api.timeseries_from_signals']
+        self.plot_list = ['nems0.plots.api.spectrogram',
+                          'nems0.plots.api.timeseries_from_signals']
 
         # Default plot options - set them up here then change w/ controller
         self.plot_fn_idx = 0
@@ -772,7 +772,7 @@ class SignalCanvas(qw.QFrame):
         self.canvas.axes = self.canvas.figure.add_subplot(111)
         ax = self.canvas.axes
         rec = self.rec
-        from nems.modelspec import _lookup_fn_at
+        from nems0.modelspec import _lookup_fn_at
         plot_fn = _lookup_fn_at(self.plot_list[self.plot_fn_idx])
         plot_fn(rec=rec, modelspec=self.parent.modelspec, sig_name=self.sig_name,
                 channels=self.plot_channel, no_legend=True,
@@ -1651,7 +1651,7 @@ class FitEditor(qw.QFrame):
             self.parent.set_new_modelspec(new_modelspec)
 
     def reset_from_keywords(self):
-        fn = _lookup_fn_at('nems.initializers.from_keywords')
+        fn = _lookup_fn_at('nems0.initializers.from_keywords')
         s = self.parent.modelspec.modelspecname
         registry = self.parent.ctx.get('registry', None)
         rec = self.parent.rec

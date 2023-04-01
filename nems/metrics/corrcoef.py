@@ -2,7 +2,7 @@
 import numpy as np
 import scipy.special
 import scipy.stats as stats
-import nems.epoch as ep
+import nems0.epoch as ep
 
 import logging
 log = logging.getLogger(__name__)

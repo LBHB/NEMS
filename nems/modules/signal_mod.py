@@ -5,8 +5,8 @@ functions for modifying signals (merging, averaging, subsampling)
 """
 
 import numpy as np
-#import nems.signal as signal
-#import nems.preprocessing as preproc
+#import nems0.signal as signal
+#import nems0.preprocessing as preproc
 
 
 #def make_state_signal(rec, signals_in=['pupil'], signals_permute=[], o='state'):

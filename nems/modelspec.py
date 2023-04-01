@@ -15,11 +15,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.stats as st
 
-import nems
-import nems.uri
-import nems.utils
-import nems.recording
-from nems.fitters.mappers import simple_vector
+import nems0
+import nems0.uri
+import nems0.utils
+import nems0.recording
+from nems0.fitters.mappers import simple_vector
 
 log = logging.getLogger(__name__)
 
@@ -513,7 +513,7 @@ class ModelSpec:
 
         module = self.get_module(mod_index)
 
-        fallback_fn_path = 'nems.plots.api.mod_output'
+        fallback_fn_path = 'nems0.plots.api.mod_output'
 
         try:
             fn_list = module['plot_fns']
@@ -685,34 +685,33 @@ class ModelSpec:
 
         # determine the plot functions
         plot_fn_modules = []
+        skip_list = ['nems0.plots.api.null']
         for mod_idx, m in enumerate(self):
             # do some forward checking here for strf: skip gaussian weights if next is strf
             # clunky, better way?
-            if mod_idx < len(self) and self[mod_idx]['fn'] == 'nems.modules.weight_channels.gaussian' and \
-                    self[mod_idx + 1]['fn'] == 'nems.modules.fir.basic':
+            if mod_idx < len(self) and self[mod_idx]['fn'] == 'nems0.modules.weight_channels.gaussian' and \
+                    self[mod_idx + 1]['fn'] == 'nems0.modules.fir.basic':
                 continue
             # don't double up on spectrograms
-            if m['fn'] == 'nems.modules.nonlinearity.dlog':
+            if m['fn'] == 'nems0.modules.nonlinearity.dlog':
                 continue
             if m.get('plot_fns', None) is None:
                 continue
             if m['plot_fns'] == []:
                 continue
-            if m['plot_fns'][m['plot_fn_idx']] == 'nems.plots.api.null':
+            fn = m['plot_fns'][m['plot_fn_idx']]
+            if fn in skip_list:
                 continue
             if mod_idx in modidx_set:
                 plot_fn_modules.append((mod_idx, self.get_plot_fn(mod_idx)))
-
-        # drop duplicates
-        temp_plot_fn_set = []
-        seen_fn = set()
-        for mod_idx, plot_fn in plot_fn_modules:
-            if plot_fn not in seen_fn:
-                seen_fn.add(plot_fn)
-                temp_plot_fn_set.append((mod_idx, plot_fn))
-
-        plot_fn_modules = temp_plot_fn_set
-
+            # these plot functions always produce the same thing
+            # so should be skipped if they appear more than once
+            if fn in ['nems0.plots.api.pred_resp',
+                      'nems0.plots.api.state_vars_timeseries',
+                      'nems0.plots.api.spectrogram_output',
+                      ]:
+                skip_list.append(fn)
+                
         # use partial so ax can be specified later
         # the format is (fn, col_span), where col_span is 1 for all of these, but will vary for the custom pre-post
         # below fn and col_span should be list, but for simplicity here they are just int and partial and converted
@@ -733,10 +732,10 @@ class ModelSpec:
 
         for s in sig_names:
             if rec[s].shape[0] > 1:
-                plot_fn = _lookup_fn_at('nems.plots.api.spectrogram')
+                plot_fn = _lookup_fn_at('nems0.plots.api.spectrogram')
                 title = s + ' spectrogram'
             else:
-                plot_fn = _lookup_fn_at('nems.plots.api.timeseries_from_signals')
+                plot_fn = _lookup_fn_at('nems0.plots.api.timeseries_from_signals')
                 title = s + ' timeseries'
 
             fn = partial(plot_fn, rec=rec,
@@ -751,10 +750,10 @@ class ModelSpec:
 
         if include_output and (output_name=='stim'):
             if rec[output_name].shape[0] > 1:
-                plot_fn = _lookup_fn_at('nems.plots.api.spectrogram')
+                plot_fn = _lookup_fn_at('nems0.plots.api.spectrogram')
                 title = output_name + ' spectrogram'
             else:
-                plot_fn = _lookup_fn_at('nems.plots.api.timeseries_from_signals')
+                plot_fn = _lookup_fn_at('nems0.plots.api.timeseries_from_signals')
                 title = output_name + ' timeseries'
 
             # actual output (stim)
@@ -783,7 +782,7 @@ class ModelSpec:
             
         elif include_output:
             if rec[output_name].shape[0] > 1:
-                plot_fn = _lookup_fn_at('nems.plots.api.spectrogram')
+                plot_fn = _lookup_fn_at('nems0.plots.api.spectrogram')
                 title = output_name + ' spectrogram'
                 fn = partial(plot_fn, rec=rec,
                              sig_name=output_name,
@@ -794,9 +793,9 @@ class ModelSpec:
                              )
             else:
                 if (time_range is not None) or (epoch is None):
-                    plot_fn = _lookup_fn_at('nems.plots.api.timeseries_from_signals')
+                    plot_fn = _lookup_fn_at('nems0.plots.api.timeseries_from_signals')
                 else:
-                    plot_fn = _lookup_fn_at('nems.plots.api.timeseries_from_epoch')
+                    plot_fn = _lookup_fn_at('nems0.plots.api.timeseries_from_epoch')
                 fn = partial(plot_fn,
                              signals=[rec_resp, rec_pred],
                              epoch=epoch,
@@ -813,7 +812,7 @@ class ModelSpec:
             r_fit = np.mean(self.meta.get('r_fit', [0]))
             scatter_text = f'r_test: {r_test:.3f} (n={n_cells})\nr_fit: {r_fit:.3f}'
 
-            scatter_fn = _lookup_fn_at('nems.plots.api.plot_scatter')
+            scatter_fn = _lookup_fn_at('nems0.plots.api.plot_scatter')
             n_bins = 100
             fn_smooth = partial(scatter_fn,
                                 sig1=rec_pred,
@@ -825,7 +824,7 @@ class ModelSpec:
                                 )
 
             if rec_resp.shape[0] > 1:
-                not_smooth_fn = _lookup_fn_at('nems.plots.api.perf_per_cell')
+                not_smooth_fn = _lookup_fn_at('nems0.plots.api.perf_per_cell')
                 fn_not_smooth = partial(not_smooth_fn, self)
             else:
                 fn_not_smooth = partial(scatter_fn,
@@ -1026,7 +1025,7 @@ class ModelSpec:
         else:
             keyword_string = get_modelspec_shortname(self)
         fitter_name = meta.get('fitkey', meta.get('fitter', 'unknown_fitter'))
-        date = nems.utils.iso8601_datestring()
+        date = nems0.utils.iso8601_datestring()
         guess = '.'.join([recording_name, keyword_string, fitter_name, date])
 
         # remove problematic characters
@@ -1092,7 +1091,7 @@ class ModelSpec:
             # default integration time is one bin
             layer['time_win_smp'] = 1  # default
 
-            layer = nems.tf.cnnlink.map_layer(layer=layer, prev_layers=layers, idx=idx, modelspec=m,
+            layer = nems0.tf.cnnlink.map_layer(layer=layer, prev_layers=layers, idx=idx, modelspec=m,
                                               n_input_feats=n_input_feats, net_seed=net_seed, weight_scale=weight_scale,
                                               use_modelspec_init=use_modelspec_init, fs=fs, distr=distr)
 
@@ -1115,7 +1114,7 @@ class ModelSpec:
 
         for i, m in enumerate(self):
             try:
-                tf_layer = nems.utils.lookup_fn_at(m['tf_layer'])
+                tf_layer = nems0.utils.lookup_fn_at(m['tf_layer'])
             except KeyError:
                 raise NotImplementedError(f'Layer "{m["fn"]}" does not have a tf equivalent.')
 
@@ -1131,7 +1130,7 @@ class ModelSpec:
         return layers
 
     def get_dstrf(self,
-                  rec: nems.recording.Recording,
+                  rec: nems0.recording.Recording,
                   index: int,
                   width: int = 30,
                   rebuild_model: bool = False,
@@ -1180,11 +1179,11 @@ class ModelSpec:
         # (which is slow) when it's not needed
         # TODO: is this best practice? Better way to do this?
         import tensorflow as tf
-        from nems.tf.cnnlink_new import get_jacobian
+        from nems0.tf.cnnlink_new import get_jacobian
 
         if self.tf_model is None or rebuild_model:
-            from nems.tf import modelbuilder
-            from nems.tf.layers import Conv2D_NEMS
+            from nems0.tf import modelbuilder
+            from nems0.tf.layers import Conv2D_NEMS
 
             # generate the model
             model_layers = self.modelspec2tf2(use_modelspec_init=True)
@@ -1333,9 +1332,9 @@ def save_modelspec(modelspec, filepath):
     :param filepath: Save location.
     """
     if type(modelspec) is list:
-        nems.uri.save_resource(filepath, json=modelspec)
+        nems0.uri.save_resource(filepath, json=modelspec)
     else:
-        nems.uri.save_resource(filepath, json=modelspec.raw)
+        nems0.uri.save_resource(filepath, json=modelspec.raw)
 
 
 def save_modelspecs(directory, modelspecs, basename=None):
@@ -1381,7 +1380,7 @@ def load_modelspec(uri):
     :param uri: URI of modelspec.
     :return: A new modelspec object loaded form the uri.
     """
-    ms = nems.uri.load_resource(uri)
+    ms = nems0.uri.load_resource(uri)
     return ModelSpec(ms)
 
 
@@ -1435,7 +1434,7 @@ def _lookup_fn_at(fn_path, ignore_table=False):
 
     Basically, a way to import a single function.
     e.g.
-        myfn = _lookup_fn_at('nems.modules.fir.fir_filter')
+        myfn = _lookup_fn_at('nems0.modules.fir.fir_filter')
         myfn(data)
         ...
 
@@ -1443,15 +1442,18 @@ def _lookup_fn_at(fn_path, ignore_table=False):
     :param ignore_table: Whether or not to look up the function in the cache.
     :return: Function handle.
     """
-    # default is nems.xforms.<fn_path>
+    # default is nems0.xforms.<fn_path>
     if '.' not in fn_path:
-        fn_path = 'nems.xforms.' + fn_path
+        fn_path = 'nems0.xforms.' + fn_path
 
     if (not ignore_table) and (fn_path in lookup_table):
         fn = lookup_table[fn_path]
     else:
-        api, fn_name = nems.utils.split_to_api_and_fn(fn_path)
+        api, fn_name = nems0.utils.split_to_api_and_fn(fn_path)
         api = api.replace('nems_db.xform', 'nems_lbhb.xform')
+
+        # backwards compatibility for models fit pre-nems lite
+        api = api.replace('nems.', 'nems0.')
         try:
             api_obj = importlib.import_module(api)
         
@@ -1524,9 +1526,9 @@ def eval_ms_layer(data: np.ndarray,
     if modelspec is not None:
         ms = modelspec
     else:
-        ms = nems.initializers.from_keywords(layer_spec)
+        ms = nems0.initializers.from_keywords(layer_spec)
 
-    sig = nems.signal.RasterizedSignal.from_3darray(
+    sig = nems0.signal.RasterizedSignal.from_3darray(
         fs=100,
         array=np.swapaxes(data, 1, 2),
         name='temp',
@@ -1536,7 +1538,7 @@ def eval_ms_layer(data: np.ndarray,
     signal_dict = {'stim': sig}
 
     if state_data is not None:
-        state_sig = nems.signal.RasterizedSignal.from_3darray(
+        state_sig = nems0.signal.RasterizedSignal.from_3darray(
             fs=100,
             array=np.swapaxes(state_data, 1, 2),
             name='state',
@@ -1545,7 +1547,7 @@ def eval_ms_layer(data: np.ndarray,
         )
         signal_dict['state'] = state_sig
 
-    rec = nems.recording.Recording(signal_dict)
+    rec = nems0.recording.Recording(signal_dict)
     rec = ms.evaluate(rec=rec, stop=stop)
 
     pred = np.swapaxes(rec['pred'].extract_epoch('REFERENCE'), 1, 2)
@@ -1581,6 +1583,9 @@ def evaluate(rec, modelspec, start=None, stop=None):
     for m in modelspec[start:stop]:
         if type(m) is dict:
             fn = _lookup_fn_at(m['fn'])
+            if fn is None:
+                tfn = m['fn'].replace("nems.", "nems0.")
+                fn = _lookup_fn_at(tfn)
         else:
             fn = m.eval
         fn_kwargs = m.get('fn_kwargs', {})
@@ -1629,7 +1634,7 @@ def evaluate_tf(rec, modelspec, epoch_name='REFERENCE', **kwargs):
     if 'mask' in rec.signals:
         mask = rec['mask']
     else:
-        mask = nems.signal.RasterizedSignal(np.ones((1, rec['resp'].shape[-1])))  # select all
+        mask = nems0.signal.RasterizedSignal(np.ones((1, rec['resp'].shape[-1])))  # select all
 
     stim_train = np.transpose(rec[input_name].extract_epoch(epoch=epoch_name, mask=mask), [0, 2, 1])
     if np.any(['Conv2D' in m['fn'] for m in modelspec.modules]):
@@ -1705,7 +1710,7 @@ def summary_stats(modelspecs, mod_key='fn', meta_include=[], stats_keys=[]):
         for i, m in enumerate(mspec):
             name = '%d--%s' % (i, m[mod_key]) if mod_key else str(i)
             # Abbreviate by default if using 'fn'
-            if name.startswith('nems.modules.'):
+            if name.startswith('nems0.modules.'):
                 name = name[13:]
 
             # Add information from first-module meta

@@ -1,15 +1,18 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
+import logging
 
 from .timeseries import (timeseries_from_signals, timeseries_from_vectors,
                          ax_remove_box)
-import nems.modelspec as ms
-from nems.utils import get_channel_number, find_module
-from nems.metrics.state import state_mod_split
-from nems.plots.utils import ax_remove_box
-from nems.gui.decorators import scrollable 
+import nems0.modelspec as ms
+from nems0.utils import get_channel_number, find_module
+from nems0.metrics.state import state_mod_split
+from nems0.plots.utils import ax_remove_box
+from nems0.gui.decorators import scrollable 
 from .file import save_figure, load_figure_img, load_figure_bytes, fig2BytesIO
+
+log = logging.getLogger(__name__)
 
 line_colors = {'actual_psth': (0,0,0),
                'predicted_psth': 'red',
@@ -400,13 +403,13 @@ def state_vars_psth_all(rec, epoch="REFERENCE", psth_name='resp', psth_name2='pr
     ax_remove_box(ax)
 
 
-def state_gain_plot(modelspec, rec, state_sig='state_raw', ax=None, colors=None, clim=None, title=None, **options):
+def state_gain_plot(modelspec, rec=None, idx=None, state_sig='state_raw', ax=None, colors=None, clim=None, title=None, **options):
 
     state_chan_list = rec[state_sig].chans
     state_idx = find_module('state', modelspec)
     g = modelspec.phi_mean[state_idx]['g'].copy()
     ge = modelspec.phi_sem[state_idx]['g']
-    if modelspec[state_idx]['fn'] == 'nems.modules.state.state_gain':
+    if modelspec[state_idx]['fn'] == 'nems0.modules.state.state_gain':
         d = None
         de = None
         gainoffset = modelspec[state_idx]['fn_kwargs']['gainoffset']
@@ -414,8 +417,6 @@ def state_gain_plot(modelspec, rec, state_sig='state_raw', ax=None, colors=None,
     else:
         d = modelspec.phi_mean[state_idx]['d']
         de = modelspec.phi_sem[state_idx]['d']
-
-
 
     MI = modelspec[0]['meta']['state_mod']
     state_chans = modelspec[0]['meta']['state_chans']
@@ -454,11 +455,49 @@ def state_gain_plot(modelspec, rec, state_sig='state_raw', ax=None, colors=None,
         ax.legend(('baseline', 'gain'), frameon=False)
         ax.plot(np.arange(len(state_chans)),np.zeros(len(state_chans)),'k--',
                  linewidth=0.5)
-    if title:
-        ax.title(title)
+
+    if title is None:
+        if 'id' in modelspec[idx].keys():
+            title = " " + modelspec[idx]['id']
+    if title is not None:
+        ax.text(ax.get_xlim()[0],ax.get_ylim()[1],title,
+                va='top',ha='left')
 
     ax_remove_box(ax)
 
+
+def state_gain_parameters(modelspec=None, idx=None, rec=None,
+                          ax=None, title=None, colors=None,
+                          **options):
+    phi = modelspec.phi[idx]
+    if rec is not None:
+        if 'state' in rec.signals.keys():
+            labels=rec['state'].chans
+        else:
+            labels=None
+    if 'g' in phi.keys():
+        x = phi['g']
+    elif 'd' in phi.keys():
+        x = phi['d']
+    else:
+        print(f'state_gain_parameters: nothing to plot for mod {idx}')
+        return
+
+    if ax is None:
+        ax = plt.gca()
+
+    ax.plot(x)
+    if labels is not None:
+        ax.legend(labels, frameon=False)
+    if title is None:
+        if 'id' in modelspec[idx].keys():
+            title = " " + modelspec[idx]['id']
+
+    if title is not None:
+        ax.text(ax.get_xlim()[0],ax.get_ylim()[1],title,
+                va='top',ha='left')
+
+    return ax
 
 def model_per_time(ctx, fit_idx=0):
     """
@@ -487,12 +526,12 @@ def model_per_time(ctx, fit_idx=0):
                         ax=ax, files_only=True, modelspec=modelspec)
 
 
-def cc_comp(val, modelspec, ax=None, figures=None, IsReload=False, extra_epoch=None, **options):
+def cc_comp(val, modelspec, ax=None, figures=None, IsReload=False,
+            extra_epoch=None, saveto=None, **options):
     if IsReload:
         return {}
     
     ## display noise corr. matrices
-    f,ax = plt.subplots(4,3, figsize=(9,12))
 
     if extra_epoch is not None:
         #rec = val.copy()
@@ -533,56 +572,115 @@ def cc_comp(val, modelspec, ax=None, figures=None, IsReload=False, extra_epoch=N
     state = rec['state'].as_continuous()
 
     siteid = modelspec.meta['cellid'].split("-")[0]
-    large_cc = np.cov(resp[:,large_idx]-pred0[:,large_idx])
-    small_cc = np.cov(resp[:,small_idx]-pred0[:,small_idx])
+    large_cc = np.cov(resp[:, large_idx]-pred0[:, large_idx])
+    small_cc = np.cov(resp[:, small_idx]-pred0[:, small_idx])
     mm=np.max(np.abs(small_cc)) * 0.5
+    sm_cc = np.cov(pred[:, small_idx]-pred0[:, small_idx])
+    lg_cc = np.cov(pred[:, large_idx]-pred0[:, large_idx])
 
-    ax[0,0].imshow(small_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[1,0].imshow(large_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[2,0].imshow(large_cc-small_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[0,0].set_title(siteid + ' resp')
-
-    ax[0,0].set_ylabel('small')
-    ax[1,0].set_ylabel('large')
-    ax[2,0].set_ylabel('large-small')
-    ax[3,0].set_ylabel('d_sim-d_act')
-    ax[2,0].set_title(f"std={np.mean((large_cc-small_cc)**2):.3f}")
-
-    sm_cc = np.cov(pred[:,small_idx]-pred0[:,small_idx])
-    lg_cc = np.cov(pred[:,large_idx]-pred0[:,large_idx])
-    ax[0,1].imshow(sm_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[1,1].imshow(lg_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[2,1].imshow((lg_cc-sm_cc),aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[3,1].imshow((large_cc-small_cc) - (lg_cc-sm_cc),aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
-    ax[0,1].set_title(siteid + ' pred')
-    ax[2,1].set_title(f"std={np.mean((lg_cc-sm_cc)**2):.3f}")
-    ax[3,1].set_title(f"E={np.mean(((large_cc-small_cc) - (lg_cc-sm_cc))**2):.3f}");
-
+    # large vs. small delta cc
     dact=large_cc-small_cc
     dpred=lg_cc-sm_cc
-    ax[1,2].plot(np.diag(dact), label='act')
-    ax[1,2].plot(np.diag(dpred), label='pred')
-    ax[1,2].set_title('mean lg-sm var')
-    ax[1,2].legend(frameon=False)
-    np.fill_diagonal(dact, 0)
-    ax[2,2].plot(dact.mean(axis=0), label='act')
-    np.fill_diagonal(dpred, 0)
-    ax[2,2].plot(dpred.mean(axis=0), label='pred')
-    ax[2,2].set_title('mean lg-sm cc')
-    ax[2,2].set_xlabel('unit')
 
+    # act and pred cc values for all pairs, averaged across states
     triu = np.triu_indices(dpred.shape[0], 1)
     cc_avg = (large_cc[triu] + small_cc[triu])/2
-    h, b = np.histogram(cc_avg,bins=20,range=[-0.3, 0.3])
-    ax[0, 2].bar(b[1:],h,width=b[1]-b[0])
-    ax[0, 2].set_title(f"median cc={np.median(cc_avg):.3f}")
+    cc_pred_avg = (lg_cc[triu] + sm_cc[triu])/2
 
+    # distribution of delta cc
     d_each = dact[triu]
-    h,b=np.histogram(d_each,bins=20,range=[-0.3,0.3])
-        
-    ax[3,2].bar(b[1:],h,width=b[1]-b[0])
-    ax[3,2].set_xlabel(f"median d_cc={np.median(d_each):.3f}")
+    d_each_pred = dpred[triu]
+
+    f, ax = plt.subplots(3, 4, figsize=(10, 7.5))
+    imopts = {'aspect': 'equal', 'interpolation': 'none', 'clim': [-mm,mm],
+              'cmap': 'bwr', 'origin': 'lower'}
+
+    ax[0, 0].imshow(small_cc, **imopts)
+    ax[0, 0].set_title('Actual small pupil')
+    ax[0, 0].set_xlabel(f"Unit (sorted by depth)")
+    ax[0, 0].set_ylabel(f"Unit (sorted by depth)")
+    ax[0, 1].imshow(large_cc, **imopts)
+    ax[0, 1].set_title('Actual large pupil')
+    ax[0, 1].set_xlabel(f"Unit (sorted by depth)")
+    ax[0, 2].imshow(large_cc-small_cc, **imopts)
+    ax[0, 2].set_title(f"Large - small")
+    #ax[0, 2].set_title(f"lg-sm std={np.mean((large_cc-small_cc)**2):.3f}")
+    ax[0, 2].set_xlabel(f"Unit (sorted by depth)")
+
+    # histogram of cc
+    h, b = np.histogram(cc_avg, bins=20, range=[-0.12, 0.12])
+    hp, bp = np.histogram(cc_pred_avg, bins=20, range=[-0.12, 0.12])
+    db = (b[1]-b[0])/2
+    ax[0, 3].bar(b[1:]-db, h, width=b[1]-b[0], color='lightgray',
+                 label=f'Act ({np.mean(cc_avg):.3f})')
+    ax[0, 3].step(bp[1:],hp, label=f'Model ({np.mean(cc_pred_avg):.3f})', color='blue')
+    ax[0, 3].axvline(0, color='black', linestyle='--', lw=1)
+    ax[0, 3].set_title(f"Overall noise correlation")
+    ax[0, 3].legend(frameon=False)
+    ax[0, 3].set_ylabel(f"Number of neuron pairs")
+
+    h, b = np.histogram(d_each, bins=20, range=[-0.08, 0.08])
+    hp, bp = np.histogram(d_each_pred, bins=20, range=[-0.08, 0.08])
+    db = (b[1]-b[0])/2
+    ax[1, 3].bar(b[1:]-db, h, width=b[1] - b[0], color='lightgray',
+                 label=f'Act ({np.mean(d_each):.3f})')
+    ax[1, 3].step(bp[1:], hp, label=f'Model ({np.mean(d_each_pred):.3f})', color='blue')
+    ax[1, 3].axvline(0, color='black', linestyle='--', lw=1)
+    ax[1, 3].set_title(f"Noise correlation change (lg-sm pupil)")
+    ax[1, 3].legend(frameon=False)
+    ax[1, 3].set_ylabel(f"Number of neuron pairs")
+
+    ax[1, 0].imshow(sm_cc, aspect='auto', interpolation='none', clim=[-mm,mm], cmap='bwr', origin='lower')
+    ax[1, 0].set_title('Model small pupil')
+    ax[1, 0].set_xlabel(f"Unit (sorted by depth)")
+    ax[1, 0].set_ylabel(f"Unit (sorted by depth)")
+    ax[1, 1].imshow(lg_cc,aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
+    ax[1, 1].set_title('Model large pupil')
+    ax[1, 1].set_xlabel(f"Unit (sorted by depth)")
+    ax[1, 2].imshow((lg_cc-sm_cc),aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
+    ax[1, 2].set_title("Large - small")
+    #ax[1, 2].set_title(f"std={np.mean((lg_cc-sm_cc)**2):.3f}")
+    ax[1, 2].set_xlabel(f"Unit (sorted by depth)")
+
+    ax[2, 0].plot(np.diag(dact), label='act')
+    ax[2, 0].plot(np.diag(dpred), label='pred')
+    ax[2, 0].set_title('mean lg-sm var')
+    ax[2, 0].set_xlabel(f"Unit (sorted by depth)")
+    ax[2, 0].legend(frameon=False)
+
+    np.fill_diagonal(dact, 0)
+    ax[2, 1].plot(dact.mean(axis=0), label='act')
+    np.fill_diagonal(dpred, 0)
+    ax[2, 1].plot(dpred.mean(axis=0), label='pred')
+    ax[2, 1].set_title('mean lg-sm cc')
+    ax[2, 1].set_xlabel(f"Unit (sorted by depth)")
+
+    im = ax[2, 2].imshow((large_cc-small_cc) - (lg_cc-sm_cc),aspect='auto',interpolation='none',clim=[-mm,mm], cmap='bwr', origin='lower')
+    ax[2, 2].set_ylabel('d_sim-d_act')
+    ax[2, 2].set_title(f"E={np.mean(((large_cc-small_cc) - (lg_cc-sm_cc))**2):.3f}");
+    ax[2, 2].set_xlabel(f"Unit (sorted by depth)")
+    plt.colorbar(im, ax=ax[2,2])
+
+    lv_weights = modelspec.phi[2]['g']
+    smweights = lv_weights[:,0]-lv_weights[:,1]+lv_weights[:,2]
+    lgweights = lv_weights[:,0]+lv_weights[:,1]+lv_weights[:,2]
+    if smweights.sum()<0:
+        smweights *= -1
+        lgweights *= -1
+    #ax[2, 3].plot(smweights, color='lightgray', label='Small pup.')
+    #ax[2, 3].plot(lgweights, color='blue', label='Large pup.')
+
+    baseweights = lv_weights[:,0] * np.sign(np.sum(lv_weights[:,0]))
+    pupweights = lv_weights[:,1] * -np.sign(np.sum(lv_weights[:,1]))
+    ax[2, 3].plot(baseweights, color='lightgray', label='Baseline')
+    ax[2, 3].plot(pupweights, color='blue', label='Pupil mod.')
+    ax[2, 3].axhline(0, color='black', linestyle='--', lw=1)
+    ax[2, 3].legend(frameon=False)
+    ax[2, 3].set_title('LV gain per neuron')
+    ax[2, 3].set_xlabel(f"Unit (sorted by depth)")
+
     f.suptitle(f"{modelspec.meta['cellid']} - {modelspec.meta['modelname']}", fontsize=8)
+    plt.tight_layout()
 
     cc_std_sm = np.std(small_cc[triu])
     cc_std_lg = np.std(large_cc[triu])
@@ -597,7 +695,11 @@ def cc_comp(val, modelspec, ax=None, figures=None, IsReload=False, extra_epoch=N
     modelspec.meta['E_dcc'] = np.mean(((large_cc-small_cc) - (lg_cc-sm_cc))**2)
     modelspec.meta['act_dcc_std'] = np.mean((large_cc-small_cc)**2)
     modelspec.meta['pred_dcc_std'] = np.mean((lg_cc-sm_cc)**2)
-                                      
+
+    if saveto is not None:
+        log.info(f'Saving fig to {saveto}')
+        f.savefig(saveto)
+
     # CANNOT initialize figures=[] in optional args our you will create a bug
     if figures is None:
         figures = []

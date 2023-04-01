@@ -12,8 +12,8 @@ def reverse_correlation(rec, modelspec, input_name, tol=1e-2):
     for m in modelspec:
         fns.append(m['fn'])
     fns = np.array(fns)
-    ind1 = np.argwhere([True if 'nems.modules.fir' in f else False for f in fns])[0][0]
-    ind2 = np.argwhere([True if 'nems.modules.levelshift' in f else False for f in fns])[0][0]
+    ind1 = np.argwhere([True if 'nems0.modules.fir' in f else False for f in fns])[0][0]
+    ind2 = np.argwhere([True if 'nems0.modules.levelshift' in f else False for f in fns])[0][0]
 
     # apply mask, if it exists
     if 'mask' in rec.signals.keys():

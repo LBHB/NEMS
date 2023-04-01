@@ -3,8 +3,8 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nems.gui.decorators import scrollable
-from nems.plots.utils import ax_remove_box
+from nems0.gui.decorators import scrollable
+from nems0.plots.utils import ax_remove_box
 
 log = logging.getLogger(__name__)
 

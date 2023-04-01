@@ -1,5 +1,5 @@
 """
-nems.uri
+nems0.uri
 
 Where the filesystem organization of nems directories are decided,
 and generic methods for saving and loading resources over HTTP or
@@ -16,7 +16,7 @@ import base64
 
 from requests.exceptions import ConnectionError
 
-from nems.utils import NumpyEncoder, json_numpy_obj_hook
+from nems0.utils import NumpyEncoder, json_numpy_obj_hook
 
 
 log = logging.getLogger(__name__)

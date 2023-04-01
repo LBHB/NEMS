@@ -1,8 +1,8 @@
 import logging
 import copy
 
-from nems.fitters.fitter import scipy_minimize
-import nems.metrics.api as metrics
+from nems0.fitters.fitter import scipy_minimize
+import nems0.metrics.api as metrics
 from .fit_basic import fit_basic
 from .fit_iteratively import fit_iteratively
 

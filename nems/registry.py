@@ -7,10 +7,10 @@ import glob
 from pathlib import Path, PosixPath
 import sys
 
-from nems import get_setting
-#from nems.plugins import (default_keywords, default_loaders, default_fitters,
+from nems0 import get_setting
+#from nems0.plugins import (default_keywords, default_loaders, default_fitters,
 #                          default_initializers)
-#from nems.plugins import (default_loaders, default_fitters,
+#from nems0.plugins import (default_loaders, default_fitters,
 #                          default_initializers)
 
 log = logging.getLogger(__name__)
@@ -291,7 +291,7 @@ def scan_for_kw_defs(module_list):
 
 def xforms_kw_info(kw_string, **xforms_kwargs):
     """report info on an xforms keyword string"""
-    import nems.xforms
+    import nems0.xforms
     return xforms_lib.info(kw_string)
 
 
@@ -299,13 +299,13 @@ def test_xforms_kw(kw_string, **xforms_kwargs):
     """generate the xfspec entry for a keyword string
     **xforms_kwargs not used???
     """
-    import nems.xforms
+    import nems0.xforms
     return xforms_lib[kw_string]
 
 
 def test_modelspec_kw(kw_string):
     """generate module keyword output"""
-    import nems.xforms
+    import nems0.xforms
     return kw_lib[kw_string]
 
 # create registries in here so that they can be updated as new modules are imported

@@ -12,12 +12,12 @@ from packaging import version
 import numpy as np
 import tensorflow as tf
 
-import nems.utils
-from nems import initializers, recording, get_setting
-from nems import modelspec as mslib
-from nems.tf import callbacks, loss_functions, modelbuilder
-from nems.tf.layers import Conv2D_NEMS
-from nems.initializers import init_static_nl
+import nems0.utils
+from nems0 import initializers, recording, get_setting
+from nems0 import modelspec as mslib
+from nems0.tf import callbacks, loss_functions, modelbuilder
+from nems0.tf.layers import Conv2D_NEMS, WeightChannelsNew
+from nems0.initializers import init_static_nl
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def tf2modelspec(model, modelspec):
             # check that phis/weights match up in shape
             for model_weights, ms_phis in zip(phis.values(), ms['phi'].values()):
                 if model_weights.shape != ms_phis.shape:
-                    if layer.ms_name == 'nems.modules.nonlinearity.double_exponential':
+                    if layer.ms_name == 'nems0.modules.nonlinearity.double_exponential':
                         continue  # dexp has weird weight shapes due to basic init
                     raise AssertionError(f'Model layer "{layer.ms_name}" weights and modelspec phis do not have matching '
                                          f'shapes!')
@@ -194,7 +194,7 @@ def fit_tf(
     #os.environ['TF_DETERMINISTIC_OPS'] = '1'   # makes output deterministic, but reduces prediction accuracy
 
     log.info('Building tensorflow keras model from modelspec.')
-    nems.utils.progress_fun()
+    nems0.utils.progress_fun()
 
     # figure out where to save model checkpoints
     job_id = os.environ.get('SLURM_JOBID', None)
@@ -239,7 +239,7 @@ def fit_tf(
     # update seed based on fit index
     seed += modelspec.fit_index
 
-    if (freeze_layers is not None) and len(freeze_layers) and (len(freeze_layers)==freeze_layers[-1]+1):
+    if False and (freeze_layers is not None) and len(freeze_layers) and (len(freeze_layers)==freeze_layers[-1]+1):
         truncate_model=True
         modelspec_trunc, est_trunc = \
             initializers.modelspec_remove_input_layers(modelspec, est, remove_count=len(freeze_layers))
@@ -287,6 +287,7 @@ def fit_tf(
         
 
     # get the layers and build the model
+    log.info(f"Cost function: {cost_function}")
     cost_fn = loss_functions.get_loss_fn(cost_function)
     #model_layers = modelspec.modelspec2tf2(
     #    use_modelspec_init=use_modelspec_init, seed=seed, fs=fs,
@@ -297,7 +298,7 @@ def fit_tf(
         initializer=initializer, freeze_layers=freeze_layers,
         kernel_regularizer=kernel_regularizer)
 
-    if np.any([isinstance(layer, Conv2D_NEMS) for layer in model_layers]):
+    if np.any([isinstance(layer, Conv2D_NEMS) or isinstance(layer, WeightChannelsNew) for layer in model_layers]):
         # need a "channel" dimension for Conv2D (like rgb channels, not frequency). Only 1 channel for our data.
         stim_train = stim_train[..., np.newaxis]
         train_data = train_data[..., np.newaxis]
@@ -314,7 +315,7 @@ def fit_tf(
             decay_rate=0.9
         )
 
-    from nems.tf.loss_functions import pearson
+    from nems0.tf.loss_functions import pearson
     model = modelbuilder.ModelBuilder(
         name='Test-model',
         layers=model_layers,
@@ -467,7 +468,7 @@ def fit_tf(
     except KeyError:
         modelspec.meta['extra_results'] = n_epochs
 
-    nems.utils.progress_fun()
+    nems0.utils.progress_fun()
 
     # clean up temp files
     if job_id is not None:
@@ -659,6 +660,8 @@ def fit_tf_init(
         #up_to_idx = first_substring_index(ms_modules, 'levelshift')
         relu_idx = first_substring_index(reversed(ms_modules), 'relu')  #fit to last relu
         lvl_idx = first_substring_index(reversed(ms_modules), 'levelshift') #fit to last levelshift
+        if lvl_idx is not None:
+            relu_idx=None
         _idxs = [i for i in [relu_idx, lvl_idx, len(modelspec)-1] if i is not None]
         up_to_idx = len(modelspec) - 1 - np.min(_idxs)
         #last_idx = np.min([relu_idx, lvl_idx])

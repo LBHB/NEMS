@@ -1,8 +1,8 @@
 import numpy as np
 import re
 
-from nems.modules import NemsModule
-from nems.registry import xmodule
+from nems0.modules import NemsModule
+from nems0.registry import xmodule
 
 
 def levelshift(rec, i, o, level, **kwargs):
@@ -25,9 +25,9 @@ class levelshift_new(NemsModule):
         options['fn'] = options.get('fn', str(self.__module__) + '.levelshift_new')
         options['fn_kwargs'] = options.get('fn_kwargs', {'i': 'pred', 'o': 'pred'})
         options['plot_fns'] = options.get('plot_fns',
-                                             ['nems.plots.api.mod_output',
-                                              'nems.plots.api.spectrogram_output',
-                                              'nems.plots.api.pred_resp'])
+                                             ['nems0.plots.api.mod_output',
+                                              'nems0.plots.api.spectrogram_output',
+                                              'nems0.plots.api.pred_resp'])
         options['plot_fn_idx'] = options.get('plot_fn_idx', 2)
         options['prior'] = options.get('prior', {'level': ('Normal', {'mean': np.zeros([1, 1]),
                                            'sd': np.ones([1, 1])})})

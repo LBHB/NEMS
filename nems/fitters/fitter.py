@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import scipy as scp
 
-import nems.fitters.termination_conditions as tc
+import nems0.fitters.termination_conditions as tc
 
 log = logging.getLogger(__name__)
 

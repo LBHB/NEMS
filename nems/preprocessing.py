@@ -9,10 +9,10 @@ from scipy.signal import convolve2d
 from scipy.integrate import cumtrapz
 import scipy.signal as ss
 
-import nems.epoch as ep
-import nems.signal
-from nems.recording import Recording
-from nems.utils import smooth
+import nems0.epoch as ep
+import nems0.signal
+from nems0.recording import Recording
+from nems0.utils import smooth
 
 log = logging.getLogger(__name__)
 
@@ -145,14 +145,17 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
     # build another helper series, to map in times to subtract from start/end
     work_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
     s_starts = pd.Series(temp_epochs.loc[work_mask, 'start'].values, temp_epochs.loc[work_mask, 'cat'].values)
-
+    
     temp_epochs['start'] -= temp_epochs['cat'].map(s_starts)
     temp_epochs['end'] -= temp_epochs['cat'].map(s_starts)
     temp_epochs = temp_epochs.round(d)
+    
+    expected_max = temp_epochs.loc[temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True),'end'].max()
 
     concat = []
 
     offset = 0
+    new_epoch_names=[]
     for name, group in temp_epochs.groupby('stim'):
         # build a list of epoch names where all the values are equal
         m_equal =(group.groupby('name').agg({
@@ -160,8 +163,9 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
             'end': lambda x: len(set(x)) == 1,
         }).all(axis=1)
            )
-        m_equal = m_equal.index[m_equal].values
-
+        m_equal = list(m_equal.index[m_equal].values)
+        m_equal.extend([name,'REFERENCE','PreStimSilence','PostStimSilence'])
+        
         # find the epoch names that are common to every group
         s = set()
         for idx, (cat_name, cat_group) in enumerate(group.groupby('cat')):
@@ -176,12 +180,20 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
         g = group[keep_mask].drop(['cat', 'stim'], axis=1).drop_duplicates()
         max_end = g['end'].max()
         g[['start', 'end']] += offset
-        offset += max_end
-
+        
+        #if max_end>=expected_max:
         concat.append(g)
+        offset += max_end
+        new_epoch_names.append(name)
+        #else:
+        #    log.info(f"dropping epoch {name} because it's too short")
+            
+        if np.isnan(offset):
+            log.info('nan offset')
 
     new_epochs = pd.concat(concat).sort_values(['start', 'end', 'name']).reset_index(drop=True)
-
+    epoch_names=new_epoch_names
+    
     # make name the temp_epochs index for quick start/end lookup in loop below
     temp_epochs = (temp_epochs[['name', 'start', 'end']]
                    .drop_duplicates()
@@ -207,7 +219,7 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
         data = []
         for epoch_name in epoch_names:
             epoch = epoch_data[epoch_name]
-
+            
             # TODO: fix empty matrix error. do epochs align properly?
             if epoch.dtype == bool:
                 epoch = epoch[0,...]
@@ -219,15 +231,17 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
             elen = int(round(np.min(temp_epochs.loc[epoch_name, 'dur'] * fs)))
 
             if epoch.shape[-1] > elen:
-                log.info('truncating epoch_data for epoch %s', epoch_name)
-                epoch = epoch[..., :elen]
+                #log.info('truncating epoch_data for epoch %s', epoch_name)
+                #epoch = epoch[..., :elen]
+                log.info('NOT truncating epoch_data for epoch %s', epoch_name)
+                log.info(f"{epoch}")
             elif epoch.shape[-1]<elen:
                 pad = np.zeros((epoch.shape[0], elen-epoch.shape[1])) * np.nan
                 epoch = np.concatenate((epoch, pad), axis=1)
                 log.info('padding epoch_data for epoch %s with nan', epoch_name)
 
             data.append(epoch)
-
+            
         data = np.concatenate(data, axis=-1)
         if data.shape[-1] != round(signal.fs * offset):
             raise ValueError('Misalignment issue in averaging signal')
@@ -831,15 +845,17 @@ def generate_psth_from_resp(rec, resp_sig='resp', epoch_regex='^(STIM_|TAR_|CAT_
     # figure out spont rate for subtraction from PSTH
     if np.sum(resp.epochs.name=='ITI')>0:
         spontname='ITI'
-    elif np.sum(resp.epochs.name=='PreStimSilence')>0:
-        spontname='PreStimSilence'
-    elif np.sum(resp.epochs.name=='TRIALPreStimSilence')>0:
+        prestimsilence = resp.extract_epoch(spontname, mask=mask)
+    elif np.sum(resp.epochs.name == 'TRIALPreStimSilence') > 0:
         # special case where the epochs included in mask don't have PreStimSilence,
         # so we get it elsewhere. Designed for CPN data...
-        spontname='TRIALPreStimSilence'
+        spontname = 'TRIALPreStimSilence'
+        prestimsilence = resp.extract_epoch(spontname)
+    elif np.sum(resp.epochs.name=='PreStimSilence')>0:
+        spontname='PreStimSilence'
+        prestimsilence = resp.extract_epoch(spontname, mask = mask)
     else:
         raise ValueError("Can't find pre-stim silence to use for PSTH calculation")
-    prestimsilence = resp.extract_epoch(spontname, mask=mask)
     if prestimsilence.shape[-1] > 0:
         if len(prestimsilence.shape) == 3:
             spont_rate = np.nanmean(prestimsilence, axis=(0, 2))
@@ -933,6 +949,7 @@ def generate_psth_from_resp(rec, resp_sig='resp', epoch_regex='^(STIM_|TAR_|CAT_
         total += v.mean(axis=2, keepdims=True).sum(axis=0)
         total_n += v.shape[0]
 
+
     #import pdb; pdb.set_trace()
     if mean_zero:
         total=total/total_n
@@ -944,11 +961,12 @@ def generate_psth_from_resp(rec, resp_sig='resp', epoch_regex='^(STIM_|TAR_|CAT_
     if channel_per_stim:
         raise ValueError('channel_per_stim not yet supported')
 
-    respavg = resp.replace_epochs(per_stim_psth, zero_outside=True)
+    #respavg = resp.replace_epochs(per_stim_psth, zero_outside=True)
+    respavg = resp.replace_epochs(per_stim_psth)
     respavg_with_spont = resp.replace_epochs(per_stim_psth_spont)
     respavg.name = 'psth'
     respavg_with_spont.name = 'psth_sp'
-
+    
     # Fill in a all non-masked periods with 0 (presumably, these are spont
     # periods not contained within stimulus epochs), or spont rate (for the signal
     # containing spont rate)
@@ -959,9 +977,7 @@ def generate_psth_from_resp(rec, resp_sig='resp', epoch_regex='^(STIM_|TAR_|CAT_
         mask_data = newrec['mask']._data
     else:
         mask_data = np.ones(respavg_data.shape).astype(np.bool)
-
     spont_periods = ((np.isnan(respavg_data)) & (mask_data==True))
-
     respavg_data[:, spont_periods[0,:]] = 0
     # respavg_spont_data[:, spont_periods[0,:]] = spont_rate[:, np.newaxis]
 
@@ -999,6 +1015,13 @@ def smooth_signal_epochs(rec, signal='resp', epoch_regex='^STIM_',
     newrec.add_signal(smoothed_sig)
 
     return {'rec': newrec}
+
+def decimate_signal(rec, stride=2, signal='resp', **context):
+
+    new_rec = rec.copy()
+    new_rec[signal] = new_rec[signal].decimate(stride=stride)
+
+    return {'rec': new_rec}
 
 
 def smooth_epoch_segments(sig, epoch_regex='^STIM_', mask=None):
@@ -1257,6 +1280,7 @@ def resp_to_pc(rec, pc_idx=None, resp_sig='resp', pc_sig='pca',
         else:
             sd = np.ones(m.shape)
         D_ref = D_ref[np.sum(np.isfinite(D_ref),axis=1)>0,:]
+        sd[sd==0]=1
         D_ = (D_ref-m)/sd
 
         #import pdb;
@@ -1339,16 +1363,38 @@ def make_state_signal(rec, state_signals=['pupil'], permute_signals=[], generate
                 p_raw = p_raw[:, :newrec['resp'].shape[1]]
         newrec["pupil"] = newrec["pupil"]._modified_copy(p)
         newrec["pupil_raw"] = newrec["pupil"]._modified_copy(p_raw)
-        
+
+        if any([s.startswith('pupil') for s in state_signals]):
+            # save raw pupil trace
+            # normalize min-max
+            p_raw = newrec["pupil"].as_continuous().copy()
+            # p[p < np.nanmax(p)/5] = np.nanmax(p)/5
+            # norm to mean 0, variance 1
+            p = p_raw - np.nanmean(p_raw)
+            p /= np.nanstd(p)
+            # hack to make sure state signal matches size of resp
+            if 'resp' in newrec.signals.keys():
+                # import pdb;pdb.set_trace()
+                if p.shape[1] > newrec['resp'].shape[1]:
+                    p = p[:, :newrec['resp'].shape[1]]
+                    p_raw = p_raw[:, :newrec['resp'].shape[1]]
+            newrec["pupil"] = newrec["pupil"]._modified_copy(p)
+            newrec["pupil_raw"] = newrec["pupil"]._modified_copy(p_raw)
+
         if 'pupiln' in state_signals:
             log.info('norm pupil min/max = 0/1')
-            p = p - np.nanmin(p)
+            p_raw = newrec["pupil_raw"].as_continuous().copy()
+            p = p_raw - np.nanmin(p_raw)
             p /= np.nanmax(p)
             newrec["pupiln"] = newrec["pupil"]._modified_copy(p)
 
         for state_signal in [s for s in state_signals if s.startswith('pupil_r')]:
             # copy repetitions of pupil
             newrec[state_signal] = newrec["pupil"]._modified_copy(newrec['pupil']._data)
+            newrec[state_signal].chans = [state_signal]
+        for state_signal in [s for s in state_signals if s.startswith('pupiln_r')]:
+            # copy repetitions of pupil
+            newrec[state_signal] = newrec["pupiln"]._modified_copy(newrec['pupiln']._data)
             newrec[state_signal].chans = [state_signal]
         if ('pupil2') in state_signals:
             newrec["pupil2"] = newrec["pupil"]._modified_copy(p ** 2)
@@ -1406,6 +1452,19 @@ def make_state_signal(rec, state_signals=['pupil'], permute_signals=[], generate
         newrec['pupil_ev'].chans=['pupil_ev']
         newrec['pupil_bs'] = newrec["pupil"].replace_epoch('TRIAL', pupil_bs)
         newrec['pupil_bs'].chans=['pupil_bs']
+
+    # normalize mean/std of pupil trace if being used
+    if any([s.startswith('facepca') for s in state_signals]):
+        # save raw facepca trace
+        # normalize min-max
+        p_raw = newrec["facepca"].as_continuous().copy()
+        # p[p < np.nanmax(p)/5] = np.nanmax(p)/5
+        # norm to mean 0, variance 1
+        p = p_raw - np.nanmean(p_raw, axis=1, keepdims=True)
+        p /= np.nanstd(p, axis=1, keepdims=True)
+        # hack to make sure state signal matches size of resp
+        newrec["facepca"] = newrec["facepca"]._modified_copy(p)
+        newrec["facepca_raw"] = newrec["facepca"]._modified_copy(p_raw)
 
     if ('each_passive' in state_signals):
         file_epochs = ep.epoch_names_matching(resp.epochs, "^FILE_")
@@ -1685,7 +1744,7 @@ def make_state_signal(rec, state_signals=['pupil'], permute_signals=[], generate
     if 'drift' in state_signals:
         resp_len = rec['resp'].shape[1]
         drift = np.reshape(np.linspace(0,1,resp_len), (1, -1))
-        _s = nems.signal.RasterizedSignal(fs=rec['resp'].fs, data=drift, name="drift",
+        _s = nems0.signal.RasterizedSignal(fs=rec['resp'].fs, data=drift, name="drift",
                                           recording=rec['resp'].recording, chans=["drift"], epochs=rec['resp'].epochs)
         newrec.add_signal(_s)
 
@@ -1695,6 +1754,14 @@ def make_state_signal(rec, state_signals=['pupil'], permute_signals=[], generate
         del newrec.signals[new_signalname]
 
     for i, x in enumerate(state_signals):
+        if x.startswith("dummy"):
+            s = rec['resp'].shape[1]
+            d_data = np.random.uniform(size=(1, s))
+            _s = nems0.signal.RasterizedSignal(fs=rec['resp'].fs, data=d_data, name=x,
+                                               recording=rec['resp'].recording, chans=[x],
+                                               epochs=rec['resp'].epochs)
+            newrec.add_signal(_s)
+
         if x in permute_signals:
             # kludge: fix random seed to index of state signal in list
             # this avoids using the same seed for each shuffled signal
@@ -1774,7 +1841,7 @@ def concatenate_state_channel(rec, sig, state_signal_name='state', generate_base
 
     state_sig_list.append(sig)
 
-    state = nems.signal.RasterizedSignal.concatenate_channels(state_sig_list)
+    state = nems0.signal.RasterizedSignal.concatenate_channels(state_sig_list)
     state.name = state_signal_name
 
     newrec.add_signal(state)
@@ -1782,13 +1849,14 @@ def concatenate_state_channel(rec, sig, state_signal_name='state', generate_base
     return newrec
 
 
-def concatenate_input_channels(rec, input_signals=[], input_name=None):
+def concatenate_input_channels(rec, input_signals=[], input_name=None, **kwargs):
     newrec = rec.copy()
     input_sig_list = []
     for s in input_signals:
-        input_sig_list.append(newrec[s])
+        input_sig_list.append(newrec[s].rasterize())
     input_sig_list.append(newrec[input_name].rasterize())
-    input = nems.signal.RasterizedSignal.concatenate_channels(input_sig_list)
+    log.info(f"Concatenating {input_signals} onto {input_name}")
+    input = nems0.signal.RasterizedSignal.concatenate_channels(input_sig_list)
     input.name = input_name
 
     newrec.add_signal(input)
@@ -1816,8 +1884,9 @@ def add_noise_signal(rec, n_chans=None, T=None, noise_name="indep", ref_signal="
     
     # set seed to produce frozen noise
     save_state = np.random.get_state()
-    np.random.seed(rand_seed+n_chans+T)
-
+    rseed=rand_seed+n_chans+T
+    np.random.seed(rseed)
+    log.info(f"add_noise_signal: name={noise_name} using seed {rseed}")
     if distribution=='gaussian':
         d = np.random.randn(n_chans,T)
     elif distribution=='uniform':

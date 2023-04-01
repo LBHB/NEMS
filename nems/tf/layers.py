@@ -143,7 +143,7 @@ class BaseLayer(tf.keras.layers.Layer):
         """Returns key value pairs of the weight names and their values."""
         weight_names = [
             # extract the actual layer name from the tf layer naming format
-            # ex: "nems.modules.nonlinearity.double_exponential/base:0"
+            # ex: "nems0.modules.nonlinearity.double_exponential/base:0"
             weight.name.split('/')[1].split(':')[0]
             for weight in self.weights
         ]

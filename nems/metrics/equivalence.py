@@ -7,8 +7,8 @@ import scipy.stats as st
 from scipy import linalg
 import pandas as pd
 
-import nems.db as nd
-import nems.xform_helper as xhelp
+import nems0.db as nd
+import nems0.xform_helper as xhelp
 
 log = logging.getLogger(__name__)
 

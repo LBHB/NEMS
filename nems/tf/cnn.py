@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import tensorflow as tf
 
-from nems.tf import initializers, loss_functions
-import nems.utils
+from nems0.tf import initializers, loss_functions
+import nems0.utils
 
 log = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class Net:
                 # evaluate loss
                 if np.mod(epoch_num, eval_interval) == 0:
                     # tick the progress indicator
-                    nems.utils.progress_fun()
+                    nems0.utils.progress_fun()
                     self.iteration.append(epoch_num)
                     train_loss = self.loss.eval(feed_dict=train_dict)
                     self.train_loss.append(train_loss)

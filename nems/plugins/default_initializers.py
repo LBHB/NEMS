@@ -3,8 +3,8 @@ import re
 
 import numpy as np
 
-from nems.utils import escaped_split, keyword_extract_options
-from nems.registry import xform, xmodule
+from nems0.utils import escaped_split, keyword_extract_options
+from nems0.registry import xform, xmodule
 
 log = logging.getLogger(__name__)
 
@@ -17,14 +17,14 @@ log = logging.getLogger(__name__)
 @xform()
 def timesplit(kw):
     frac = int(kw.split('.')[1][1:])*0.1
-    return [['nems.xforms.split_at_time', {'fraction': frac}]]
+    return [['nems0.xforms.split_at_time', {'fraction': frac}]]
 
 
 @xform()
 def splitep(kw):
     ops = kw.split('.')[1:]
     epoch_regex = '^STIM' if not ops else ops[0]
-    xfspec = [['nems.xforms.split_by_occurrence_counts',
+    xfspec = [['nems0.xforms.split_by_occurrence_counts',
                {'epoch_regex': epoch_regex}]]
     return xfspec
 
@@ -33,7 +33,7 @@ def splitep(kw):
 def avgep(kw):
     ops = kw.split('.')[1:]
     epoch_regex = '^STIM' if not ops else ops[0]
-    return [['nems.xforms.average_away_stim_occurrences',
+    return [['nems0.xforms.average_away_stim_occurrences',
              {'epoch_regex': epoch_regex}]]
 
 
@@ -42,16 +42,16 @@ def avgep(kw):
 def sev(kw):
     ops = kw.split('.')[1:]
     epoch_regex = '^STIM' if not ops else ops[0]
-    xfspec = [['nems.xforms.split_by_occurrence_counts',
+    xfspec = [['nems0.xforms.split_by_occurrence_counts',
                {'epoch_regex': epoch_regex}],
-        ['nems.xforms.average_away_stim_occurrences',
+        ['nems0.xforms.average_away_stim_occurrences',
          {'epoch_regex': epoch_regex}]]
     return xfspec
 """
 
 @xform()
 def aev(kw):
-    xfspec= [['nems.xforms.use_all_data_for_est_and_val',
+    xfspec= [['nems0.xforms.use_all_data_for_est_and_val',
                 {}]]
     return xfspec
 
@@ -60,7 +60,7 @@ def aev(kw):
 def sevst(kw):
     ops = kw.split('.')[1:]
     epoch_regex = '^STIM' if not ops else ops[0]
-    xfspec = [['nems.xforms.split_by_occurrence_counts',
+    xfspec = [['nems0.xforms.split_by_occurrence_counts',
                {'epoch_regex': epoch_regex}]]
     return xfspec
 
@@ -76,7 +76,7 @@ def tev(kw):
         elif op.startswith("v"):
             valfrac=int(op[1:]) / 100
 
-    xfspec = [['nems.xforms.split_at_time', {'valfrac': valfrac}]]
+    xfspec = [['nems0.xforms.split_at_time', {'valfrac': valfrac}]]
 
     return xfspec
 """
@@ -114,16 +114,16 @@ def jk(kw):
             jk_kwargs['by_time'] = True
 
     if do_split:
-        xfspec = [['nems.xforms.split_for_jackknife', jk_kwargs]]
+        xfspec = [['nems0.xforms.split_for_jackknife', jk_kwargs]]
     else:
-        xfspec = [['nems.xforms.mask_for_jackknife', jk_kwargs]]
+        xfspec = [['nems0.xforms.mask_for_jackknife', jk_kwargs]]
     if keep_only == 1:
-        xfspec.append(['nems.xforms.jack_subset', {'keep_only': keep_only}])
+        xfspec.append(['nems0.xforms.jack_subset', {'keep_only': keep_only}])
     elif keep_only > 1:
-        xfspec.append(['nems.xforms.jack_subset', {'keep_only': keep_only}])
-        xfspec.append(['nems.xforms.jackknifed_fit', {}])
+        xfspec.append(['nems0.xforms.jack_subset', {'keep_only': keep_only}])
+        xfspec.append(['nems0.xforms.jackknifed_fit', {}])
     else:
-        xfspec.append(['nems.xforms.jackknifed_fit', {}])
+        xfspec.append(['nems0.xforms.jackknifed_fit', {}])
 
     return xfspec
 
@@ -139,7 +139,7 @@ def rand(kw):
         elif op.startswith('S'):
             nt_kwargs['subset'] = [int(i) for i in op[1:].split(',')]
 
-    return [['nems.xforms.random_sample_fit', nt_kwargs]]
+    return [['nems0.xforms.random_sample_fit', nt_kwargs]]
 
 
 @xform()
@@ -155,6 +155,9 @@ def norm(kw):
     ops = kw.split('.')[1:]
     norm_method = 'minmax'
     log_compress = 'None'
+    stim_only = ('s' in ops)
+    resp_only = ('r' in ops)
+
     for op in ops:
         if op == 'ms':
             norm_method = 'meanstd'
@@ -163,6 +166,10 @@ def norm(kw):
         elif op == 'sp':
             norm_method = 'spont'
             resp_only = ('r' in ops)  # default !
+        elif op == 'sqrt':
+            norm_method = 'sqrt'
+            resp_only = True
+            stim_only = False
         elif op.startswith('ln'):
             log_compress = -int(op[2:])
         elif op.startswith('l'):
@@ -170,19 +177,16 @@ def norm(kw):
             if log_compress > 10:
                 log_compress = np.array([log_compress/10])
 
-    stim_only = ('s' in ops)
-    resp_only = ('r' in ops)
-
     if stim_only:
-        return [['nems.xforms.normalize_sig', {'sig': 'stim', 'norm_method': norm_method,
+        return [['nems0.xforms.normalize_sig', {'sig': 'stim', 'norm_method': norm_method,
                                                'log_compress': log_compress}],
                 ]
     elif resp_only:
-        return [['nems.xforms.normalize_sig', {'sig': 'resp', 'norm_method': norm_method}]]
+        return [['nems0.xforms.normalize_sig', {'sig': 'resp', 'norm_method': norm_method}]]
     else:
-        return [['nems.xforms.normalize_sig', {'sig': 'stim', 'norm_method': norm_method,
+        return [['nems0.xforms.normalize_sig', {'sig': 'stim', 'norm_method': norm_method,
                 'log_compress': log_compress}],
-                ['nems.xforms.normalize_sig', {'sig': 'resp', 'norm_method': norm_method}],
+                ['nems0.xforms.normalize_sig', {'sig': 'resp', 'norm_method': norm_method}],
                ]
 
 @xform()
@@ -194,8 +198,8 @@ def lvnoise(kw):
         if op.startswith('r'):
             rep_count=int(op[1:])
     
-    return [['nems.preprocessing.add_noise_signal', {'noise_name': "indep", 'rep_count': rep_count}],
-            ['nems.preprocessing.add_noise_signal', {'noise_name': "lv", 'ref_signal': "state"}]]
+    return [['nems0.preprocessing.add_noise_signal', {'noise_name': "indep", 'rep_count': rep_count}],
+            ['nems0.preprocessing.add_noise_signal', {'noise_name': "lv", 'ref_signal': "state"}]]
 
 @xform()
 def shuf(load_key):
@@ -207,4 +211,4 @@ def shuf(load_key):
             shuf_sigs.append('state')
         else:
             raise ValueError('Unknown shuf keyword option {}'.format(op))
-    return [['nems.preprocessing.shuffle',{'sigs':shuf_sigs,'recs':shuf_recs}]]
+    return [['nems0.preprocessing.shuffle',{'sigs':shuf_sigs,'recs':shuf_recs}]]

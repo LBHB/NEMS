@@ -3,14 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import copy
 
-from nems.plots.assemble import pad_to_signals
-import nems.modelspec as ms
-import nems.signal as signal
-import nems.recording as recording
-#import nems.modules.stp as stp
-from nems.metrics.stp import stp_magnitude
-from nems.plots.utils import ax_remove_box
-from nems.gui.decorators import scrollable
+from nems0.plots.assemble import pad_to_signals
+import nems0.modelspec as ms
+import nems0.signal as signal
+import nems0.recording as recording
+#import nems0.modules.stp as stp
+from nems0.metrics.stp import stp_magnitude
+from nems0.plots.utils import ax_remove_box
+from nems0.gui.decorators import scrollable
 
 log = logging.getLogger(__name__)
 
@@ -415,7 +415,7 @@ def fir_output_all(rec, modelspec, sig_name='pred', idx=0, **options):
         raise ValueError("only works for fir modules")
 
     ms2 = copy.deepcopy(modelspec)
-    ms2[idx]['fn'] = 'nems.modules.fir.filter_bank'
+    ms2[idx]['fn'] = 'nems0.modules.fir.filter_bank'
     chan_count = ms2[idx]['phi']['coefficients'].shape[0]
     ms2[idx]['fn_kwargs']['bank_count'] = chan_count
     before2, after2 = before_and_after_signal(rec, ms2, idx, sig_name)

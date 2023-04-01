@@ -18,23 +18,23 @@ import PyQt5.QtCore as qc
 import PyQt5.QtGui as qg
 import PyQt5.QtWidgets as qw
 
-import nems.db as nd
-import nems.plots.api as nplt
-import nems.xform_helper as xhelp
-import nems.epoch as ep
-from nems.utils import find_common
+import nems0.db as nd
+import nems0.plots.api as nplt
+import nems0.xform_helper as xhelp
+import nems0.epoch as ep
+from nems0.utils import find_common
 import pandas as pd
 import scipy.ndimage.filters as sf
-import nems.gui.recording_browser as browser
-import nems.gui.editors as editor
-import nems.gui.model_comparison as comparison
-from nems.gui.canvas import NemsCanvas, EpochCanvas, PrettyWidget
+import nems0.gui.recording_browser as browser
+import nems0.gui.editors as editor
+import nems0.gui.model_comparison as comparison
+from nems0.gui.canvas import NemsCanvas, EpochCanvas, PrettyWidget
 
 from configparser import ConfigParser
 import nems
 
-configfile = os.path.join(nems.get_setting('SAVED_SETTINGS_PATH') + '/gui.ini')
-nems_root = os.path.abspath(nems.get_setting('SAVED_SETTINGS_PATH') + '/../../')
+configfile = os.path.join(nems0.get_setting('SAVED_SETTINGS_PATH') + '/gui.ini')
+nems_root = os.path.abspath(nems0.get_setting('SAVED_SETTINGS_PATH') + '/../../')
 
 # TEMP ERROR CATCHER
 # Back up the reference to the exceptionhook

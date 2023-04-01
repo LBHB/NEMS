@@ -5,16 +5,16 @@ import os
 
 import numpy as np
 
-from nems.plugins import default_keywords
-from nems.utils import find_module, get_default_savepath
-from nems.analysis.api import fit_basic
-from nems.fitters.api import scipy_minimize
-from nems import xforms
-import nems.priors as priors
-import nems.modelspec as ms
-from nems.uri import save_resource, load_resource
-import nems.metrics.api as metrics
-from nems import get_setting
+from nems0.plugins import default_keywords
+from nems0.utils import find_module, get_default_savepath
+from nems0.analysis.api import fit_basic
+from nems0.fitters.api import scipy_minimize
+from nems0 import xforms
+import nems0.priors as priors
+import nems0.modelspec as ms
+from nems0.uri import save_resource, load_resource
+import nems0.metrics.api as metrics
+from nems0 import get_setting
 
 log = logging.getLogger(__name__)
 #_kws = KeywordRegistry()
@@ -22,11 +22,99 @@ log = logging.getLogger(__name__)
 #default_kws.register_plugins(get_setting('KEYWORD_PLUGINS'))
 
 
+def fill_keyword_string_values(keyword_string,
+                               rec=None, rec_list=None,
+                               input_name='stim', output_name='resp', **ctx):
+
+    if rec_list is None:
+        rec_list=[rec]
+    cell_count = len(rec_list)
+
+    keywords = keyword_string.split('-')
+    new_keywords = []
+    _rec=rec_list[0]
+
+    for kw in keywords:
+
+        shared = True
+        if (kw.startswith("fir.Nx") or kw.startswith("wc.Nx")) and \
+                (_rec is not None):
+            N = _rec[input_name].nchans
+            kw_old = kw
+            kw = kw.replace(".N", ".{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+        elif kw.startswith("stategain.N") and (_rec is not None):
+            N = _rec['state'].nchans
+            kw_old = kw
+            kw = kw.replace("stategain.N", "stategain.{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+        elif (kw.endswith(".N")) and (_rec is not None):
+            N = _rec[input_name].nchans
+            kw_old = kw
+            kw = kw.replace(".N", ".{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+        elif (kw.endswith(".cN")) and (_rec is not None):
+            N = _rec[input_name].nchans
+            kw_old = kw
+            kw = kw.replace(".cN", ".c{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+
+        elif (kw.endswith("xN")) and (_rec is not None):
+            N = _rec[input_name].nchans
+            kw_old = kw
+            kw = kw.replace("xN", "x{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+
+        elif ("xN" in kw) and (_rec is not None):
+            N = _rec[input_name].nchans
+            kw_old = kw
+            kw = kw.replace("xN", "x{}".format(N))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+
+        if (".S" in kw or ".Sx" in kw) and (_rec is not None):
+            S = _rec['state'].nchans
+            kw_old = kw
+            kw = kw.replace(".S", ".{}".format(S))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+
+        if ("xS" in kw) and (_rec is not None):
+            S = _rec['state'].nchans
+            kw_old = kw
+            kw = kw.replace("xS", "x{}".format(S))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+
+        if (".R" in kw) and (_rec is not None):
+            R = _rec[output_name].nchans
+            kw_old = kw
+            kw = kw.replace(".R", ".{}".format(R))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+            shared = False  #  "R" means output-dependent
+        if ("xR" in kw) and (_rec is not None):
+            R = _rec[output_name].nchans
+            kw_old = kw
+            kw = kw.replace("xR", "x{}".format(R))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+            shared = False  #  "R" means output-dependent
+
+        other_xr = re.findall(r"[x\.]?[0-9]+[R]", kw)
+        if bool(other_xr):
+            R = _rec[output_name].nchans
+            kw_old = kw
+            digits = int(re.findall("[0-9]+", other_xr[0])[0])
+            kw = kw.replace("{}R".format(digits), "{}".format(digits*R))
+            log.info("kw: dynamically subbing %s with %s", kw_old, kw)
+            shared = False  #  "R" means output-dependent
+
+        log.info('kw: %s', kw)
+        new_keywords.append(kw)
+
+    return "-".join(new_keywords)
+
 def from_keywords(keyword_string, registry=None, rec=None, meta={}, rec_list=None, branch_at=0,
                   init_phi_to_mean_prior=True, input_name='stim', output_name='resp'):
     '''
     Returns a modelspec created by splitting keyword_string on underscores
-    and replacing each keyword with what is found in the nems.keywords.defaults
+    and replacing each keyword with what is found in the nems0.keywords.defaults
     registry. You may provide your own keyword registry using the
     registry={...} argument.
     
@@ -35,7 +123,7 @@ def from_keywords(keyword_string, registry=None, rec=None, meta={}, rec_list=Non
     '''
 
     if registry is None:
-        from nems.xforms import keyword_lib
+        from nems0.xforms import keyword_lib
         registry = keyword_lib
     keywords = keyword_string.split('-')
 
@@ -188,8 +276,8 @@ def from_keywords(keyword_string, registry=None, rec=None, meta={}, rec_list=Non
         #modelspec.meta.update(meta)
 
         print(destination, modelspec.meta['modelpath'])
-
-        del meta['cellids']
+        if 'cellids' in meta.keys():
+            del meta['cellids']
 
     modelspec.cell_index = 0
         
@@ -220,6 +308,7 @@ def rand_phi(modelspec, rand_count=10, IsReload=False, skip_init=False,
     modelspec = modelspec.copy(jack_index=0)
 
     modelspec.tile_fits(rand_count)
+    log.info(f'randomizing {rand_count} models, freeze_idx={freeze_idx}')
 
     # set random seed for reproducible results
     save_state = np.random.get_state()
@@ -236,9 +325,10 @@ def rand_phi(modelspec, rand_count=10, IsReload=False, skip_init=False,
             else:
                 modelspec = priors.set_random_phi(modelspec)
             for j in freeze_idx:
-                log.debug(f'fit {i} reverting {j}')
-                for k in modelspec.phi[j].keys():
-                    modelspec.phi[j][k] = save_phi[j][k].copy()
+                log.debug(f'fit {i} reverting frozen layer {j}')
+                if modelspec.phi[j]:
+                    for k in modelspec.phi[j].keys():
+                        modelspec.phi[j][k] = save_phi[j][k].copy()
 
     modelspec.set_cell(0)
     modelspec.set_fit(0)
@@ -687,10 +777,10 @@ def modelspec_freeze_layers(modelspec,
             log.info('Excluding module %d (%s)', i, m['fn'])
             if type(m) is dict:
                 # fn = _lookup_fn_at(m['fn'])
-                m['fn'] = 'nems.modules.scale.null'
+                m['fn'] = 'nems0.modules.scale.null'
             else:
                 # it's a NemsModule object, need to divert the .eval method to null
-                m.eval = ms._lookup_fn_at('nems.modules.scale.null')
+                m.eval = ms._lookup_fn_at('nems0.modules.scale.null')
             m['phi'] = {}
             tmodelspec[i] = m
 
@@ -818,10 +908,10 @@ def prefit_subset(est, modelspec, analysis_function=fit_basic,
             log.info('Excluding module %d (%s)', i, m['fn'])
             if type(m) is dict:
                 #fn = _lookup_fn_at(m['fn'])
-                m['fn'] = 'nems.modules.scale.null'
+                m['fn'] = 'nems0.modules.scale.null'
             else:
                 #it's a NemsModule object, need to divert the .eval method to null
-                m.eval = ms._lookup_fn_at('nems.modules.scale.null')
+                m.eval = ms._lookup_fn_at('nems0.modules.scale.null')
             m['phi'] = {}
             tmodelspec[i] = m
     """

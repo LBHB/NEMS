@@ -10,15 +10,15 @@ import shutil
 
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine, desc, exc
+from sqlalchemy import create_engine, desc, exc, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.automap import automap_base
 import pandas.io.sql as psql
 import sqlite3
 
-import nems
-from nems import get_setting
-from nems.utils import recording_filename_hash
+#import nems
+from . import get_setting
+from . import utils
 
 log = logging.getLogger(__name__)
 __ENGINE__ = None
@@ -87,7 +87,7 @@ def Tables():
 
 def sqlite_test():
 
-    dbfilepath = os.path.join(get_setting('NEMS_RECORDINGS_DIR'), 'nems.db')
+    dbfilepath = os.path.join(get_setting('NEMS_RECORDINGS_DIR'), 'nems0.db')
 
     conn = sqlite3.connect(dbfilepath)
     sql = "SELECT name FROM sqlite_master WHERE type='table' and name like 'Results'"
@@ -98,7 +98,7 @@ def sqlite_test():
         print("Tables missing, need to reinitialize database?")
 
         print("Creating db")
-        scriptfilename = os.path.join(nems.NEMS_PATH, 'scripts', 'db', 'nems.db.sqlite.sql')
+        scriptfilename = os.path.join(nems0.NEMS_PATH, 'scripts', 'db', 'nems0.db.sqlite.sql')
         cursor = conn.cursor()
 
         print("Reading Script...")
@@ -139,7 +139,7 @@ def _get_db_uri():
                 MYSQL_PORT, MYSQL_DB
                 )
     elif sql_engine == 'sqlite':
-        dbfilepath = os.path.join(nems_recording_dir,'nems.db')
+        dbfilepath = os.path.join(nems_recording_dir,'nems0.db')
         if ~os.path.exists(dbfilepath):
             sqlite_test()
         db_uri = 'sqlite:///' + dbfilepath
@@ -174,7 +174,7 @@ def pd_query(sql=None, params=None):
         d = pd.read_sql_query(sql=sql, con=engine)
     else:
         try:
-            d = pd.read_sql_query(sql=sql, con=engine, params=params)
+            d = pd.read_sql_query(sql=text(sql), con=engine.connect(), params=params)
         except exc.SQLAlchemyError as OpErr:
             if OpErr._message().count('Lost connection to MySQL server during query')>0:
                 log.warning('Lost connection to MySQL server during query, trying again.')
@@ -753,9 +753,9 @@ def update_results_table(modelspec, preview=None,
     Batches = db_tables['Batches']
     session = Session()
     results_id = None
-
-    for cellidx in range(modelspec.cell_count):
-        modelspec.cell_index = cellidx
+    cell_count = 1
+    for cellidx in range(cell_count):
+        #modelspec.cell_index = cellidx
         cellids = modelspec.meta.get('cellids', [modelspec.meta.get('cellid','CELL')])
         if ('r_test' in modelspec.meta.keys()) and (len(modelspec.meta['r_test'])<len(cellids)):
             cellids=cellids[:len(modelspec.meta['r_test'])]
@@ -864,7 +864,7 @@ def fetch_meta_data(modelspec, r, attrs, cellid=None):
         #    k = a
         v=_fetch_attr_value(modelspec, a, default, cellid)
         setattr(r, a, v)
-        log.info("modelspec: meta {0}={1}".format(a,v))
+        #log.info("modelspec: meta {0}={1}".format(a,v))
 
 
 
@@ -885,8 +885,10 @@ def _fetch_attr_value(modelspec, k, default=0.0, cellid=None):
                     v = modelspec.meta[k][i[0]]
                 else:
                     v = modelspec.meta[k][0]
+                    
             except BaseException:
                 v = modelspec.meta[k]
+
             finally:
                 try:
                     v = np.asscalar(v)
@@ -900,6 +902,8 @@ def _fetch_attr_value(modelspec, k, default=0.0, cellid=None):
             v = modelspec.meta[k]
     else:
         v = default
+    if isinstance(v, np.ndarray):
+        v = v.item()
 
     return v
 
@@ -1047,10 +1051,11 @@ def get_batch_cell_data(batch=None, cellid=None, rawid=None, label=None):
     engine = Engine()
     # eg, sql="SELECT * from Data WHERE batch=301 and cellid="
     params = ()
+    #" AND substring(Data.cellid,1,locate('_',Data.cellid)-1)=sCellFile.cellid)" +  # remove underscore and beyond from Data.cellid
     sql = ("SELECT DISTINCT Data.*,sCellFile.goodtrials" +
            " FROM Data LEFT JOIN sCellFile " +
            " ON (Data.rawid=sCellFile.rawid " +
-           " AND substring(Data.cellid,1,locate('_',Data.cellid)-1)=sCellFile.cellid)" +  # remove underscore and beyond from Data.cellid
+           " AND Data.cellid=sCellFile.cellid)" +  # remove underscore and beyond from Data.cellid
            " WHERE 1")
     if batch is not None:
         sql += " AND Data.batch=%s"
@@ -1080,17 +1085,19 @@ def get_batch_cell_data(batch=None, cellid=None, rawid=None, label=None):
     return d
 
 
-def get_batches(name=None):
+def get_batches(name=None, verbose=True):
     # eg, sql="SELECT * from Batches WHERE batch=301"
-    engine = Engine()
     params = ()
     sql = "SELECT *,id as batch FROM sBatch WHERE 1"
     if name is not None:
         sql += " AND name like %s"
         params = params+("%"+name+"%",)
-    d = pd.read_sql(sql=sql, con=engine, params=params)
-
-    return d
+    d = pd_query(sql=sql, params=params)
+    if verbose:
+        for i, r in d.iterrows():
+            print(f"{r['batch']}: {r['name']} runclassid={r.runclassid}")
+    else:
+        return d
 
 
 def get_cell_files(cellid=None, runclass=None, rawid=None):
@@ -1100,7 +1107,7 @@ def get_cell_files(cellid=None, runclass=None, rawid=None):
     sql = ("SELECT sCellFile.*,gRunClass.name, gSingleRaw.isolation FROM sCellFile INNER JOIN "
            "gRunClass on sCellFile.runclassid=gRunClass.id "
            " INNER JOIN "
-           "gSingleRaw on sCellFile.rawid=gSingleRaw.rawid and sCellFile.cellid=gSingleRaw.cellid WHERE 1")
+           "gSingleRaw on sCellFile.rawid=gSingleRaw.rawid and sCellFile.singleid=gSingleRaw.singleid WHERE 1")
     if cellid is not None:
         sql += " AND sCellFile.cellid like %s"
         params = params+("%"+cellid+"%",)
@@ -1268,7 +1275,7 @@ def get_batch_sites(batch, modelname_filter=None):
     return siteids, cellids
 
 
-def batch_comp(batch=301, modelnames=None, cellids=None, stat='r_test', join_how='left'):
+def batch_comp(batch=301, modelnames=None, cellids=None, stat='r_test', join_how='left', shortnames=None):
     Results = Tables()['Results']
     if modelnames is None:
         modelnames = ['parm100pt_wcg02_fir15_pupgainctl_fit01_nested5',
@@ -1304,7 +1311,8 @@ def batch_comp(batch=301, modelnames=None, cellids=None, stat='r_test', join_how
         else:
             results = pd.concat((results,bresults), axis=0)
     session.close()
-
+    if shortnames is not None:
+        results.columns=shortnames
     return results
 
 
@@ -1588,7 +1596,7 @@ def save_recording_to_db(recfilepath, meta=None, user="nems", labgroup="",
     if batch > 0:
         path, batchstr = os.path.split(path)
 
-    file_hash = recording_filename_hash(name=pre, meta=meta, uri_path=path,
+    file_hash = utils.recording_filename_hash(name=pre, meta=meta, uri_path=path,
                                         uncompressed=False)
     meta_string = json.dumps(meta, sort_keys=True)
 

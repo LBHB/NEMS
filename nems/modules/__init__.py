@@ -3,7 +3,7 @@ import glob
 import importlib
 import logging
 
-from nems.registry import xform, xmodule
+from nems0.registry import xform, xmodule
 
 log = logging.getLogger(__name__)
 
@@ -41,9 +41,9 @@ class NemsModule(object):
         options['fn_kwargs'] = options.get('fn_kwargs', {'i': 'pred', 'o': 'pred'})
         options['fn_coefficients'] = options.get('fn_coefficients', None)
         options['plot_fns'] = options.get('plot_fns',
-                                           ['nems.plots.api.mod_output',
-                                            'nems.plots.api.spectrogram_output',
-                                            'nems.plots.api.pred_resp'])
+                                           ['nems0.plots.api.mod_output',
+                                            'nems0.plots.api.spectrogram_output',
+                                            'nems0.plots.api.pred_resp'])
         options['plot_fn_idx'] = options.get('plot_fn_idx', 2)
         options['prior'] = options.get('prior', {})
         options['bounds'] = options.get('bounds', {})

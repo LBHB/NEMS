@@ -4,22 +4,22 @@ import time
 from functools import partial
 import numpy as np
 
-from nems.analysis.cost_functions import basic_cost
-from nems.fitters.api import scipy_minimize
-import nems.priors
-import nems.fitters.mappers
-import nems.modelspec as ms
-import nems.metrics.api as metrics
-import nems.segmentors
-import nems.utils
+from nems0.analysis.cost_functions import basic_cost
+from nems0.fitters.api import scipy_minimize
+import nems0.priors
+import nems0.fitters.mappers
+import nems0.modelspec as ms
+import nems0.metrics.api as metrics
+import nems0.segmentors
+import nems0.utils
 
 log = logging.getLogger(__name__)
 
 
 def fit_basic(data, modelspec,
               fitter=scipy_minimize, cost_function=None,
-              segmentor=nems.segmentors.use_all_data,
-              mapper=nems.fitters.mappers.simple_vector,
+              segmentor=nems0.segmentors.use_all_data,
+              mapper=nems0.fitters.mappers.simple_vector,
               metric=None,
               metaname='fit_basic', fit_kwargs={}, require_phi=True):
     '''
@@ -60,7 +60,7 @@ def fit_basic(data, modelspec,
         for i, m in enumerate(modelspec.modules):
             if ('phi' not in m.keys()) and ('prior' in m.keys()):
                 log.debug('Phi not found for module, using mean of prior: %s', m)
-                m = nems.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
+                m = nems0.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
                 modelspec[i] = m
 
     # apply mask to remove invalid portions of signals and allow fit to
@@ -83,7 +83,7 @@ def fit_basic(data, modelspec,
     packer, unpacker, pack_bounds = mapper(modelspec)
 
     # A function to evaluate the modelspec on the data
-    evaluator = nems.modelspec.evaluate
+    evaluator = nems0.modelspec.evaluate
 
     my_cost_function = cost_function
     my_cost_function.counter = 0
@@ -140,7 +140,7 @@ def fit_random_subsets(data, modelspec, nsplits=1, rebuild_every=10000):
     To improve efficiency, you may generally good to use the same subset
     for a bunch of cost function evaluations in a row.
     """
-    maker = nems.segmentors.random_jackknife_maker
+    maker = nems0.segmentors.random_jackknife_maker
     segmentor = maker(nsplits=nsplits, rebuild_every=rebuild_every,
                       invert=True, excise=True)
     return fit_basic(data, modelspec,
@@ -167,9 +167,9 @@ def fit_state_nfold(data_list, modelspecs, generate_psth=False,
 
     for i in range(nfolds):
         log.info("Fitting fold {}/{}".format(i+1, nfolds))
-        tms = nems.initializers.prefit_to_target(
+        tms = nems0.initializers.prefit_to_target(
                 data_list[i], copy.deepcopy(modelspecs[0]),
-                nems.analysis.api.fit_basic, 'merge_channels',
+                nems0.analysis.api.fit_basic, 'merge_channels',
                 fitter=scipy_minimize,
                 fit_kwargs={'options': {'tolerance': 1e-4, 'max_iter': 500}})
 

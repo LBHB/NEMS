@@ -6,23 +6,23 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import copy
 
-import nems.modelspec as ms
-import nems.metrics.api as nm
+import nems0.modelspec as ms
+import nems0.metrics.api as nm
 
 # Better way to do this than to copy all of .api's imports?
 # Can't use api b/c get circular import issue
-from nems.plots.scatter import plot_scatter
-from nems.plots.specgram import (plot_spectrogram, spectrogram_from_signal,
+from nems0.plots.scatter import plot_scatter
+from nems0.plots.specgram import (plot_spectrogram, spectrogram_from_signal,
                                  spectrogram_from_epoch)
-from nems.plots.timeseries import timeseries_from_signals, \
+from nems0.plots.timeseries import timeseries_from_signals, \
     timeseries_from_epoch, before_and_after_stp
-from nems.plots.heatmap import weight_channels_heatmap, fir_heatmap, strf_heatmap, \
+from nems0.plots.heatmap import weight_channels_heatmap, fir_heatmap, strf_heatmap, \
     strf_timeseries
-from nems.plots.histogram import pred_error_hist
-from nems.plots.state import (state_vars_timeseries, state_var_psth_from_epoch,
+from nems0.plots.histogram import pred_error_hist
+from nems0.plots.state import (state_vars_timeseries, state_var_psth_from_epoch,
                     state_var_psth, state_gain_plot, state_vars_psth_all)
-from nems.plots.summary import perf_per_cell
-from nems.utils import find_module
+from nems0.plots.summary import perf_per_cell
+from nems0.utils import find_module
 
 
 log = logging.getLogger(__name__)

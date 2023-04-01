@@ -2,7 +2,7 @@ import io
 import os
 import logging
 import matplotlib.image as mpimg
-import nems.modelspec as ms
+import nems0.modelspec as ms
 
 
 def save_figure(fig, filepath=None, modelspecs=None, save_dir='/tmp',
@@ -24,7 +24,7 @@ def save_figure(fig, filepath=None, modelspecs=None, save_dir='/tmp',
 
     modelspecs : list
         A list of modelspecs that can be used to determine a filepath
-        based on nems.modelspec.get_modelspec_longname() and save_dir.
+        based on nems0.modelspec.get_modelspec_longname() and save_dir.
 
     save_dir : str
         Specifies the base directory in which to save the figure,
@@ -68,7 +68,7 @@ def load_figure_img(filepath=None, modelspecs=None, load_dir=None,
 
     modelspecs : list
         A list of modelspecs that can be used to determine a filepath
-        based on nems.modelspec.get_modelspec_longname() and load_dir.
+        based on nems0.modelspec.get_modelspec_longname() and load_dir.
 
     load_dir : str
         Specifies the base directory in which to save the figure,
@@ -110,7 +110,7 @@ def load_figure_bytes(filepath=None, modelspecs=None, load_dir=None,
 
     modelspecs : list
         A list of modelspecs that can be used to determine a filepath
-        based on nems.modelspec.get_modelspec_longname() and load_dir.
+        based on nems0.modelspec.get_modelspec_longname() and load_dir.
 
     load_dir : str
         Specifies the base directory in which to save the figure,

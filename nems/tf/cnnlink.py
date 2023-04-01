@@ -14,16 +14,16 @@ import numpy as np
 import tensorflow as tf
 
 import nems
-from nems import modelspec
-import nems.modelspec as ms
-import nems.tf.cnn as cnn
-import nems.utils
-from nems.initializers import init_static_nl
-from nems.tf import initializers
+from nems0 import modelspec
+import nems0.modelspec as ms
+import nems0.tf.cnn as cnn
+import nems0.utils
+from nems0.initializers import init_static_nl
+from nems0.tf import initializers
 
 log = logging.getLogger(__name__)
 
-modelspecs_dir = nems.get_setting('NEMS_RESULTS_DIR')
+modelspecs_dir = nems0.get_setting('NEMS_RESULTS_DIR')
 
 
 def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
@@ -61,7 +61,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
     if len(prev_layers) == 0:
         prev_layers = [layer]
 
-    if fn == 'nems.modules.nonlinearity.relu':
+    if fn == 'nems0.modules.nonlinearity.relu':
         layer['type'] = 'relu'
         c = -phi['offset'].astype('float32').T
         layer['n_kern'] = c.shape[1]
@@ -89,7 +89,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
 
         layer['Y'] = tf.identity(layer['X'] + layer['b'])
 
-    elif fn == 'nems.modules.nonlinearity.dlog':
+    elif fn == 'nems0.modules.nonlinearity.dlog':
         layer['type'] = 'dlog'
         c = phi['offset'].astype('float32').T
         layer['n_kern'] = c.shape[1]
@@ -106,7 +106,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         layer['eb'] = tf.pow(tf.constant(10, dtype=tf.float32), tf.clip_by_value(layer['b'], -2, 2))
         layer['Y'] = tf.math.log((layer['X'] + layer['eb']) / layer['eb'])
 
-    elif fn == 'nems.modules.nonlinearity.double_exponential':
+    elif fn == 'nems0.modules.nonlinearity.double_exponential':
         layer['type'] = 'dexp'
         layer['n_kern'] = phi['base'].size
         s = (1, 1, layer['n_kern'])
@@ -131,7 +131,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         layer['Y'] = layer['base'] + layer['amplitude'] * tf.math.exp(
             -tf.math.exp(-tf.math.exp(layer['kappa']) * (layer['X'] - layer['shift'])))
 
-    elif fn == 'nems.modules.fir.basic':
+    elif fn == 'nems0.modules.fir.basic':
         layer['type'] = 'conv'
         layer['time_win_smp'] = phi['coefficients'].shape[1]
 
@@ -152,7 +152,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         X_pad = tf.pad(layer['X'], [[0, 0], [pad_size, 0], [0, 0]])
         layer['Y'] = tf.nn.conv1d(X_pad, layer['W'], stride=1, padding='VALID')
 
-    elif fn == 'nems.modules.fir.damped_oscillator':
+    elif fn == 'nems0.modules.fir.damped_oscillator':
         layer['type'] = 'conv'
         layer['time_win_smp'] = fn_kwargs['n_coefs']
         layer['rate'] = fn_kwargs.get('rate', 1)
@@ -242,7 +242,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
                                                   [s[0], layer['tY'].shape[2], tf.compat.v1.Dimension(chan_count),
                                                    tf.compat.v1.Dimension(bank_count)]), axis=2)
 
-    elif fn == 'nems.modules.fir.filter_bank':
+    elif fn == 'nems0.modules.fir.filter_bank':
         layer['type'] = 'conv_bank_1d'
         layer['time_win_smp'] = phi['coefficients'].shape[1]
         layer['rate'] = fn_kwargs.get('rate', 1)
@@ -302,7 +302,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
                                                   [s[0], layer['tY'].shape[2], tf.compat.v1.Dimension(chan_count),
                                                    tf.compat.v1.Dimension(bank_count)]), axis=2)
 
-    elif fn == 'nems.modules.weight_channels.basic':
+    elif fn == 'nems0.modules.weight_channels.basic':
         layer['type'] = 'reweight'
         c = phi['coefficients'].astype('float32').T
         layer['n_kern'] = c.shape[1]
@@ -319,7 +319,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         else:
             layer['Y'] = tf.nn.conv1d(layer['X'], layer['W'], stride=1, padding='SAME')
 
-    elif fn == 'nems.modules.weight_channels.gaussian':
+    elif fn == 'nems0.modules.weight_channels.gaussian':
         layer['n_kern'] = phi['mean'].shape[0]
 
         # HACK : scale sd by 10 to play well with TF fitter
@@ -350,7 +350,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         layer['W'] = layer['Wraw'] / tf.reduce_sum(layer['Wraw'], axis=1)
         layer['Y'] = tf.nn.conv1d(layer['X'], layer['W'], stride=1, padding='SAME')
 
-    elif fn == 'nems.modules.state.state_dc_gain':
+    elif fn == 'nems0.modules.state.state_dc_gain':
         if phi is not None:
             g = phi['g'].astype('float32').T
             d = phi['d'].astype('float32').T
@@ -381,7 +381,7 @@ def map_layer(layer: dict, prev_layers: list, idx: int, modelspec,
         layer['Sd'] = tf.nn.conv1d(prev_layers[0]['S'], layer['d'], stride=1, padding='SAME')
         layer['Y'] = layer['X'] * layer['Sg'] + layer['Sd']
 
-    elif fn == 'nems.modules.stp.short_term_plasticity':
+    elif fn == 'nems0.modules.stp.short_term_plasticity':
         # Credit Menoua Keshisian for some stp code.
         quick_eval = fn_kwargs['quick_eval']
         crosstalk = fn_kwargs['crosstalk']
@@ -599,24 +599,24 @@ def tf2modelspec(net, modelspec):
     for i, m in enumerate(modelspec):
         log.info('tf2modelspec: ' + m['fn'])
 
-        if m['fn'] == 'nems.modules.nonlinearity.relu':
+        if m['fn'] == 'nems0.modules.nonlinearity.relu':
             m['phi']['offset'] = -net_layer_vals[i]['b'][0, :, :].T
             log.info('relu size: {}'.format(m['phi']['offset'].shape))
 
         elif 'levelshift' in m['fn']:
             m['phi']['level'] = net_layer_vals[i]['b'][0, :, :].T
 
-        elif m['fn'] in ['nems.modules.nonlinearity.double_exponential']:
+        elif m['fn'] in ['nems0.modules.nonlinearity.double_exponential']:
             # base + amplitude * exp(  -exp(np.array(-exp(kappa)) * (x - shift))  )
             m['phi']['base'] = net_layer_vals[i]['base'][:, 0, :].T
             m['phi']['amplitude'] = net_layer_vals[i]['amplitude'][:, 0, :].T
             m['phi']['kappa'] = net_layer_vals[i]['kappa'][:, 0, :].T
             m['phi']['shift'] = net_layer_vals[i]['shift'][:, 0, :].T
 
-        elif m['fn'] in ['nems.modules.fir.basic']:
+        elif m['fn'] in ['nems0.modules.fir.basic']:
             m['phi']['coefficients'] = np.fliplr(net_layer_vals[i]['W'][:, :, 0].T)
 
-        elif m['fn'] in ['nems.modules.fir.damped_oscillator']:
+        elif m['fn'] in ['nems0.modules.fir.damped_oscillator']:
             if (m['fn_kwargs']['bank_count'] == 1) and (not m['fn_kwargs']['cross_channels']):
                 m['phi']['f1s'] = net_layer_vals[i]['f1'][:, :, 0].T
                 m['phi']['taus'] = net_layer_vals[i]['tau'][:, :, 0].T
@@ -629,7 +629,7 @@ def tf2modelspec(net, modelspec):
                 m['phi']['gains'] = np.reshape(net_layer_vals[i]['gain'][0, 0, :, :].T, [-1, 1])
                 m['phi']['delays'] = np.reshape(net_layer_vals[i]['delay'][0, 0, :, :].T, [-1, 1])
 
-        elif m['fn'] in ['nems.modules.fir.filter_bank']:
+        elif m['fn'] in ['nems0.modules.fir.filter_bank']:
             if m['fn_kwargs']['bank_count'] == 1:
                 m['phi']['coefficients'] = np.fliplr(net_layer_vals[i]['W'][:, 0, 0, :].T)
             else:
@@ -642,26 +642,26 @@ def tf2modelspec(net, modelspec):
             #    # inefficient conv2d
             #    m['phi']['coefficients'] = np.fliplr(net_layer_vals[i]['W'][:, 0, 0, :].T)
 
-        elif m['fn'] in ['nems.modules.weight_channels.basic']:
+        elif m['fn'] in ['nems0.modules.weight_channels.basic']:
             m['phi']['coefficients'] = net_layer_vals[i]['W'][0, :, :].T
 
-        elif m['fn'] in ['nems.modules.nonlinearity.dlog']:
+        elif m['fn'] in ['nems0.modules.nonlinearity.dlog']:
             m['phi']['offset'] = net_layer_vals[i]['b'][0, :, :].T
 
-        elif m['fn'] in ['nems.modules.weight_channels.gaussian']:
+        elif m['fn'] in ['nems0.modules.weight_channels.gaussian']:
             #m['phi']['mean'] = net_layer_vals[i]['m'][0, 0, :].T
             m['phi']['mean'] = np.clip(net_layer_vals[i]['m'][0, 0, :].T,
                                      m['bounds']['mean'][0], m['bounds']['mean'][1])
             m['phi']['sd'] = np.clip(net_layer_vals[i]['s'][0, 0, :].T / 10,
                                      m['bounds']['sd'][0], m['bounds']['sd'][1])
 
-        elif m['fn'] in ['nems.modules.state.state_dc_gain']:
+        elif m['fn'] in ['nems0.modules.state.state_dc_gain']:
             # if init.st, not fitting these params, no phi, so skip
             if 'phi' in m.keys():
                 m['phi']['g'] = net_layer_vals[i]['g'][0, :, :].T
                 m['phi']['d'] = net_layer_vals[i]['d'][0, :, :].T
 
-        elif m['fn'] in ['nems.modules.stp.short_term_plasticity']:
+        elif m['fn'] in ['nems0.modules.stp.short_term_plasticity']:
             if 'phi' in m.keys():
                 m['phi']['tau'] = net_layer_vals[i]['tau'].T
                 m['phi']['u'] = net_layer_vals[i]['u'].T
@@ -719,7 +719,7 @@ def fit_tf_init(modelspec=None, est=None, use_modelspec_init=True,
                 **context):
     """
     pre-fit a model with the final output NL stripped. TF equivalent of
-    nems.initializers.prefit_to_target()
+    nems0.initializers.prefit_to_target()
     :param est: A recording object
     :param modelspec: A modelspec object
     :param use_modelspec_init: [True] use input modelspec phi for initialization. Otherwise use random inits
@@ -808,7 +808,7 @@ def fit_tf_init(modelspec=None, est=None, use_modelspec_init=True,
     log.info(tmodelspec)
 
     # fit the subset of modules - this is instead of calling analysis_function in
-    # nems.initializers.prefit_to_target
+    # nems0.initializers.prefit_to_target
     seed = 100 + modelspec.fit_index
     new_context = fit_tf(modelspec=tmodelspec, est=est, use_modelspec_init=use_modelspec_init,
                      optimizer=optimizer, max_iter=max_iter, cost_function=cost_function,
@@ -966,8 +966,8 @@ def fit_tf(modelspec=None, est=None,
         log.info(modelspec.phi)
         net_layer_vals = net.layer_vals()
         m = modelspec[2]
-        if m['fn'] == 'nems.modules.fir.damped_oscillator':
-            from nems.modules.fir import do_coefficients
+        if m['fn'] == 'nems0.modules.fir.damped_oscillator':
+            from nems0.modules.fir import do_coefficients
             args = m['fn_kwargs']
             args.update(m['phi'])
             w_nems = do_coefficients(**args)
@@ -975,15 +975,15 @@ def fit_tf(modelspec=None, est=None,
             ax3=plt.subplot(2, 2, 3)
             ax3.plot(np.flipud(np.squeeze(w_tf)))
             ax4=plt.subplot(2, 2, 4)
-            ax4.plot(w_nems.T)
-        #from nems.modules.weight_channels import gaussian_coefficients
+            ax4.plot(w_nems0.T)
+        #from nems0.modules.weight_channels import gaussian_coefficients
         #log.info(gaussian_coefficients(modelspec.phi[1]['mean'], modelspec.phi[1]['sd'],
         #                      modelspec[1]['fn_kwargs']['n_chan_in']))
         #raise ValueError('not matched preds')
         import pdb
         pdb.set_trace()
 
-    nems.utils.progress_fun()
+    nems0.utils.progress_fun()
 
     elapsed_time = (time.time() - start_time)
     modelspec.meta['fitter'] = 'fit_tf'
@@ -1081,7 +1081,7 @@ def eval_tf_layer(data: np.ndarray,
     if modelspec is not None:
         ms = modelspec
     else:
-        ms = nems.initializers.from_keywords(layer_spec)
+        ms = nems0.initializers.from_keywords(layer_spec)
 
     rep_dims, tps_per_stim, feat_dims = data.shape
     if state_data is not None:

@@ -4,44 +4,41 @@ This module contains standard transformations ("xforms") applied sequentially du
 fitting process. Custom xforms can be developed as long as they adhere to the required syntax.
 
 """
-import io
-import os
 import copy
-import socket
-import logging
-import importlib
 import glob
+import io
+import logging
+import os
+import socket
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-import nems.db as nd
-import nems.analysis.api
-import nems.initializers as init
-import nems.metrics.api as metrics
-import nems.modelspec as ms
-from nems.modelspec import set_modelspec_metadata, get_modelspec_metadata,\
-                           get_modelspec_shortname
-import nems.plots.api as nplt
-import nems.preprocessing as preproc
-import nems.priors as priors
-from nems import get_setting
-import nems.analysis as na
-from nems.registry import xforms_lib, keyword_lib, xform, xmodule, scan_for_kw_defs
-#from nems.plugins import (default_keywords, default_loaders, default_fitters,
-#                          default_initializers)
-from nems.signal import RasterizedSignal
-from nems.uri import save_resource, load_resource
-from nems.utils import (iso8601_datestring, find_module,
-                        recording_filename_hash, get_default_savepath, lookup_fn_at)
-from nems.fitters.api import scipy_minimize
-from nems.recording import load_recording, Recording
+import nems0
+import nems0.epoch as ep
+import nems0.db as nd
+import nems0.metrics.api as metrics
+import nems0.plots.api as nplt
+import nems0.preprocessing as preproc
+import nems0.priors as priors
+from nems0 import analysis
+from nems0 import initializers as init
+from nems0 import modelspec as ms
+from nems0.fitters.api import scipy_minimize
+from nems0.modelspec import set_modelspec_metadata, get_modelspec_metadata, \
+    get_modelspec_shortname
+from nems0.recording import load_recording, Recording
+from nems0.registry import xform, scan_for_kw_defs
+from nems0.signal import RasterizedSignal
+from nems0.uri import save_resource, load_resource
+from nems0.utils import (get_setting, iso8601_datestring, find_module,
+                         recording_filename_hash, get_default_savepath, lookup_fn_at)
 
 log = logging.getLogger(__name__)
 
 # REGISTRY SETUP
 # scan in plugins dir by default
-scan_for_kw_defs(os.path.join(get_setting('NEMS_DIR'),'nems','plugins'))
+scan_for_kw_defs(os.path.join(get_setting('NEMS_DIR'),'nems0','plugins'))
 
 # populate the registry as specified in config settings
 scan_for_kw_defs(get_setting('LIB_PLUGINS'))
@@ -74,7 +71,7 @@ def evaluate_step(xfa, context={}):
     :param xfa: list of 2 or 4 elements specifying function to be evaluated on this step
                 and relevant args for that function.
                 xfa[0] : string of python path to function evaluated on this step. e.g.,
-                         `nems.xforms.load_recording_wrapper`
+                         `nems0.xforms.load_recording_wrapper`
                 xfa[1] : dictionary of args to pass to xfa[0]
                 xfa[2] : optional (DEPRECATED?), indicates context-in keys (if xfa[0] returns a tuple rather than context dict)
                 xfa[3] : optional (DEPRECATED?), context-out keys
@@ -227,7 +224,7 @@ def load_recording_wrapper(load_command=None, exptid="RECORDING", cellid=None,
         if true the recording will be saved to a NEMS native recording file. context will
         also be used to generate a hash that determines the file name. future calls will
         then generate a hash and load a matching recording from the cache if it exists.
-        cached recordings are stored in nems.get_config(NEMS_RECORDINGS_DIR)
+        cached recordings are stored in nems0.get_config(NEMS_RECORDINGS_DIR)
         if batch is not None, it will be saved in "<batch>/" subdirectory
         filename will be "<cellid>_<hash>.tgz"
     :param context['batch'] (optional)
@@ -242,7 +239,7 @@ def load_recording_wrapper(load_command=None, exptid="RECORDING", cellid=None,
 
     TODO: option to re-cache
     """
-    data_file = recording_filename_hash(exptid, context, nems.get_setting('NEMS_RECORDINGS_DIR'))
+    data_file = recording_filename_hash(exptid, context, nems0.get_setting('NEMS_RECORDINGS_DIR'))
     if os.path.exists(data_file):
         log.info("Loading cached file %s", data_file)
         rec = load_recording(data_file)
@@ -397,17 +394,20 @@ def normalize_sig(rec=None, rec_list=None, sig='stim', norm_method='meanstd', lo
         for i, r in enumerate(rec_list):
             newrec = r.copy()
             s = newrec[sig].rasterize()
-
-            if log_compress != 'None':
-               from nems.modules.nonlinearity import _dlog
-               fn = lambda x: _dlog(x, -log_compress)
-               s=s.transform(fn, sig)
-            newrec[sig] = s.normalize(norm_method, b=b, g=g, mask=newrec['mask'])
-            new_rec_list.append(newrec)
-            if (sig=='stim') and (i==0):
-                b=newrec[sig].norm_baseline
-                g=newrec[sig].norm_gain
-            log.info(f'xforms.normalize_sig({norm_method}): {sig} b={newrec[sig].norm_baseline.mean()}, g={newrec[sig].norm_gain.mean()}, dlog(..., -{log_compress})')
+            if norm_method=='sqrt':
+                log.info(f'xforms.normalize_sig({norm_method}): {sig}')
+                newrec[sig] = s.normalize_sqrt(mask=newrec['mask'])
+            else:
+                if log_compress != 'None':
+                   from nems0.modules.nonlinearity import _dlog
+                   fn = lambda x: _dlog(x, -log_compress)
+                   s=s.transform(fn, sig)
+                newrec[sig] = s.normalize(norm_method, b=b, g=g, mask=newrec['mask'])
+                new_rec_list.append(newrec)
+                if (sig=='stim') and (i==0):
+                    b=newrec[sig].norm_baseline
+                    g=newrec[sig].norm_gain
+                log.info(f'xforms.normalize_sig({norm_method}): {sig} b={newrec[sig].norm_baseline.mean()}, g={newrec[sig].norm_gain.mean()}, dlog(..., -{log_compress})')
             
         if return_reclist:
             return {'rec': rec_list[0], 'rec_list': new_rec_list}
@@ -418,6 +418,204 @@ def normalize_sig(rec=None, rec_list=None, sig='stim', norm_method='meanstd', lo
         return {}
 
 
+def init_nems_keywords(keywordstring, meta=None, IsReload=False,
+                       **context):
+    from nems import Model
+    if not IsReload:
+        if meta is None:
+            meta = {}
+        keywordstring = init.fill_keyword_string_values(keywordstring, **context)
+        log.info(f'modelspec: {keywordstring}')
+        modelspec = Model.from_keywords(keywordstring)
+        modelspec = modelspec.sample_from_priors()
+        modelspec.meta = meta.copy()
+        modelspec.meta['engine'] = 'nems-lite'
+        modelspec.name = f"{meta['cellid']}/{meta['batch']}/{meta['modelname']}"
+    else:
+        modelspec = context['modelspec']
+
+    return {'modelspec': modelspec}
+
+
+def fit_lite(modelspec=None, est=None, input_name='stim', output_name='resp', IsReload=False,
+             cost_function='nmse', learning_rate=1e-3, tolerance=1e-5, max_iter=100, backend='scipy',
+             validation_split=0.0, early_stopping_patience=20, early_stopping_delay=100,
+             **context):
+    """
+    Wrapper to loop through all jackknifes, fits and output slices (if/when >1 of any)
+       for a modelspec, calling fit_function to fit each.
+    Modified to work with nems-lite
+    :param modelspec:  modelspec to fit
+    :param est:  nems-format Recording with fit data
+    :param IsReload:    [False] if True, skip fit and return without doing anything
+    :param context:  pass-through dictionary into fitter
+    :return: results = xforms context dictionary update
+    """
+    if IsReload:
+        return {}
+
+    if (modelspec is None) or (est is None):
+        raise ValueError("Inputs modelspec and est required")
+
+    # convert signal matrices to nems-lite format
+    if backend == 'scipy':
+
+        X_est = np.moveaxis(est.apply_mask()[input_name].as_continuous(), -1, 0)
+        Y_est = np.moveaxis(est.apply_mask()[output_name].as_continuous(), -1, 0)
+        if 'state' in est.signals.keys():
+            S_est = np.moveaxis(est.apply_mask()['state'].as_continuous(), -1, 0)
+        else:
+            S_est = None
+        fitter_options = {'cost_function': 'nmse', 'options': {'ftol': tolerance, 'gtol': tolerance/10, 'maxiter': max_iter}}
+        log.info(f"{fitter_options}")
+        try:
+            modelspec.layers[-1].skip_nonlinearity()
+            fit_stage_1 = True
+        except:
+            log.info('No NL to exclude from stage 1 fit')
+            fit_stage_1 = False
+
+        if fit_stage_1:
+            log.info(f'({backend}) Fitting without NL ...')
+            modelspec = modelspec.fit(input=X_est, target=Y_est, state=S_est,
+                                      backend=backend, fitter_options=fitter_options)
+
+            log.info(f'({backend}) Now fitting with NL ...')
+            modelspec.layers[-1].unskip_nonlinearity()
+
+        modelspec = modelspec.fit(input=X_est, target=Y_est, state=S_est,
+                                  backend=backend, fitter_options=fitter_options)
+
+    elif backend=='tf':
+        # convert signal matrices to nems-lite format
+        X_est = np.moveaxis(est.apply_mask()[input_name].extract_epoch("REFERENCE"), -1, 1)
+        Y_est = np.moveaxis(est.apply_mask()[output_name].extract_epoch("REFERENCE"), -1, 1)
+        
+        if 'state' in est.signals.keys():
+            S_est = np.moveaxis(est.apply_mask()['state'].extract_epoch("REFERENCE"), -1, 1)
+        else:
+            S_est = None
+            
+        #X_est = np.expand_dims(X_est, axis=0)
+        #Y_est = np.expand_dims(Y_est, axis=0)
+        #if S_est is not None:
+        #    S_est = np.expand_dims(S_est, axis=0)
+
+        fitter_options = {'cost_function': cost_function, 'early_stopping_delay': early_stopping_delay,
+                          'early_stopping_patience': early_stopping_patience,
+                          'early_stopping_tolerance': tolerance,
+                          'validation_split': validation_split,
+                          'learning_rate': learning_rate*10, 'epochs': int(max_iter/2),
+                          }
+        
+        try:
+            modelspec.layers[-1].skip_nonlinearity()
+            fit_stage_1 = True
+        except:
+            log.info('No NL to exclude from stage 1 fit')
+            fit_stage_1 = False
+
+        if fit_stage_1:
+            log.info(f'({backend}) Fitting without NL ...')
+            log.info(f"lr={fitter_options['learning_rate']} epochs={fitter_options['epochs']}")
+            from nems.layers import ShortTermPlasticity
+            #for i, l in enumerate(modelspec.layers):
+            #    if isinstance(l, ShortTermPlasticity):
+            #        log.info(f'Freezing parameters for layer {i}: {l.name}')
+            #        modelspec.layers[i].freeze_parameters()
+            modelspec = modelspec.fit(
+                input=X_est, target=Y_est, state=S_est, backend=backend,
+                fitter_options=fitter_options, batch_size=None)
+
+            log.info(f'({backend}) Now fitting with NL ...')
+            modelspec.layers[-1].unskip_nonlinearity()
+
+        for i, l in enumerate(modelspec.layers):
+            modelspec.layers[i].unfreeze_parameters()
+
+        fitter_options['learning_rate'] = learning_rate
+        fitter_options['epochs'] = max_iter
+        modelspec = modelspec.fit(
+            input=X_est, target=Y_est, state=S_est, backend=backend,
+            fitter_options=fitter_options, batch_size=None)
+
+        modelspec.backend = None
+    return {'modelspec': modelspec}
+
+
+def predict_lite(modelspec, est, val, input_name='stim', output_name='resp', IsReload=False, **context):
+
+    # convert signal matrices to nems-lite format
+    X_est = np.moveaxis(est[input_name].as_continuous(),-1, 0)
+    X_val = np.moveaxis(val[input_name].as_continuous(),-1, 0)
+    if 'state' in est.signals.keys():
+        S_est = np.moveaxis(est['state'].as_continuous(),-1, 0)
+        S_val = np.moveaxis(val['state'].as_continuous(),-1, 0)
+    else:
+        S_est = None
+        S_val = None
+
+    prediction = modelspec.predict(X_est, state=S_est)
+    est['pred']=est[output_name]._modified_copy(data=prediction.T)
+    prediction = modelspec.predict(X_val, state=S_val)
+    val['pred']=val[output_name]._modified_copy(data=prediction.T)
+
+    return {'val': val, 'est': est}
+
+def plot_lite(modelspec, val, input_name='stim', output_name='resp', IsReload=False,
+              figures=None, figures_to_load=None, **context):
+
+    if figures is None:
+        figures = []
+
+    if IsReload:
+        if figures_to_load is not None:
+            figures.extend([load_resource(f) for f in figures_to_load])
+        return {'figures': figures}
+
+    # convert signal matrices to nems-lite format
+    X_val = np.moveaxis(val.apply_mask()[input_name].as_continuous(),-1, 0)
+    Y_val = np.moveaxis(val.apply_mask()[output_name].as_continuous(),-1, 0)
+    if 'state' in val.signals.keys():
+        S_val = np.moveaxis(val.apply_mask()['state'].as_continuous(),-1, 0)
+    else:
+        S_val = None
+    from nems.visualization import model
+    fig = model.plot_model_with_parameters(
+        modelspec, X_val, target=Y_val, state=S_val, sampling_rate=val[output_name].fs)
+
+    # Needed to make into a Bytes because you can't deepcopy figures!
+    figures.append(nplt.fig2BytesIO(fig))
+
+    return {'figures': figures}
+
+
+def save_lite(modelspec=None, xfspec=None, log=None, **ctx):
+    from nems.tools import json
+
+    if get_setting('USE_NEMS_BAPHY_API'):
+        prefix = 'http://'+get_setting('NEMS_BAPHY_API_HOST')+":"+str(get_setting('NEMS_BAPHY_API_PORT')) + '/results/'
+    else:
+        prefix = get_setting('NEMS_RESULTS_DIR')
+    batch = modelspec.meta.get('batch', 0)
+    cellid = modelspec.meta.get('cellid', 'cell')
+    basepath = os.path.join(prefix, 'nems-lite', str(batch), cellid)
+
+    # use nems-lite model path namer
+    filepath = json.generate_model_filepath(modelspec, basepath=basepath)
+    destination = os.path.dirname(filepath)
+    # call nems-lite JSON encoder
+    data = json.nems_to_json(modelspec)
+    save_resource(os.path.join(destination, 'modelspec.json'), data=data)
+    for number, figure in enumerate(ctx['figures']):
+        fig_uri = os.path.join(destination, 'figure.{:04d}.png'.format(number))
+        #log.info('saving figure %d to %s', number, fig_uri)
+        save_resource(fig_uri, data=figure)
+    save_resource(os.path.join(destination, 'log.txt'), data=log)
+    save_resource(os.path.join(destination, 'xfspec.json'), json=xfspec)
+    return destination
+
+
 def init_from_keywords(keywordstring, meta={}, IsReload=False,
                        registry=None, rec=None, rec_list=None, input_name='stim',
                        output_name='resp', **context):
@@ -426,9 +624,10 @@ def init_from_keywords(keywordstring, meta={}, IsReload=False,
                                        meta=meta, registry=registry, rec=rec, rec_list=rec_list,
                                        input_name=input_name,
                                        output_name=output_name)
+        modelspec.meta['engine'] = 'nems0'
     else:
         modelspec=context['modelspec']
-        
+
         # backward compatibility? Maybe can delete?
         if modelspec is not None:
             if modelspec.meta.get('input_name', None) is None:
@@ -640,21 +839,27 @@ def sev(kw):
     ops = kw.split('.')[1:]
     parms={'epoch_regex': '^STIM'}
     continuous=False
-    if 'seq' in ops:
-        parms['epoch_regex']='^STIM_se'
-    if 'cont' in ops:
-        continuous=True
     for op in ops:
-        if op.startswith("k"):
-            parms['keepfrac']=int(op[1:]) / 100
+        if op=='seq':
+            parms['epoch_regex'] = '^STIM_se'
+        elif op == 'cont':
+            continuous = True
+        elif op == 'mono':
+            parms['selection'] = 'mono'
+        elif op == 'bin':
+            parms['selection'] = 'bin'
+        elif op == 'match':
+            parms['selection'] = 'match'
+        elif op.startswith("k"):
+            parms['keepfrac'] = int(op[1:]) / 100
         elif op.startswith("f"):
-            parms['filemask']=op[1:]
+            parms['filemask'] = op[1:]
         else:
             parms['epoch_regex'] = op
     
-    xfspec = [['nems.xforms.split_by_occurrence_counts', parms]]
+    xfspec = [['nems0.xforms.split_by_occurrence_counts', parms]]
     if not continuous:
-        xfspec.append(['nems.xforms.average_away_stim_occurrences', parms])
+        xfspec.append(['nems0.xforms.average_away_stim_occurrences', parms])
     return xfspec
 
 def split_by_occurrence_counts(rec, epoch_regex='^STIM_', rec_list=None, keepfrac=1, **context):
@@ -674,10 +879,14 @@ def split_by_occurrence_counts(rec, epoch_regex='^STIM_', rec_list=None, keepfra
         val_list.append(val)
 
     if return_reclist:
-        return {'est': est_list[0], 'val': val_list[0], 'est_list': est_list, 'val_list': val_list}
+        c = {'est': est_list[0], 'val': val_list[0], 'est_list': est_list, 'val_list': val_list}
     else:
-        return {'est': est, 'val': val}
+        c = {'est': est, 'val': val}
 
+    if context.get('selection', '') in ['mono','bin','match']:
+        c['eval_binaural'] = True
+
+    return c
 
 @xform()
 def tev(kw):
@@ -690,7 +899,7 @@ def tev(kw):
         elif op.startswith("v"):
             valfrac=int(op[1:]) / 100
 
-    xfspec = [['nems.xforms.split_at_time', {'valfrac': valfrac}]]
+    xfspec = [['nems0.xforms.split_at_time', {'valfrac': valfrac}]]
 
     return xfspec
 
@@ -704,7 +913,7 @@ def avgreps(kw):
     for op in ops:
         epoch_regex = op
 
-    xfspec = [['nems.xforms.average_away_stim_occurrences', {'epoch_regex': epoch_regex}]]
+    xfspec = [['nems0.xforms.average_away_stim_occurrences', {'epoch_regex': epoch_regex}]]
 
     return xfspec
 
@@ -880,9 +1089,9 @@ def fit_basic_init(modelspec, est, tolerance=10**-5.5, max_iter=1500, metric='nm
         metric_fn = lambda d: getattr(metrics, metric)(d, 'pred', output_name)
     else:
         metric_fn = metric
-    modelspec = nems.initializers.prefit_LN(
+    modelspec = nems0.initializers.prefit_LN(
             est, modelspec,
-            analysis_function=nems.analysis.api.fit_basic,
+            analysis_function=analysis.api.fit_basic,
             fitter=scipy_minimize, metric=metric_fn,
             tolerance=tolerance, max_iter=max_iter, norm_fir=norm_fir,
             nl_kw=nl_kw)
@@ -908,7 +1117,7 @@ def fit_basic_subset(modelspec, est, metric='nmse', output_name='resp',
             metric_fn = lambda d: getattr(metrics, metric)(d, 'pred', output_name)
     else:
         metric_fn = metric
-    modelspec = nems.initializers.prefit_subset(
+    modelspec = nems0.initializers.prefit_subset(
             est, modelspec, metric=metric_fn, **context)
     return {'modelspec': modelspec}
 
@@ -929,9 +1138,9 @@ def fit_basic_subset(modelspec, est, metric='nmse', output_name='resp',
                          fit_idx+1, modelspec.fit_count,
                          jack_idx + 1, modelspec.jack_count)
 
-                modelspec = nems.initializers.prefit_LN(
+                modelspec = nems0.initializers.prefit_LN(
                         e, modelspec.set_jack(jack_idx),
-                        analysis_function=nems.analysis.api.fit_basic,
+                        analysis_function=analysis.api.fit_basic,
                         fitter=scipy_minimize, metric=metric_fn,
                         tolerance=tolerance, max_iter=700, norm_fir=norm_fir,
                         nl_kw=nl_kw)
@@ -940,9 +1149,9 @@ def fit_basic_subset(modelspec, est, metric='nmse', output_name='resp',
         #pdb.set_trace()
         for fit_idx in range(modelspec.fit_count):
             log.info("Init fitting model instance %d/%d", fit_idx + 1, modelspec.fit_count)
-            modelspec = nems.initializers.prefit_LN(
+            modelspec = nems0.initializers.prefit_LN(
                     est, modelspec.set_fit(fit_idx),
-                    analysis_function=nems.analysis.api.fit_basic,
+                    analysis_function=analysis.api.fit_basic,
                     fitter=scipy_minimize, metric=metric_fn,
                     tolerance=tolerance, max_iter=700, norm_fir=norm_fir,
                     nl_kw=nl_kw)
@@ -984,9 +1193,9 @@ def fit_state_init(modelspec, est, tolerance=10**-5.5, max_iter=1500, metric='nm
     if fit_sig != 'resp':
         log.info("Subbing %s for resp signal", fit_sig)
         dc['resp'] = dc[fit_sig]
-    modelspec = nems.initializers.prefit_LN(
+    modelspec = nems0.initializers.prefit_LN(
             dc, modelspec,
-            analysis_function=nems.analysis.api.fit_basic,
+            analysis_function=analysis.api.fit_basic,
             fitter=scipy_minimize, metric=metric_fn,
             tolerance=tolerance, max_iter=max_iter, norm_fir=norm_fir,
             nl_kw=nl_kw)
@@ -995,7 +1204,7 @@ def fit_state_init(modelspec, est, tolerance=10**-5.5, max_iter=1500, metric='nm
     # that might have been excluded
     # SVD disabling to speed up
     #fit_kwargs = {'tolerance': tolerance/2, 'max_iter': 500}
-    #modelspec = nems.analysis.api.fit_basic(
+    #modelspec = analysis.api.fit_basic(
     #        dc, modelspec, fit_kwargs=fit_kwargs, metric=metric_fn,
     #        fitter=scipy_minimize)
 
@@ -1036,7 +1245,7 @@ def fit_basic(modelspec, est, max_iter=1000, tolerance=1e-7,
     if IsReload:
         return {}
     metric_fn = lambda d: getattr(metrics, metric)(d, 'pred', output_name)
-    fitter_fn = getattr(nems.fitters.api, fitter)
+    fitter_fn = getattr(nems0.fitters.api, fitter)
     fit_kwargs = {'tolerance': tolerance, 'max_iter': max_iter}
 
     if modelspec.jack_count < est.view_count:
@@ -1050,7 +1259,7 @@ def fit_basic(modelspec, est, max_iter=1000, tolerance=1e-7,
             log.info("Fitting: fit %d/%d, fold %d/%d (tol=%.2e, max_iter=%d)",
                      fit_idx + 1, modelspec.fit_count,
                      jack_idx + 1, modelspec.jack_count, tolerance, max_iter)
-            modelspec = nems.analysis.api.fit_basic(
+            modelspec = analysis.api.fit_basic(
                     e, modelspec, fit_kwargs=fit_kwargs,
                     metric=metric_fn, fitter=fitter_fn)
 
@@ -1076,13 +1285,13 @@ def reverse_correlation(modelspec, est, IsReload=False, jackknifed_fit=False,
                              fit_idx + 1, modelspec.fit_count,
                              jack_idx + 1, modelspec.jack_count)
 
-                    modelspec = nems.analysis.api.reverse_correlation(
+                    modelspec = analysis.api.reverse_correlation(
                             e, modelspec, input_name)
 
         else:
             # standard single shot
             for fit_idx in range(modelspec.fit_count):
-                modelspec = nems.analysis.api.reverse_correlation(
+                modelspec = analysis.api.reverse_correlation(
                     est, modelspec.set_fit(fit_idx), input_name)
 
     return {'modelspec': modelspec}
@@ -1095,7 +1304,7 @@ def fit_iteratively(modelspec, est, tol_iter=100, fit_iter=20, IsReload=False,
     if IsReload:
         return {}
 
-    fitter_fn = getattr(nems.fitters.api, fitter)
+    fitter_fn = getattr(nems0.fitters.api, fitter)
     metric_fn = lambda d: getattr(metrics, metric)(d, 'pred', output_name)
 
     if modelspec.jack_count < est.view_count:
@@ -1110,7 +1319,7 @@ def fit_iteratively(modelspec, est, tol_iter=100, fit_iter=20, IsReload=False,
             log.info("Iter fitting: fit %d/%d, fold %d/%d",
                      fit_idx + 1, modelspec.fit_count,
                      jack_idx + 1, modelspec.jack_count)
-            modelspec = nems.analysis.api.fit_iteratively(
+            modelspec = analysis.api.fit_iteratively(
                         e, modelspec, fit_kwargs=fit_kwargs,
                         fitter=fitter_fn, module_sets=module_sets,
                         invert=invert, tolerances=tolerances,
@@ -1120,7 +1329,7 @@ def fit_iteratively(modelspec, est, tol_iter=100, fit_iter=20, IsReload=False,
     return {'modelspec': modelspec}
 
 
-def fit_wrapper(modelspec, est=None, fit_function='nems.analysis.api.fit_basic',
+def fit_wrapper(modelspec, est=None, fit_function='nems0.analysis.api.fit_basic',
                 fit_slices_start=None, IsReload=False, **context):
     """
     Wrapper to loop through all jackknifes, fits and output slices (if/when >1 of any)
@@ -1203,11 +1412,11 @@ def fit_nfold(modelspecs, est, tolerance=1e-7, max_iter=1000,
     raise Warning("DEPRECATED?")
     if not IsReload:
         metric = lambda d: getattr(metrics, metric)(d, 'pred', 'resp')
-        fitter_fn = getattr(nems.fitters.api, fitter)
+        fitter_fn = getattr(nems0.fitters.api, fitter)
         fit_kwargs = {'tolerance': tolerance, 'max_iter': max_iter}
         if fitter == 'coordinate_descent':
             fit_kwargs['step_size'] = 0.1
-        modelspecs = nems.analysis.api.fit_nfold(
+        modelspecs = analysis.api.fit_nfold(
                 est, modelspecs, fitter=fitter_fn,
                 fit_kwargs=fit_kwargs, analysis=analysis,
                 tolerances=tolerances, module_sets=module_sets,
@@ -1225,7 +1434,7 @@ def fit_n_times_from_random_starts(modelspecs, est, ntimes, subset,
         if len(modelspecs) > 1:
             raise NotImplementedError('I only work on 1 modelspec')
 
-        modelspecs = nems.analysis.api.fit_from_priors(
+        modelspecs = analysis.api.fit_from_priors(
                 est, modelspecs[0], ntimes=ntimes, subset=subset,
                 analysis=analysis, basic_kwargs=basic_kwargs
                 )
@@ -1248,13 +1457,13 @@ def predict(modelspec, est, val, est_list=None, val_list=None, jackknifed_fit=Fa
     # modelspecs = metrics.add_summary_statistics(est, val, modelspecs)
     # TODO: Add statistics to metadata of every modelspec
     if (val_list is None):
-        est, val = nems.analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit, use_mask=use_mask)
+        est, val = analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit, use_mask=use_mask)
         modelspec.recording = val
         return {'val': val, 'est': est, 'modelspec': modelspec}
     else:
         for cellidx,est,val in zip(range(len(est_list)),est_list,val_list):
             modelspec.set_cell(cellidx)
-            est, val = nems.analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit, use_mask=use_mask)
+            est, val = analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit, use_mask=use_mask)
             modelspec.recording = val
             est_list[cellidx] = est
             val_list[cellidx] = val
@@ -1263,7 +1472,7 @@ def predict(modelspec, est, val, est_list=None, val_list=None, jackknifed_fit=Fa
 
 
 def add_summary_statistics(est, val, modelspec, est_list=None, val_list=None, rec_list=None, fn='standard_correlation',
-                           rec=None, use_mask=True, IsReload=False, **context):
+                           rec=None, use_mask=True, eval_binaural=False, IsReload=False, **context):
     '''
     standard_correlation: average all correlation metrics and add
                           to first modelspec only.
@@ -1273,19 +1482,39 @@ def add_summary_statistics(est, val, modelspec, est_list=None, val_list=None, re
     if IsReload:
         return {}
 
-    corr_fn = getattr(nems.analysis.api, fn)
-
+    corr_fn = getattr(analysis.api, fn)
+    model_engine = modelspec.meta.get('engine', 'nems0')
     if est_list is None:
         est_list=[est]
         val_list=[val]
         rec_list=[rec]
 
     for cellidx,est,val,rec in zip(range(len(est_list)),est_list,val_list,rec_list):
-        modelspec.set_cell(cellidx)
-        log.info(f'cell_index: {cellidx}')
+        if len(est_list)>1:
+            modelspec.set_cell(cellidx)
+            log.info(f'cell_index: {cellidx}')
         modelspec = corr_fn(est, val, modelspec=modelspec, rec=rec, use_mask=use_mask)
 
-        if find_module('state', modelspec) is not None:
+        if eval_binaural:
+            val_epochs = ep.epoch_names_matching(val['resp'].epochs, "^STIM_")
+            mono_epochs = [e for e in val_epochs if 'NULL' in e]
+            bin_epochs = [e for e in val_epochs if 'NULL' not in e]
+            val = val.create_mask(mono_epochs, mask_name='mono_mask')
+            val = val.create_mask(bin_epochs, mask_name='bin_mask')
+            modelspec_mono = modelspec.copy()
+            # don't pass rec so set to None and skip r_ceiling calc for subset evals
+            modelspec_mono = corr_fn(est, val, modelspec=modelspec_mono, use_mask='mono_mask')
+            modelspec_bin = modelspec.copy()
+            modelspec_bin = corr_fn(est, val, modelspec=modelspec_bin, use_mask='bin_mask')
+            modelspec.meta['r_test_mono'] = modelspec_mono.meta['r_test']
+            modelspec.meta['r_test_bin'] = modelspec_bin.meta['r_test']
+
+        if model_engine == 'nems-lite':
+            pass
+        elif find_module('lv_norm', modelspec) is not None:
+            log.info('add_summary_statistics: lv_norm model, skipping all MI calculations')
+            
+        elif find_module('state', modelspec) is not None:
             if ('state_raw' not in val.signals.keys()):
                 pass
             else:
@@ -1347,6 +1576,9 @@ def add_summary_statistics(est, val, modelspec, est_list=None, val_list=None, re
                 spont_rate = np.nanmean(prestimsilence, axis=(0, 2))
             else:
                 spont_rate = np.nanmean(prestimsilence)
+        elif prestimsilence.shape[0]>0:
+            log.info('Zero prestimsilence?')
+            spont_rate=0
         else:
             try:
                 prestimsilence = resp.extract_epoch('TRIALPreStimSilence')
@@ -1372,30 +1604,34 @@ def add_summary_statistics(est, val, modelspec, est_list=None, val_list=None, re
 
     modelspec.meta['spont_mean']=spont_rate
     modelspec.meta['evoked_mean']=evoked_mean
-    modelspec.set_cell(0)
-
+    if model_engine == 'nems0':
+        modelspec.set_cell(0)
+    log.info(f"r_test={modelspec.meta['r_test']}")
     return {'modelspec': modelspec}
 
 
 def add_summary_statistics_by_condition(est, val, modelspec, evaluation_conditions, rec=None,
                                         use_mask=True, **context):
-    modelspec = na.api.standard_correlation_by_epochs(est,val,modelspec=modelspec,
+    modelspec = analysis.api.standard_correlation_by_epochs(est,val,modelspec=modelspec,
             epochs_list=evaluation_conditions,rec=rec, use_mask=use_mask)
     return {'modelspec': modelspec}
 
-def plot_summary(modelspec, val, figures=None, IsReload=False,
+def plot_summary(modelspec, val, IsReload=False,
                  figures_to_load=None, time_range = None, **context):
     # CANNOT initialize figures=[] in optional args our you will create a bug
 
-    if figures is None:
-        figures = []
-    if not IsReload:
+    figures = context.get('figures', [])
+    if IsReload:
+        if figures_to_load is not None:
+            figures.extend([load_resource(f) for f in figures_to_load])
+
+    elif modelspec.meta.get('fitter', 'basic')=='ccnorm':
+        from nems0.plots.state import cc_comp
+        return cc_comp(modelspec=modelspec, val=val, **context)
+    else:
         fig = modelspec.quickplot(time_range=time_range)
         # Needed to make into a Bytes because you can't deepcopy figures!
         figures.append(nplt.fig2BytesIO(fig))
-    else:
-        if figures_to_load is not None:
-            figures.extend([load_resource(f) for f in figures_to_load])
 
     return {'figures': figures}
 
@@ -1435,16 +1671,16 @@ def random_sample_fit(ntimes=10, subset=None, IsReload=False, **context):
 # TODO: Perturb around the modelspec to get confidence intervals
 
 # TODO: Use simulated annealing (Slow, arguably gets stuck less often)
-# modelspecs = nems.analysis.fit_basic(est, modelspec,
-#                                   fitter=nems.fitter.annealing)
+# modelspecs = analysis.fit_basic(est, modelspec,
+#                                   fitter=nems0.fitter.annealing)
 
 # TODO: Use Metropolis algorithm (Very slow, gives confidence interval)
-# modelspecs = nems.analysis.fit_basic(est, modelspec,
-#                                   fitter=nems.fitter.metropolis)
+# modelspecs = analysis.fit_basic(est, modelspec,
+#                                   fitter=nems0.fitter.metropolis)
 
 # TODO: Use 10-fold cross-validated evaluation
-# fitter = partial(nems.cross_validator.cross_validate_wrapper, gradient_descent, 10)
-# modelspecs = nems.analysis.fit_cv(est, modelspec, folds=10)
+# fitter = partial(nems0.cross_validator.cross_validate_wrapper, gradient_descent, 10)
+# modelspecs = analysis.fit_cv(est, modelspec, folds=10)
 
 
 ###############################################################################
@@ -1464,7 +1700,7 @@ def xfspec_shortname(xformspec):
     """
     Given an xformspec, makes a shortname for it.
     """
-    n = len('nems.xforms.')
+    n = len('nems0.xforms.')
     fn_names = [xf[n:] for xf, xfa in xformspec]
     name = ".".join(fn_names)
     return name
@@ -1778,7 +2014,7 @@ def fit_random_subsets(modelspecs, est, nsplits,
     if not IsReload:
         if len(modelspecs) > 1:
             raise ValueError('I only work on 1 modelspec')
-        modelspecs = nems.analysis.api.fit_random_subsets(est,
+        modelspecs = analysis.api.fit_random_subsets(est,
                                                           modelspecs[0],
                                                           nsplits=nsplits)
     return {'modelspecs': modelspecs}
@@ -1790,7 +2026,7 @@ def fit_equal_subsets(modelspecs, est, nsplits,
     if not IsReload:
         if len(modelspecs) > 1:
             raise ValueError('I only work on 1 modelspec')
-        modelspecs = nems.analysis.api.fit_subsets(est,
+        modelspecs = analysis.api.fit_subsets(est,
                                                    modelspecs[0],
                                                    nsplits=nsplits)
     return {'modelspecs': modelspecs}
@@ -1802,7 +2038,7 @@ def fit_jackknifes(modelspecs, est, njacks,
     if not IsReload:
         if len(modelspecs) > 1:
             raise ValueError('I only work on 1 modelspec')
-        modelspecs = nems.analysis.api.fit_jackknifes(est,
+        modelspecs = analysis.api.fit_jackknifes(est,
                                                       modelspecs[0],
                                                       njacks=njacks)
     return {'modelspecs': modelspecs}
@@ -1816,7 +2052,7 @@ def fit_module_sets(modelspecs, est, max_iter=1000, IsReload=False,
         if len(modelspecs) > 1:
             raise NotImplementedError("Not supported for multiple modelspecs")
         modelspecs = [
-                nems.analysis.api.fit_module_sets(
+                analysis.api.fit_module_sets(
                         est, modelspec, fit_kwargs=fit_kwargs,
                         fitter=fitter, module_sets=module_sets,
                         invert=invert, tolerance=tolerance,

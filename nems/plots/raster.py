@@ -1,12 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from nems.plots.assemble import pad_to_signals
-from nems.plots.timeseries import plot_timeseries
+from nems0.plots.assemble import pad_to_signals
+from nems0.plots.timeseries import plot_timeseries
 
-import nems.modelspec as ms
-import nems.signal as signal
-import nems.recording as recording
+import nems0.modelspec as ms
+import nems0.signal as signal
+import nems0.recording as recording
 
 def raster(times, values, xlabel='Time', ylabel='Trial', legend=None,
            linestyle='-', linewidth=1,

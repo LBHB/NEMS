@@ -9,7 +9,7 @@ NEMS_PATH = os.path.abspath(os.path.dirname(__file__) + '/..')
 def load_config():
     # Load the default settings
     from os import environ, path, utime
-    from nems.configs import defaults as config
+    from .configs import defaults as config
 
     # leave defaults.py off the end of path
     configs_path = path.dirname(path.abspath(config.__file__))
@@ -17,7 +17,7 @@ def load_config():
     # If it doesn't exist, create a dummy file in its place that
     # the user can fill in later.
     try:
-        from nems.configs import settings
+        from .configs import settings
     except ImportError:
         settings_path = path.join(configs_path, 'settings.py')
         # this should be equivalent to
@@ -27,7 +27,7 @@ def load_config():
         log.info("No settings.py found in configs directory,"
                  " generating blank file ... ")
         try:
-            from nems.configs import settings
+            from .configs import settings
         except ImportError:
             # if it still doesn't work, file wasn't created correctly
             # (known issue on MacOS), so just leave settings as a blank object

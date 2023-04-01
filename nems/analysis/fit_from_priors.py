@@ -1,9 +1,9 @@
 import logging
 import copy
 
-import nems.priors
-from nems.analysis.fit_basic import fit_basic
-from nems.analysis.fit_iteratively import fit_iteratively
+import nems0.priors
+from nems0.analysis.fit_basic import fit_basic
+from nems0.analysis.fit_iteratively import fit_iteratively
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def fit_from_priors(data, modelspec, ntimes=10, analysis='fit_basic',
         # Only randomize phi for modules specified in subset
         cp = copy.deepcopy(modelspec)
         sub = [m for i, m in enumerate(cp) if i in subset]
-        rand = nems.priors.set_random_phi(sub)
+        rand = nems0.priors.set_random_phi(sub)
         merged_ms = [m if i not in subset else rand.pop(0)
                      for m in cp]
 

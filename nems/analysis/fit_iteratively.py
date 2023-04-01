@@ -5,11 +5,11 @@ import copy
 
 import numpy as np
 
-from nems.fitters.api import coordinate_descent
-from nems.analysis.cost_functions import basic_cost
-import nems.fitters.mappers
-import nems.metrics.api
-import nems.modelspec as ms
+from nems0.fitters.api import coordinate_descent
+from nems0.analysis.cost_functions import basic_cost
+import nems0.fitters.mappers
+import nems0.metrics.api
+import nems0.modelspec as ms
 
 log = logging.getLogger(__name__)
 
@@ -17,9 +17,9 @@ log = logging.getLogger(__name__)
 def fit_module_sets(
         data, modelspec,
         cost_function=basic_cost, evaluator=ms.evaluate,
-        segmentor=nems.segmentors.use_all_data,
-        mapper=nems.fitters.mappers.simple_vector,
-        metric=lambda data: nems.metrics.api.nmse(data, 'pred', 'resp'),
+        segmentor=nems0.segmentors.use_all_data,
+        mapper=nems0.fitters.mappers.simple_vector,
+        metric=lambda data: nems0.metrics.api.nmse(data, 'pred', 'resp'),
         fitter=coordinate_descent, fit_kwargs={}, metaname='fit_module_sets',
         module_sets=None, invert=False, tolerance=1e-4, max_iter=1000
         ):
@@ -52,7 +52,7 @@ def fit_module_sets(
     # Ensure that phi exists for all modules; choose prior mean if not found
     for i, m in enumerate(modelspec):
         if ('phi' not in m.keys()) and ('prior' in m.keys()):
-            m = nems.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
+            m = nems0.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
             log.debug('Phi not found for module, using mean of prior: {}'
                       .format(m))
             modelspec[i] = m
@@ -122,9 +122,9 @@ def fit_iteratively(
         data, modelspec,
         cost_function=basic_cost,
         fitter=coordinate_descent, evaluator=ms.evaluate,
-        segmentor=nems.segmentors.use_all_data,
-        mapper=nems.fitters.mappers.simple_vector,
-        metric=lambda data: nems.metrics.api.nmse(data, 'pred', 'resp'),
+        segmentor=nems0.segmentors.use_all_data,
+        mapper=nems0.fitters.mappers.simple_vector,
+        metric=lambda data: nems0.metrics.api.nmse(data, 'pred', 'resp'),
         metaname='fit_basic', fit_kwargs={},
         module_sets=None, invert=False, tolerances=None, tol_iter=50,
         fit_iter=10,
@@ -190,7 +190,7 @@ def fit_iteratively(
     # Ensure that phi exists for all modules; choose prior mean if not found
     for i, m in enumerate(modelspec):
         if ('phi' not in m.keys()) and ('prior' in m.keys()):
-            m = nems.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
+            m = nems0.priors.set_mean_phi([m])[0]  # Inits phi for 1 module
             log.debug('Phi not found for module, using mean of prior: {}'
                       .format(m))
             modelspec[i] = m

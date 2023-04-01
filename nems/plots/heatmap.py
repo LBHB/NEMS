@@ -1,16 +1,16 @@
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
-import nems.modelspec as ms
+import nems0.modelspec as ms
 from scipy.ndimage import zoom
 
-from nems.plots.timeseries import plot_timeseries
-from nems.utils import find_module
-from nems.modules.fir import (pz_coefficients, fir_dexp_coefficients,
+from nems0.plots.timeseries import plot_timeseries
+from nems0.utils import find_module
+from nems0.modules.fir import (pz_coefficients, fir_dexp_coefficients,
                               fir_exp_coefficients, _offset_coefficients)
-from nems.plots.utils import ax_remove_box
-from nems import get_setting
-from nems.gui.decorators import cursor
+from nems0.plots.utils import ax_remove_box
+from nems0 import get_setting
+from nems0.gui.decorators import cursor
 
 log = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 from copy import deepcopy
 
 import logging as log
-from nems.distributions.distribution import Distribution
-import nems.distributions.api
+from nems0.distributions.distribution import Distribution
+import nems0.distributions.api
 import numpy as np
 
 # For creating values of 'phi' from the priors in a modelspec.
@@ -20,13 +20,13 @@ import numpy as np
 # a last resort to initialize a module. They do so based only upon the function
 # name rather than a keyword, and so must be 1x1 distributions which can be
 # broadcast to match the array size that is needed.
-default_priors = {'nems.modules.fir.basic':
+default_priors = {'nems0.modules.fir.basic':
                   {'coefficients': ('Normal', {'mean': [0], 'sd': [1]})},
 
-                  'nems.modules.levelshift.levelshift':
+                  'nems0.modules.levelshift.levelshift':
                   {'level': ('Normal', {'mu': [0], 'sd': [10]})},
 
-                  'nems.modules.nonlinearity.double_exponential':
+                  'nems0.modules.nonlinearity.double_exponential':
                   {'base': ('Normal', {'mean': [0], 'sd': [1]}),
                    'amplitude': ('Normal', {'mu': [0.2], 'sd': [1]}),
                    'shift': ('Normal', {'mean': [0], 'sd': [1]}),
@@ -60,7 +60,7 @@ def _tuples_to_distributions(prior):
     for key, value in prior.items():
         if not isinstance(value, Distribution):
             dist_type, dist_params = value
-            dist_class = getattr(nems.distributions.api, dist_type)
+            dist_class = getattr(nems0.distributions.api, dist_type)
             prior[key] = dist_class(**dist_params)
 
     return prior

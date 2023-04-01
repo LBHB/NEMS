@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import importlib
-import nems.modelspec as ms
-import nems.metrics.api as nm
-from nems.plots.utils import ax_remove_box
-from nems.gui.decorators import cursor
+import nems0.modelspec as ms
+import nems0.metrics.api as nm
+from nems0.plots.utils import ax_remove_box
+from nems0.gui.decorators import cursor
 
 import logging
 log = logging.getLogger(__name__)
@@ -186,7 +186,7 @@ def nl_scatter(rec, modelspec, idx, sig_name='pred',
     compare_to = before[compare]
 
     module = modelspec[idx]
-    mod_name = module['fn'].replace('nems.modules.', '').replace('.', ' ').replace('_', ' ').title()
+    mod_name = module['fn'].replace('nems0.modules.', '').replace('.', ' ').replace('_', ' ').title()
 
     title1 = mod_name
     text1 = "r = {0:.5f}".format(np.mean(corr1))

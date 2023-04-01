@@ -7,23 +7,23 @@ import gzip
 import numpy as np
 import pandas as pd
 
-import nems.analysis.api
-import nems.initializers
-import nems.recording as recording
-import nems.preprocessing as preproc
-import nems.uri
-from nems.fitters.api import scipy_minimize
-#from nems.tf.cnnlink_new import fit_tf, fit_tf_init
-from nems.registry import xform, xmodule
+import nems0.analysis.api
+import nems0.initializers
+import nems0.recording as recording
+import nems0.preprocessing as preproc
+import nems0.uri
+from nems0.fitters.api import scipy_minimize
+#from nems0.tf.cnnlink_new import fit_tf, fit_tf_init
+from nems0.registry import xform, xmodule
 
-from nems.signal import RasterizedSignal
+from nems0.signal import RasterizedSignal
 
 log = logging.getLogger(__name__)
 
 # CONFIGURATION
 
 # figure out data and results paths:
-signals_dir = Path(nems.NEMS_PATH) / 'recordings'
+signals_dir = Path(nems0.NEMS_PATH) / 'recordings'
 
 
 @xform()
@@ -51,7 +51,7 @@ def vsload(loadkey, cellid=None, batch=None, **kwargs):
         elif op=='pup':
             options.update({'pupil': True, 'rem': 1})
 
-    xfspec = [['nems.plugins.loaders.load_sadagopan', options]]
+    xfspec = [['nems0.plugins.loaders.load_sadagopan', options]]
     return xfspec
 
 

@@ -41,7 +41,7 @@ class Distribution:
         interval to get a slightly more reasonable constraint that can be passed
         to the fitter.
 
-        >>> from nems.distributions.api import Normal
+        >>> from nems0.distributions.api import Normal
         >>> prior = Normal(mu=0, sd=1)
         >>> lower = prior.percentile(0.005)
         >>> upper = prior.percentile(0.995)

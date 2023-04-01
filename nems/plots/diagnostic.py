@@ -6,20 +6,20 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import copy
 
-import nems.modelspec as ms
-import nems.metrics.api as nm
+import nems0.modelspec as ms
+import nems0.metrics.api as nm
 
 # Better way to do this than to copy all of .api's imports?
 # Can't use api b/c get circular import issue
-from nems.plots.scatter import plot_scatter
-from nems.plots.specgram import (plot_spectrogram, spectrogram_from_signal,
+from nems0.plots.scatter import plot_scatter
+from nems0.plots.specgram import (plot_spectrogram, spectrogram_from_signal,
                           spectrogram_from_epoch)
-from nems.plots.timeseries import (timeseries_from_signals,
+from nems0.plots.timeseries import (timeseries_from_signals,
                                    timeseries_from_epoch,
                                    plot_timeseries)
-from nems.plots.heatmap import weight_channels_heatmap, fir_heatmap, strf_heatmap
-from nems.plots.histogram import pred_error_hist
-from nems.plots.state import (state_vars_timeseries, state_var_psth_from_epoch,
+from nems0.plots.heatmap import weight_channels_heatmap, fir_heatmap, strf_heatmap
+from nems0.plots.histogram import pred_error_hist
+from nems0.plots.state import (state_vars_timeseries, state_var_psth_from_epoch,
                     state_var_psth)
 
 log = logging.getLogger(__name__)
@@ -319,7 +319,7 @@ def output_psth(rec, modelspec, idx, sig_name='pred',
     # now evaluate next module step
     if 'fir.basic' in modelspec[idx]['fn']:
         ms2 = copy.deepcopy(modelspec)
-        ms2[idx]['fn'] = 'nems.modules.fir.filter_bank'
+        ms2[idx]['fn'] = 'nems0.modules.fir.filter_bank'
         chan_count = ms2[idx]['phi']['coefficients'].shape[0]
         ms2[idx]['fn_kwargs']['bank_count'] = chan_count
         before2, after2 = before_and_after_signal(rec, ms2, idx, sig_name)

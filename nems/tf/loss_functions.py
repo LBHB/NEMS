@@ -15,6 +15,7 @@ def get_loss_fn(loss_fn_str: str):
         #'squared_error': loss_se_safe,
         'poisson': poisson,
         'nmse': loss_tf_nmse,
+        'nmse_pc': loss_tf_nmse_per_cell,
         'nmse_shrinkage': loss_tf_nmse_shrinkage,
     }
 
@@ -59,6 +60,13 @@ def loss_tf_nmse(response, prediction, per_cell=True):
         return tf.math.reduce_mean(mE)
     else:
         return mE
+
+def loss_tf_nmse_per_cell(response, prediction):
+    """Normalized means squared error loss, computed separately for each cell."""
+    mE, sE = tf_nmse(response, prediction, per_cell=True)
+
+    return tf.math.reduce_mean(mE)
+
 
 
 def tf_nmse_shrinkage(response, prediction, shrink_factor=0.5, per_cell=True, thresh=False):

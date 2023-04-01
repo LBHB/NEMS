@@ -10,7 +10,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from nems.fitters.util import phi_to_vector, vector_to_phi
+from nems0.fitters.util import phi_to_vector, vector_to_phi
 
 
 def to_bounds_array(value, phi, which):

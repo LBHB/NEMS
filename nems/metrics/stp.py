@@ -7,9 +7,9 @@ Created on Mon Oct  8 12:12:37 2018
 """
 import numpy as np
 
-import nems.signal as signal
-import nems.recording as recording
-import nems.modules.stp as stp
+import nems0.signal as signal
+import nems0.recording as recording
+import nems0.modules.stp as stp
 
 def stp_magnitude(tau, u, u2=None, tau2=None, urat=0.5, fs=100, A=0.5, quick_eval=False):
     """ compute effect of stp (tau,u) on a dummy signal and computer effect magnitude

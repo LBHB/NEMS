@@ -35,7 +35,7 @@ def demo_loader(datafile=None, **context):
 
     # load stim and resp matrices from pkl files
     if datafile is None:
-        datafile = nems.get_setting('NEMS_RECORDINGS_DIR') + '/TAR010c-18-1.pkl'
+        datafile = nems0.get_setting('NEMS_RECORDINGS_DIR') + '/TAR010c-18-1.pkl'
 
     with open(datafile, 'rb') as f:  # Python 3: open(..., 'rb')
         cellid, recname, fs, X, Y, epochs = pickle.load(f)

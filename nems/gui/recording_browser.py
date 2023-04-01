@@ -43,10 +43,10 @@ from matplotlib.figure import Figure
 
 #import nems_db.db as nd
 #import nems_db.xform_wrappers as nw
-from nems.recording import Recording
-import nems.signal
-from nems.plots.utils import ax_remove_box
-#from nems.gui.editor import ModelEditor
+from nems0.recording import Recording
+import nems0.signal
+from nems0.plots.utils import ax_remove_box
+#from nems0.gui.editor import ModelEditor
 
 class RecordingPlotWrapper():
     # TODO: Not using this anymore?
@@ -163,9 +163,9 @@ class NemsCanvas(MyMplCanvas):
         self.max_time = sig_array.shape[-1] / self.recording[self.signal].fs
 
         point = (isinstance(self.recording[self.signal],
-                            nems.signal.PointProcess))
+                            nems0.signal.PointProcess))
         tiled = (isinstance(self.recording[self.signal],
-                            nems.signal.TiledSignal)
+                            nems0.signal.TiledSignal)
                  or 'stim' in self.recording[self.signal].name
                  or 'contrast' in self.recording[self.signal].name)
 

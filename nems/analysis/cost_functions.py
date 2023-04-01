@@ -1,7 +1,7 @@
 import logging
 import inspect
 
-import nems.utils
+import nems0.utils
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def basic_cost(sigma, unpacker, modelspec, data, segmentor,
                 
             log.info('Eval #%d. E=%.06f', basic_cost.counter, error)
             # log.debug("current sigma: %s", sigma)
-            nems.utils.progress_fun()
+            nems0.utils.progress_fun()
 
     if hasattr(basic_cost, 'error'):
         basic_cost.error = error
@@ -72,7 +72,7 @@ def basic_with_copy(sigma, unpacker, modelspec, data, segmentor,
         if basic_cost.counter % 100 == 0:
             log.info('Eval #%d. E=%.06f', basic_cost.counter, error)
             # log.debug("current sigma: %s", sigma)
-            nems.utils.progress_fun()
+            nems0.utils.progress_fun()
 
     if hasattr(basic_cost, 'error'):
         basic_cost.error = error

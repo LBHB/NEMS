@@ -1,4 +1,4 @@
-from nems.registry import xform, xmodule
+from nems0.registry import xform, xmodule
 
 @xform()
 def ld(loadkey, recording_uri=None, recording_uri_list=None, cellid=None):
@@ -50,7 +50,7 @@ def ld(loadkey, recording_uri=None, recording_uri_list=None, cellid=None):
         elif op == 'n':
             d['normalize'] = True
 
-    xfspec = [['nems.xforms.load_recordings', d]]
+    xfspec = [['nems0.xforms.load_recordings', d]]
 
     return xfspec
 
@@ -59,4 +59,4 @@ def none(loadkey):
     '''
     Does nothing, but xforms expects at least one loader/preprocessor.
     '''
-    return [['nems.xforms.none', {}]]
+    return [['nems0.xforms.none', {}]]

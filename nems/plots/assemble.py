@@ -1,7 +1,7 @@
 from functools import partial
 import matplotlib.pyplot as plt
-import nems.modelspec as ms
-from nems.signal import concatenate_channels
+import nems0.modelspec as ms
+from nems0.signal import concatenate_channels
 import numpy as np
 
 

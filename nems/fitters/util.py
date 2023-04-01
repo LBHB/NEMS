@@ -100,7 +100,7 @@ def initialize_phi(priors, method='mean'):
     Example
     -------
     # First, set up some priors to play with
-    >>> from nems.distributions.api import Normal, Beta
+    >>> from nems0.distributions.api import Normal, Beta
     >>> mu = Normal(0, 0.05)
     >>> scale = Beta([1, 2], [2, 1])
     >>> priors = [{'mu': mu}, {'scale': scale}]
@@ -136,7 +136,7 @@ def phi_percentile(priors, percentile):
 
     Example
     -------
-    >>> from nems.distributions.api import Normal, Beta
+    >>> from nems0.distributions.api import Normal, Beta
     >>> mu = Normal(0, 0.05)
     >>> scale = Beta([1, 2], [2, 1])
     >>> priors = [{'mu': mu}, {'scale': scale}]

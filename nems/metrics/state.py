@@ -1,7 +1,7 @@
 import copy
 import numpy as np
-import nems.modelspec as ms
-from nems.utils import find_module, get_channel_number
+import nems0.modelspec as ms
+from nems0.utils import find_module, get_channel_number
 import logging
 
 log = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def state_mod_index(rec, epoch='REFERENCE', psth_name='pred', divisor=None,
     #except IndexError:
     #    log.info('no %s epochs found. Trying TARGET instead', epoch)
     #    epoch = 'TARGET'
-    log.info('state_mod_index for {}, {}, {}'.format(psth_name,state_sig,state_chan))
+    log.debug('state_mod_index for {}, {}, {}'.format(psth_name,state_sig,state_chan))
     try:
         low, high = state_mod_split(rec, epoch=epoch, psth_name=psth_name,
                                 state_sig=state_sig, state_chan=state_chan)

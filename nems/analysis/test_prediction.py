@@ -3,13 +3,13 @@ import numpy as np
 import copy
 import logging
 
-import nems.modelspec as ms
-import nems.metrics.api as nmet
-from nems.analysis.cost_functions import basic_cost
-import nems.priors
-import nems.fitters.mappers
-import nems.segmentors
-import nems.utils
+import nems0.modelspec as ms
+import nems0.metrics.api as nmet
+from nems0.analysis.cost_functions import basic_cost
+import nems0.priors
+import nems0.fitters.mappers
+import nems0.segmentors
+import nems0.utils
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,11 @@ def standard_correlation(est, val, modelspec=None, modelspecs=None, rec=None,
     # KLUDGE ALERT!
     # only compute results for first jackknife -- for simplicity, not optimal!
     # only works if view_count==1 or resp_count(# resp channels)==1
-    est_mult = modelspec.jack_count
+    try:
+        est_mult = modelspec.jack_count
+    except:
+        est_mult = 1
+
     out_chan_count = val[output_name].shape[0]
 
     r_test = np.zeros((out_chan_count, view_count))
@@ -116,7 +120,12 @@ def standard_correlation(est, val, modelspec=None, modelspecs=None, rec=None,
     ll_fit = np.zeros((out_chan_count, view_count))
 
     for i in range(view_count):
-        if ('mask' in val.signals.keys()) and use_mask:
+        if type(use_mask) is str:
+            v = val.set_view(i).apply_mask(mask_name=use_mask)
+            e = est.set_view(i*est_mult).apply_mask()
+            log.info(f"val use_mask={use_mask} shape={v['resp'].shape}")
+
+        elif ('mask' in val.signals.keys()):
             v = val.set_view(i).apply_mask()
             e = est.set_view(i*est_mult).apply_mask()
         else:
@@ -320,8 +329,8 @@ def standard_correlation_by_set(est, val, modelspecs):
 
 
 def basic_error(data, modelspec, cost_function=None,
-                segmentor=nems.segmentors.use_all_data,
-                mapper=nems.fitters.mappers.simple_vector,
+                segmentor=nems0.segmentors.use_all_data,
+                mapper=nems0.fitters.mappers.simple_vector,
                 metric=lambda data: nmet.nmse(data, 'pred', 'resp')):
     '''
     Similar to fit_basic except that it just returns the error for the fitting
@@ -341,7 +350,7 @@ def basic_error(data, modelspec, cost_function=None,
         log.info("Data len post-mask: %d", data['mask'].shape[1])
 
     packer, unpacker, pack_bounds = mapper(modelspec)
-    evaluator = nems.modelspec.evaluate
+    evaluator = nems0.modelspec.evaluate
     sigma = packer(modelspec)
     error = cost_function(sigma, unpacker, modelspec, data, segmentor,
                           evaluator, metric)
@@ -350,7 +359,7 @@ def basic_error(data, modelspec, cost_function=None,
 
 
 def predict_and_summarize_for_all_modelspec(modelspec=None, est=None, val=None, est_list=None, val_list=None, criterion=['r_test','se_test','mse_test','ll_test'],
-                  metric_fn='nems.metrics.mse.nmse', jackknifed_fit=False, keep_n=1,
+                  metric_fn='nems0.metrics.mse.nmse', jackknifed_fit=False, keep_n=1,
                   IsReload=False, **context):
     """
      For models with multiple fits (eg, based on multiple initial conditions),
@@ -416,7 +425,7 @@ def predict_and_summarize_for_all_modelspec(modelspec=None, est=None, val=None, 
     return {'modelspec': modelspec}
 
 def pick_best_phi(modelspec=None, est=None, val=None, est_list=None, val_list=None, criterion='mse_fit',
-                  metric_fn='nems.metrics.mse.nmse', jackknifed_fit=False, keep_n=1,
+                  metric_fn='nems0.metrics.mse.nmse', jackknifed_fit=False, keep_n=1,
                   IsReload=False, **context):
 
     """
@@ -445,7 +454,7 @@ def pick_best_phi(modelspec=None, est=None, val=None, est_list=None, val_list=No
 
     #for cellidx,est,val in zip(range(len(est_list)),est_list,val_list):
     #    modelspec.set_cell(cellidx)
-    #    est, val = nems.analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit)
+    #    est, val = nems0.analysis.api.generate_prediction(est, val, modelspec, jackknifed_fit=jackknifed_fit)
     #    modelspec.recording = val
     #    est_list[cellidx] = est
     #    val_list[cellidx] = val
@@ -484,7 +493,7 @@ def pick_best_phi(modelspec=None, est=None, val=None, est_list=None, val_list=No
                     log.info('Not supported yet! jackknife + multifit using tf loss to select')
                     import pdb; pdb.set_trace()
             
-            elif (metric_fn == 'nems.metrics.mse.nmse') & (criterion == 'mse_fit'):
+            elif (metric_fn == 'nems0.metrics.mse.nmse') & (criterion == 'mse_fit'):
                 # for backwards compatibility, run the below code to compute metric specified
                 # by criterion.
                 # unclear if this works
@@ -501,7 +510,7 @@ def pick_best_phi(modelspec=None, est=None, val=None, est_list=None, val_list=No
 
             else:
                 # unclear if this works
-                fn = nems.utils.lookup_fn_at(metric_fn)
+                fn = nems0.utils.lookup_fn_at(metric_fn)
                 tx=[]
                 for fitidx in range(modelspec.fit_count):
                     traw = modelspec.raw[cell_idx, fitidx, j]
