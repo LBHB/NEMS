@@ -94,7 +94,7 @@ def _nested_update(d, u):
     return d
 
 
-def plot_model(model, input, target=None, target_name=None, n=None,
+def plot_model_outputs(model, input, target=None, target_name=None, n=None,
                select_layers=None, n_columns=1, show_titles=True,
                figure_kwargs=None, sampling_rate=None, time_axis='x',
                conversion_factor=1, decimals=2,
@@ -254,7 +254,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     return figure
 
 
-def plot_model_with_parameters(model, input, target=None, target_name=None, n=None,
+def plot_model(model, input, target=None, target_name=None, n=None,
                select_layers=None, n_columns=1, show_titles=True,
                figure_kwargs=None, sampling_rate=None, time_axis='x',
                conversion_factor=1, decimals=2, plot_input=True,
@@ -354,6 +354,7 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
     parmaxes = [figure.add_subplot(spec[n+1, 0]) for n in range(n_rows-1)]
 
     iterator = enumerate(zip(layers, parmaxes, subaxes[1:], layer_info))
+    previous_output = None
     for i, (layer, pax, ax, info) in iterator:
 
         k = list(layer.parameters.keys())
@@ -372,6 +373,8 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
             y_pos = pax.get_ylim()[1]
             title = f'coefficients'
             pax.text(x_pos, y_pos, title, va='top')
+        elif 'nonlinearity' in str(type(layer)):
+            plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
         else:
             pax.set_visible(False)
 
@@ -389,6 +392,7 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
             ax.text(x_pos, y_pos, title, va='top')
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
+        previous_output = output
 
     if plot_input:
         # special case to plot input
@@ -421,17 +425,42 @@ def plot_model_with_parameters(model, input, target=None, target_name=None, n=No
     if target is not None:
         if not isinstance(target, list):
             target = [target]
-        for i, y in enumerate(target):
-            last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
-        last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        if len(target)>3:
+            target=np.concatenate(target, axis=1)
+            last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
+        else:
+            for i, y in enumerate(target):
+                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
+            #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
-        cc=np.corrcoef(target[0][:,0], output[:,0])[0,1]
+        cc = np.corrcoef(target[0][:,0], output[:,0])[0,1]
     else:
         cc = model.meta.get('r_test',[0])[0]
 
-    figure.suptitle(f"{model.name} cc={cc}", fontsize=10)
+    figure.suptitle(f"{model.name} cc={cc:.3f}", fontsize=10)
+    plt.tight_layout()
 
     return figure
+
+def plot_nl(layer, range, ax=None, fig=None):
+
+    if ax is not None:
+        fig = ax.figure
+    else:
+        if fig is None:
+            fig = plt.figure()
+        ax = fig.subplots(1, 1)
+    if len(range) == 2:
+        x = np.linspace(range[0],range[1],100)
+    else:
+        x = range
+    outcount=layer.shape[0]
+    if outcount>1:
+        x=np.broadcast_to(x[:,np.newaxis],[x.shape[0],outcount])
+    y = layer.evaluate(x)
+    ax.plot(x, y, lw=0.5)
+    ax.set_xlabel('in')
+    ax.set_ylabel('out')
 
 
 def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
@@ -456,8 +485,23 @@ def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
     Matplotlib Figure
     
     """
+
+    if ax is not None:
+        pass
+    elif 'nonlinearity' in str(type(model.layers[-1])):
+        fig,axs = plt.subplots(1,2)
+        ax = axs[0]
+        plot_nl(model.layers[-1], [-1,3], ax=axs[1])
+        axs[1].set_xlabel('NL input')
+        axs[1].set_ylabel('NL output')
+    else:
+        fig, ax = plt.subplots()
+
     fir_layer, wc_layer = model.layers[fir_idx, wc_idx]
-    fig = plot_strf(fir_layer, wc_layer, ax=ax, fig=fig)
+    plot_strf(fir_layer, wc_layer, ax=ax)
+    ax.set_xlabel('Time lag')
+    ax.set_ylabel('Freuqency channel')
+
     return fig
 
 
@@ -497,9 +541,25 @@ def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
         wc = wc_layer.coefficients
         fir = fir_layer.coefficients
         if len(fir.shape)>2:
-            wc=wc[:,:,0]
-            fir=fir[:,:,0]
-        strf = wc @ fir.T
+            filter_count = fir.shape[2]
+            chan_count = wc.shape[0]
+            lag_count = fir.shape[0]
+            gap = np.full([wc.shape[0], 1], np.nan)
+            strfs = []
+            for i in range(filter_count):
+                s = wc[:, :, i] @ fir[:, :, i].T
+                s = s/np.max(np.abs(s))
+                if i>0:
+                    strfs.extend([gap, s])
+                else:
+                    strfs.append(s)
+
+            strf = np.concatenate(strfs, axis=1)
+
+            #wc=wc[:,:,0]
+            #fir=fir[:,:,0]
+        else:
+            strf = wc @ fir.T
 
     ax.imshow(strf, aspect='auto', interpolation='none', origin='lower')
 

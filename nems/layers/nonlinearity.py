@@ -153,7 +153,7 @@ class LevelShift(StaticNonlinearity):
 
         """
         kwargs = {
-            'label': [f'Channel {i}' for i in range(self.shape[1])]
+            'label': [f'Channel {i}' for i in range(self.shape[0])]
         }
         return kwargs
 

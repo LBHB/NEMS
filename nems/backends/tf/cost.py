@@ -32,7 +32,11 @@ def drop_nan(response, prediction):
 #       (but assumes mean is 0)
 def loss_se(response, prediction):
     """Squared error loss."""
-    return (tf.math.reduce_mean(tf.math.square(response - prediction))) / (tf.math.reduce_mean(tf.math.square(response)))
+    r = tf.boolean_mask(response, tf.math.is_finite(response))
+    p = tf.boolean_mask(prediction, tf.math.is_finite(response))
+
+    return (tf.math.reduce_mean(tf.math.square(r - p))) / (tf.math.reduce_mean(tf.math.square(r)))
+    #return (tf.math.reduce_mean(tf.math.square(response - prediction))) / (tf.math.reduce_mean(tf.math.square(response)))
 
 
 def loss_tf_nmse_shrinkage(response, prediction):
@@ -88,7 +92,7 @@ def tf_nmse_shrinkage(response, prediction, shrink_factor=0.5, per_cell=True, th
     return mE
 
 
-def tf_nmse(response, prediction, per_cell=False):
+def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     """Calculates the normalized mean squared error across batches.
     Optionally can return an average per cell.
     :param response:
@@ -98,7 +102,9 @@ def tf_nmse(response, prediction, per_cell=False):
      tensor is of shape (), else tensor if of shape (n_cells,) (i.e. last dimension of the resp/pred tensor)
     """
     # hardcoded to use 10 jackknifes for error estimate
-    n_drop = response.get_shape().as_list()[1] % 10
+    s = response.get_shape().as_list()
+    n_drop = s[1] % 10
+    n_per = int(s[1]/10)
     if n_drop:
         # use slices to handle varying tensor shapes
         drop_slice = [slice(None) for i in range(len(response.shape))]
@@ -114,30 +120,72 @@ def tf_nmse(response, prediction, per_cell=False):
         _prediction = prediction
     print("In tf_nmse:" , _response.shape, _prediction.shape, 'n_drop:', n_drop)
 
+    _response = tf.reshape(_response, shape=(-1, 10, n_per, s[2]))
+    _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, s[2]))
+    #print("After reshape:", _response.shape, _prediction.shape)
+
     if per_cell:
         # Put last dimension (number of output channels) first.
-        _response = tf.experimental.numpy.moveaxis(_response, [-1, 1], [0, 1])
-        _prediction = tf.experimental.numpy.moveaxis(_prediction, [-1, 1], [0, 1])
-        
-        _response = tf.reshape(_response, shape=(_response.shape[0], 10, -1))
-        _prediction = tf.reshape(_prediction, shape=(_prediction.shape[0], 10, -1))
+        _response = tf.experimental.numpy.moveaxis(_response, [1, 3], [0, 1])
+        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 3], [0, 1])
+        #print("After move:", _response.shape, _prediction.shape)
+
+        _response = tf.reshape(_response, shape=(10*s[2], -1))
+        _prediction = tf.reshape(_prediction, shape=(10*s[2], -1))
+    else:
+        _response = tf.experimental.numpy.moveaxis(_response, [1], [0])
+        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1], [0])
+        #print("After move:", _response.shape, _prediction.shape)
+        _response = tf.reshape(_response, shape=(10, -1))
+        _prediction = tf.reshape(_prediction, shape=(10, -1))
+
+    #print("After reshape:", _response.shape, _prediction.shape)
+
+    """
+    if per_cell:
+        # Put last dimension (number of output channels) first.
+        _response = tf.experimental.numpy.moveaxis(_response, [2, 0], [0, 2])
+        _prediction = tf.experimental.numpy.moveaxis(_prediction, [2, 0], [0, 2])
+        print("After move:", _response.shape, _prediction.shape)
+
+        _response = tf.reshape(_response, shape=(_response.shape[0]*10, -1))
+        _prediction = tf.reshape(_prediction, shape=(_prediction.shape[0]*10, -1))
     else:
         _response = tf.experimental.numpy.moveaxis(_response, [1, 0], [0, 1])
         _prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 0], [0, 1])
         print("After move:", _response.shape, _prediction.shape)
         _response = tf.reshape(_response, shape=(10, -1))
         _prediction = tf.reshape(_prediction, shape=(10, -1))
-        print("After reshape:", _response.shape, _prediction.shape)
 
-    squared_error = ((_response - _prediction) ** 2)
-    numers = tf.math.reduce_mean(squared_error, axis=-1)
-    denoms = tf.math.reduce_mean(_response**2, axis=-1)
+    print("After reshape:", _response.shape, _prediction.shape)
+    """
+
+    if allow_nan:
+        print("(Allowing nan response)")
+        C = _response.shape[0]
+        N = []
+        D = []
+        for i in range(C):
+            r = tf.boolean_mask(_response[i], tf.math.is_finite(_response[i]))
+            p = tf.boolean_mask(_prediction[i], tf.math.is_finite(_response[i]))
+
+            squared_error = ((r - p) ** 2)
+            N.append(tf.math.reduce_mean(squared_error, axis=-1))
+            D.append(tf.math.reduce_mean(r**2, axis=-1))
+        #print("After mask:", r.shape, p.shape)
+        numers = tf.stack(N, 0)
+        denoms = tf.stack(D, 0)
+    else:
+        squared_error = ((_response - _prediction) ** 2)
+        numers = tf.math.reduce_mean(squared_error, axis=-1)
+        denoms = tf.math.reduce_mean(_response**2, axis=-1)
+
     denoms = tf.where(tf.equal(denoms, 0), tf.ones_like(denoms), denoms)
-    
-    nmses = (numers / denoms) ** 0.5
 
-    mE = tf.math.reduce_mean(nmses, axis=-1)
-    sE = tf.math.reduce_std(nmses, axis=-1) / 10 ** 0.5
+    nmses = (numers / denoms) ** 0.5
+    nmses = tf.reshape(nmses, (10,-1))
+    mE = tf.math.reduce_mean(nmses, axis=0)
+    sE = tf.math.reduce_std(nmses, axis=0) / 10 ** 0.5
 
     return mE, sE
 

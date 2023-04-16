@@ -26,11 +26,12 @@ def download_demo(overwrite=False):
     filepath = basepath / demo_cell
 
     if filepath.is_file() and not overwrite:
-        raise ValueError(
+        print(
             "Demo data already exists at filepath:\n"
             f"{filepath}\n"
             "To overwrite data, use `download_demo(overwrite=True)`."
         )
+        return
 
     print(f"Downloading NEMS demo data from:\n{url}\n...\n")
     download_data(url, filepath)

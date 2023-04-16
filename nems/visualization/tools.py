@@ -91,3 +91,19 @@ def standardize_axes(axes, sampling_rate=None, time_kwargs=None, x_margin=False)
     ax_remove_box(axes)    # remove right and top box borders
     if not x_margin:
         axes.set_xmargin(0)  # remove white space around xlim
+
+
+def set_equal_axes(ax, aspect=1):
+    # Set same limits
+    ymin, ymax = ax.get_ylim()
+    xmin, xmax = ax.get_xlim()
+
+    ymin = min(ymin, xmin)
+    ymax = max(ymax, xmax)
+    xmin = ymin
+    xmax = ymax
+
+    ax.set_ylim(ymin, ymax)
+    ax.set_xlim(xmin, xmax)
+    if aspect == 1:
+        ax.set_aspect(aspect='equal')

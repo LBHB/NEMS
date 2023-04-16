@@ -186,10 +186,10 @@ class TensorFlowBackend(Backend):
         )
 
         # Build callbacks for early stopping, ... (what else?)
-        callbacks = []
         loss_name = 'loss'
         if (validation_split > 0) or (validation_data is not None):
             loss_name = 'val_loss'
+        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=10)]
         if early_stopping_tolerance != 0:
             early_stopping = DelayedStopper(
                 monitor=loss_name, patience=early_stopping_patience,
@@ -216,7 +216,7 @@ class TensorFlowBackend(Backend):
         print(f"Initial loss: {initial_error[0]}")
         
         history = self.model.fit(
-            inputs, {final_layer: target}, epochs=epochs,
+            inputs, {final_layer: target}, epochs=epochs, verbose=0,
             validation_split=validation_split, callbacks=callbacks,
             validation_data=validation_data
         )
@@ -284,3 +284,12 @@ class DelayedStopper(tf.keras.callbacks.EarlyStopping):
     def on_epoch_end(self, epoch, logs=None):
         if epoch > self.start_epoch:
             super().on_epoch_end(epoch, logs)
+
+class ProgressCallback(tf.keras.callbacks.Callback):
+    def __init__(self, monitor='loss', report_frequency=10):
+        self.monitor = monitor
+        self.report_frequency = report_frequency
+
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch) % self.report_frequency == 0:
+            print(f"Epoch {epoch} - loss: {logs[self.monitor]:7.5f}.")
