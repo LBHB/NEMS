@@ -234,7 +234,8 @@ class TensorFlowBackend(Backend):
 
         for tf_layer in tf_model_layers:
             nems_layer = self.nems_model.layers[tf_layer.name]
-            nems_layer.set_parameter_values(tf_layer.weights_to_values())
+            nems_layer.set_parameter_values(tf_layer.weights_to_values(),
+                                            ignore_bounds=True)
 
         final_parameters = self.nems_model.get_parameter_vector()
         final_error = history.history[loss_name][-1]

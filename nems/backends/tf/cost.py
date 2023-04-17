@@ -125,40 +125,26 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if per_cell:
-        # Put last dimension (number of output channels) first.
-        _response = tf.experimental.numpy.moveaxis(_response, [1, 3], [0, 1])
-        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 3], [0, 1])
+        # put dimensions not to compute error over first - axis 0
+        #_response = tf.experimental.numpy.moveaxis(_response, [1, 3], [0, 1])
+        #_prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 3], [0, 1])
+        _response = tf.transpose(_response, perm=[1, 3, 0, 2])
+        _prediction = tf.transpose(_prediction, perm=[1, 3, 0, 2])
         #print("After move:", _response.shape, _prediction.shape)
 
         _response = tf.reshape(_response, shape=(10*s[2], -1))
         _prediction = tf.reshape(_prediction, shape=(10*s[2], -1))
     else:
-        _response = tf.experimental.numpy.moveaxis(_response, [1], [0])
-        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1], [0])
-        #print("After move:", _response.shape, _prediction.shape)
+        # put dimensions not to compute error over first - axis 0
+        #_response = tf.experimental.numpy.moveaxis(_response, [1], [0])
+        #_prediction = tf.experimental.numpy.moveaxis(_prediction, [1], [0])
+        _response = tf.transpose(_response, perm=[1, 0, 2, 3])
+        _prediction = tf.transpose(_prediction, perm=[1, 0, 2, 3])
+        print("After move:", _response.shape, _prediction.shape)
         _response = tf.reshape(_response, shape=(10, -1))
         _prediction = tf.reshape(_prediction, shape=(10, -1))
 
     #print("After reshape:", _response.shape, _prediction.shape)
-
-    """
-    if per_cell:
-        # Put last dimension (number of output channels) first.
-        _response = tf.experimental.numpy.moveaxis(_response, [2, 0], [0, 2])
-        _prediction = tf.experimental.numpy.moveaxis(_prediction, [2, 0], [0, 2])
-        print("After move:", _response.shape, _prediction.shape)
-
-        _response = tf.reshape(_response, shape=(_response.shape[0]*10, -1))
-        _prediction = tf.reshape(_prediction, shape=(_prediction.shape[0]*10, -1))
-    else:
-        _response = tf.experimental.numpy.moveaxis(_response, [1, 0], [0, 1])
-        _prediction = tf.experimental.numpy.moveaxis(_prediction, [1, 0], [0, 1])
-        print("After move:", _response.shape, _prediction.shape)
-        _response = tf.reshape(_response, shape=(10, -1))
-        _prediction = tf.reshape(_prediction, shape=(10, -1))
-
-    print("After reshape:", _response.shape, _prediction.shape)
-    """
 
     if allow_nan:
         print("(Allowing nan response)")
