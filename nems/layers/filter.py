@@ -407,6 +407,7 @@ class FiniteImpulseResponse(Layer):
             def convolve(inputs, coefficients):
                 input_width = tf.shape(inputs)[1]
                 # Reshape will group by output before rank w/o transpose.
+                #print("input shape:", inputs.shape.as_list(), "coef shape:", coefficients.shape.as_list())
                 transposed = tf.transpose(inputs, [0, 1, 3, 2])
                 # Collapse rank and n_outputs to one dimension.
                 # -1 for batch size b/c it can be None.
@@ -417,10 +418,12 @@ class FiniteImpulseResponse(Layer):
                 padded_input = tf.pad(
                     reshaped, [[0, 0], [filter_width-1, 0], [0, 0]]
                     )
+                #print("reshaped shape:", reshaped.shape.as_list(), "padded shape:", padded_input.shape.as_list())
                 # Convolve filters with input slices in groups of size `rank`.
                 y = tf.nn.conv1d(
                     padded_input, coefficients, stride=stride, padding='VALID'
                     )
+                #print("y shape:", y.shape.as_list())
                 return y 
 
         return convolve

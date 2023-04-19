@@ -211,10 +211,10 @@ class DoubleExponential(StaticNonlinearity):
         zero = np.zeros(shape=self.shape)
         one = np.ones(shape=self.shape)
         phi = Phi(
-            Parameter('base', shape=self.shape, prior=Normal(-one, one/5)),
-            Parameter('amplitude', shape=self.shape, prior=Normal(2*one, one/5)),
-            Parameter('shift', shape=self.shape, prior=Normal(zero, one/5)),
-            Parameter('kappa', shape=self.shape, prior=Normal(one, one/5))
+            Parameter('base', shape=self.shape, prior=Normal(-one/10, one/50)),
+            Parameter('amplitude', shape=self.shape, prior=Normal(one/2, one/5)),
+            Parameter('shift', shape=self.shape, prior=Normal(zero, one/10)),
+            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10))
             )
         return phi
 

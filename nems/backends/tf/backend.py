@@ -88,6 +88,7 @@ class TensorFlowBackend(Backend):
             if len(layer_inputs) == 1:
                 layer_inputs = layer_inputs[0]
                 input_shape = input_shape[0]
+            #print("INPUT SHAPE:", input_shape)
 
             tf_layer = layer.as_tensorflow_layer(
                 input_shape=input_shape, **tf_kwargs

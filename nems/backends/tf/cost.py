@@ -118,7 +118,11 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     else:
         _response = response
         _prediction = prediction
-    print("In tf_nmse:" , _response.shape, _prediction.shape, 'n_drop:', n_drop)
+
+    if allow_nan:
+        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop, "(Allowing nan)")
+    else:
+        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop)
 
     _response = tf.reshape(_response, shape=(-1, 10, n_per, s[2]))
     _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, s[2]))
@@ -140,14 +144,13 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         #_prediction = tf.experimental.numpy.moveaxis(_prediction, [1], [0])
         _response = tf.transpose(_response, perm=[1, 0, 2, 3])
         _prediction = tf.transpose(_prediction, perm=[1, 0, 2, 3])
-        print("After move:", _response.shape, _prediction.shape)
+        #print("After move:", _response.shape, _prediction.shape)
         _response = tf.reshape(_response, shape=(10, -1))
         _prediction = tf.reshape(_prediction, shape=(10, -1))
 
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if allow_nan:
-        print("(Allowing nan response)")
         C = _response.shape[0]
         N = []
         D = []
