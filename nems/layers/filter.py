@@ -79,7 +79,7 @@ class FiniteImpulseResponse(Layer):
         # TODO: May be more appropriate to make this a hard requirement, but
         #       for now this should stop tiny filter sizes from causing errors.
         if mean.shape[0] > 2:
-            mean[1, :] = 2/np.prod(self.shape)
+            mean[1, :] = 3/np.prod(self.shape)
             mean[2, :] = -1/np.prod(self.shape)
         prior = Normal(mean, sd)
 
