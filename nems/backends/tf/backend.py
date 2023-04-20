@@ -182,7 +182,7 @@ class TensorFlowBackend(Backend):
         initial_parameters = self.nems_model.get_parameter_vector()
         final_layer = self.nems_model.layers[-1].name
         self.model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1),
             loss={final_layer: cost_function}
         )
 
@@ -219,7 +219,7 @@ class TensorFlowBackend(Backend):
         history = self.model.fit(
             inputs, {final_layer: target}, epochs=epochs, verbose=0,
             validation_split=validation_split, callbacks=callbacks,
-            validation_data=validation_data
+            validation_data=validation_data, batch_size=batch_size
         )
 
         # Save weights back to NEMS model
