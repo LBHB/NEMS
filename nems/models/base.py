@@ -818,7 +818,7 @@ class Model:
 
         # Update parameters of a copy, not the original model.
         new_model = self.copy()
-        # Get Backend sublass.
+        # Get Backend subclass
         backend_class = get_backend(name=backend)
         # Build backend model.
         backend_obj = backend_class(

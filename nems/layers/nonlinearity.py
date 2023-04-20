@@ -285,6 +285,9 @@ class RectifiedLinear(StaticNonlinearity):
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
         fixed_parameters = {}
+        self.no_shift=no_shift
+        self.no_offset=no_offset
+        self.no_gain=no_gain
         shift, offset, gain = self.get_parameter_values()
         if no_shift: fixed_parameters['shift'] = np.full_like(shift, 0)
         if no_offset: fixed_parameters['offset'] = np.full_like(offset, 0)
@@ -393,6 +396,10 @@ class RectifiedLinear(StaticNonlinearity):
 
         if self._skip_nonlinearity:
             return super().as_tensorflow_layer(**kwargs)
+        elif self.no_shift & self.no_offset & self.no_gain:
+            class RectifiedLinearTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return tf.nn.relu(inputs)
         else:
             class RectifiedLinearTF(NemsKerasLayer):
                 def call(self, inputs):

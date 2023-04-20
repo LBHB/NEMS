@@ -5,7 +5,7 @@ from tensorflow.keras import Input
 
 from ..base import Backend, FitResults
 from .cost import get_cost
-
+from .cost import pearson as pearsonR
 
 class TensorFlowBackend(Backend):
 
@@ -107,7 +107,6 @@ class TensorFlowBackend(Backend):
         tf_inputs = [v for k, v in tf_input_dict.items() if k not in unused_inputs]
         # For outputs, get all data entries that aren't inputs
         tf_outputs = [v for k, v in tf_data.items() if k not in tf_input_dict]
-
         model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs,
                                name=self.nems_model.name)
 
@@ -182,15 +181,16 @@ class TensorFlowBackend(Backend):
         initial_parameters = self.nems_model.get_parameter_vector()
         final_layer = self.nems_model.layers[-1].name
         self.model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1),
-            loss={final_layer: cost_function}
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0),
+            loss={final_layer: cost_function},
+            metrics=[pearsonR]
         )
 
         # Build callbacks for early stopping, ... (what else?)
         loss_name = 'loss'
         if (validation_split > 0) or (validation_data is not None):
             loss_name = 'val_loss'
-        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=10)]
+        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs)]
         if early_stopping_tolerance != 0:
             early_stopping = DelayedStopper(
                 monitor=loss_name, patience=early_stopping_patience,
@@ -288,10 +288,21 @@ class DelayedStopper(tf.keras.callbacks.EarlyStopping):
             super().on_epoch_end(epoch, logs)
 
 class ProgressCallback(tf.keras.callbacks.Callback):
-    def __init__(self, monitor='loss', report_frequency=10):
+    def __init__(self, monitor='loss', report_frequency=50, epochs=0):
         self.monitor = monitor
         self.report_frequency = report_frequency
+        self.epochs = epochs
+        self.leading_zeros = int(np.log10(self.epochs)) + 1
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch) % self.report_frequency == 0:
-            print(f"Epoch {epoch} - loss: {logs[self.monitor]:7.5f}.")
+
+            info = 'Epoch {epoch:0>{zeros}}/{total}'.format(epoch=epoch, zeros=self.leading_zeros, total=self.epochs)
+            for k, v in logs.items():
+                info += ' - %s:' % k
+                if v > 1e-3:
+                    info += ' %.4f' % v
+                else:
+                    info += ' %.4e' % v
+
+            print(info)
