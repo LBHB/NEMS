@@ -24,6 +24,7 @@ class Backend:
         
         """
         self.nems_model = nems_model
+        self.verbose = 1
         if eval_kwargs is None: eval_kwargs = {}
         self.model = self._build(
             data, eval_kwargs=eval_kwargs, **backend_options

@@ -32,11 +32,11 @@ def drop_nan(response, prediction):
 #       (but assumes mean is 0)
 def loss_se(response, prediction):
     """Squared error loss."""
-    #r = tf.boolean_mask(response, tf.math.is_finite(response))
-    #p = tf.boolean_mask(prediction, tf.math.is_finite(response))
+    r = tf.boolean_mask(response, tf.math.is_finite(response))
+    p = tf.boolean_mask(prediction, tf.math.is_finite(response))
 
-    #return (tf.math.reduce_mean(tf.math.square(r - p))) / (tf.math.reduce_mean(tf.math.square(r)))
-    return (tf.math.reduce_mean(tf.math.square(response - prediction))) / (tf.math.reduce_mean(tf.math.square(response)))
+    return (tf.math.reduce_mean(tf.math.square(r - p))) / (tf.math.reduce_mean(tf.math.square(r)))
+    #return (tf.math.reduce_mean(tf.math.square(response - prediction))) / (tf.math.reduce_mean(tf.math.square(response)))
 
 
 def loss_tf_nmse_shrinkage(response, prediction):
@@ -119,10 +119,10 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         _response = response
         _prediction = prediction
 
-    if allow_nan:
-        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop, "(Allowing nan)")
-    else:
-        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop)
+    #if allow_nan:
+    #    print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop, "(Allowing nan)")
+    #else:
+    #    print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop)
 
     _response = tf.reshape(_response, shape=(-1, 10, n_per, s[2]))
     _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, s[2]))

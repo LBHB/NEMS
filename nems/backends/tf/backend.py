@@ -2,6 +2,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
+import logging
+log = logging.getLogger(__name__)
 
 from ..base import Backend, FitResults
 from .cost import get_cost
@@ -110,15 +112,16 @@ class TensorFlowBackend(Backend):
         model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs,
                                name=self.nems_model.name)
 
-        print('TF model built...')
-        print(model.summary())
+        log.info(f'TF model built... (verbose={self.verbose})')
+        if self.verbose:
+            log.info(model.summary())
 
         return model
 
     def _fit(self, data, eval_kwargs=None, cost_function='squared_error',
              epochs=1, learning_rate=0.001, early_stopping_delay=100,
              early_stopping_patience=150, early_stopping_tolerance=5e-4,
-             validation_split=0.0, validation_data=None):
+             validation_split=0.0, validation_data=None, shuffle=False, verbose=1):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
         
         Currently the use of other TensorFlow optimizers is not exposed as an
@@ -173,7 +176,7 @@ class TensorFlowBackend(Backend):
 
         # Replace cost_function name with function object.
         if isinstance(cost_function, str):
-            print(f"cost_function: {cost_function}")
+            log.info(f"Cost function: {cost_function}")
             cost_function = get_cost(cost_function)
 
         # TODO: support more keys in `fitter_options`.
@@ -182,9 +185,9 @@ class TensorFlowBackend(Backend):
         final_layer = self.nems_model.layers[-1].name
         self.model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0),
-            loss={final_layer: cost_function},
-            metrics=[pearsonR]
+            loss={final_layer: cost_function}
         )
+        #, metrics = [pearsonR]
 
         # Build callbacks for early stopping, ... (what else?)
         loss_name = 'loss'
@@ -214,12 +217,12 @@ class TensorFlowBackend(Backend):
         initial_error = self.model.evaluate(inputs, target, return_dict=False)
         if type(initial_error) is float:
             initial_error=np.array([initial_error])
-        print(f"Initial loss: {initial_error[0]}")
+        log.info(f"Initial loss: {initial_error[0]} batch_size: {batch_size} shuffle: {shuffle}")
         
         history = self.model.fit(
             inputs, {final_layer: target}, epochs=epochs, verbose=0,
             validation_split=validation_split, callbacks=callbacks,
-            validation_data=validation_data, batch_size=batch_size
+            validation_data=validation_data, batch_size=batch_size, shuffle=shuffle
         )
 
         # Save weights back to NEMS model
@@ -305,4 +308,4 @@ class ProgressCallback(tf.keras.callbacks.Callback):
                 else:
                     info += ' %.4e' % v
 
-            print(info)
+            log.info(info)

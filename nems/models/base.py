@@ -744,7 +744,7 @@ class Model:
 
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            **eval_kwargs):
+            verbose=1, in_place=False, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -817,19 +817,27 @@ class Model:
             )
 
         # Update parameters of a copy, not the original model.
-        new_model = self.copy()
-        # Get Backend subclass
-        backend_class = get_backend(name=backend)
-        # Build backend model.
-        backend_obj = backend_class(
-            new_model, data, eval_kwargs=eval_kwargs,
-            **backend_options
-            )
+        if in_place:
+            new_model = self
+        else:
+            new_model = self.copy()
+
+        # Get Backend subclass if not running in place on the same backend
+        if ~in_place | (new_model.backend is None):
+            backend_class = get_backend(name=backend)
+            # Build backend model.
+            backend_obj = backend_class(
+                new_model, data, eval_kwargs=eval_kwargs,
+                **backend_options
+                )
+            backend_obj.verbose = verbose
+            new_model.backend = backend_obj
+        else:
+            print('Using in-place backend')
         # Fit backend, save results.
-        fit_results = backend_obj._fit(
-            data, eval_kwargs=eval_kwargs, **fitter_options
+        fit_results = new_model.backend._fit(
+            data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options
             )
-        new_model.backend = backend_obj
         new_model.results = fit_results
 
         return new_model
