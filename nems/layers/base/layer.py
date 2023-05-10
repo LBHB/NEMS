@@ -1,4 +1,5 @@
 import numpy as np
+import numpy as np
 
 from nems.registry import layer
 from nems.visualization import plot_layer

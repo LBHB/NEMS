@@ -4,13 +4,15 @@ import itertools
 import warnings
 
 import numpy as np
+import logging
+log = logging.getLogger(__name__)
 
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model
 from nems.tools.arrays import one_or_more_nan
-from .dataset import DataSet
+from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
 del nems.layers
@@ -241,7 +243,7 @@ class Model:
                  as_dataset=False, use_existing_maps=False, batch_size=0,
                  permute_batches=False, debug_nans=False):
         """Transform input(s) by invoking `Layer.evaluate` for each Layer.
-
+        TODO: add generator support (input = keras generator)
         Evaluation encapsulates three steps:
             1) Package data and metadata in a single structured container.
             2) Loop over `Model.layers`, invoking `Layer._evaluate` to
@@ -364,7 +366,7 @@ class Model:
                                 )
             data = self.get_layer_data(data_generator, n, n)[-1]['data']
 
-        else:
+        elif data.data_format=='array':
             # Data should be formatted as (S, T, ..., N), where S is the number
             # of samples/trials.
 
@@ -744,7 +746,7 @@ class Model:
 
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, **eval_kwargs):
+            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -806,15 +808,21 @@ class Model:
             input, target=target, target_name=target_name,
             prediction_name=prediction_name, **eval_kwargs
             )
+        if data.data_format == 'array':
+            tdata = data
+            tinput = input
+        else:
+            tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
+                            prediction_name=prediction_name, **eval_kwargs)
+            tinput = input[0][0]
         if eval_kwargs.get('batch_size', 0) != 0:
             # Broadcast prior to passing to Backend so that those details
             # only have to be tracked once.
             data = data.as_broadcasted_samples()
+
         # Evaluate once prior to fetching backend, to ensure all DataMaps are
         # up to date and include outputs.
-        _ = self.evaluate(
-            input, use_existing_maps=False, **eval_kwargs
-            )
+        _ = self.evaluate(tinput, use_existing_maps=False, **eval_kwargs)
 
         # Update parameters of a copy, not the original model.
         if in_place:
@@ -822,18 +830,19 @@ class Model:
         else:
             new_model = self.copy()
 
-        # Get Backend subclass if not running in place on the same backend
+        # Initialize Backend subclass if not running in place on the same backend
+        # note that for TF models, frozen parameters have to be labeled as such before the
+        # backend is initialized. Is this actually true???
         if ~in_place | (new_model.backend is None):
             backend_class = get_backend(name=backend)
             # Build backend model.
             backend_obj = backend_class(
-                new_model, data, eval_kwargs=eval_kwargs,
+                new_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
                 **backend_options
                 )
-            backend_obj.verbose = verbose
             new_model.backend = backend_obj
         else:
-            print('Using in-place backend')
+            log.info('Using in-place backend')
         # Fit backend, save results.
         fit_results = new_model.backend._fit(
             data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options
@@ -841,6 +850,57 @@ class Model:
         new_model.results = fit_results
 
         return new_model
+
+
+    def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
+              backend='tf', reset_backend=False, backend_options=None,
+              verbose=1, **eval_kwargs):
+        """
+        :param stim: input stimulus used to compute jacobian --> dSTRF
+        :param D: memory of dSTRF (in time bins)
+        :param out_channels: list of output channels to use to generate dSTRF
+        :param t_indexes: time samples to use
+        :param backend: str, currently has to be 'tf'
+        :param reset_backend: if True, force new initialization of backend
+        :param backend_options: pass-through options for backend initialization
+        :param verbose: future support for verbosity control
+        :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
+        :return:
+        """
+        if out_channels is None: out_channels=[0]
+        if t_indexes is None: t_indexes = np.arange(D,D*10,D)
+        if backend_options is None: backend_options = {}
+
+        input = stim[np.newaxis, :D, :]
+
+        # Get Backend subclass if not running in place on the same backend
+        if reset_backend | (self.backend is None):
+            # Initialize DataSet
+            eval_kwargs['batch_size'] = None
+            data = DataSet(input, target=None, **eval_kwargs)
+            data = data.as_broadcasted_samples()
+
+            # Evaluate once prior to fetching backend, to ensure all DataMaps are
+            # up to date and include outputs.
+            _ = self.evaluate(input, use_existing_maps=False, **eval_kwargs)
+
+            backend_class = get_backend(name=backend)
+            # Build backend model.
+            backend_obj = backend_class(
+                self, data, verbose=verbose, eval_kwargs=eval_kwargs,
+                **backend_options
+                )
+            self.backend = backend_obj
+
+        dstrf = np.zeros((len(out_channels), len(t_indexes), input.shape[2], D))
+
+        for j, out_channel in enumerate(out_channels):
+            print(self.meta['cellids'][out_channel], self.meta['r_test'][out_channel, 0])
+            for i, t in enumerate(t_indexes):
+                w = self.backend.get_jacobian(stim[np.newaxis, (t - D):t, :], out_channel)
+                dstrf[j, i, :, :] = w[0, :, :].numpy().T
+
+        return dstrf
 
 
     def score(self, input, target, metric='correlation', metric_kwargs=None,
