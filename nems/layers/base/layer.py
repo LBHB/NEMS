@@ -496,6 +496,11 @@ class Layer:
         """
         return self.evaluate.__doc__
 
+    @property
+    def is_nonlinearity(self):
+
+        return 'skip_nonlinearity' in dir(self)
+
     def as_tensorflow_layer(self, **kwargs):
         """Build an equivalent TensorFlow layer.
 

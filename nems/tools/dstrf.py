@@ -3,6 +3,7 @@ Functions for computing and analyzing dSTRFs from NEMS model fits
 """
 
 import numpy as np
+from nems.layers import FiniteImpulseResponse
 
 def compute_dpcs(dstrf, pc_count=3):
     """
@@ -42,5 +43,5 @@ def compute_dpcs(dstrf, pc_count=3):
 
 
 def dpc_project(dpcs, X):
-
+    pass
 

@@ -119,7 +119,7 @@ class Model:
 
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
-
+        self.dstrf_backend = None  # backend for model with output NL removed
     @property
     def layers(self):
         """Get all Model Layers. Supports integer or string indexing."""
@@ -874,30 +874,37 @@ class Model:
         input = stim[np.newaxis, :D, :]
 
         # Get Backend subclass if not running in place on the same backend
-        if reset_backend | (self.backend is None):
+        if reset_backend | (self.dstrf_backend is None):
             # Initialize DataSet
             eval_kwargs['batch_size'] = None
             data = DataSet(input, target=None, **eval_kwargs)
             data = data.as_broadcasted_samples()
 
+            if self.layers[-1].is_nonlinearity:
+                #ll = dstrf_model.layers.pop()
+                layers = list(self.layers.values())
+                log.info(f"Removing last layer for dstrf: {layers[-1].name}")
+                dstrf_model = Model(layers=layers[:-1], dtype=self.dtype)
+                #print(dstrf_model.layers.keys())
+            else:
+                dstrf_model = self.copy()
+
             # Evaluate once prior to fetching backend, to ensure all DataMaps are
             # up to date and include outputs.
-            _ = self.evaluate(input, use_existing_maps=False, **eval_kwargs)
+            _ = dstrf_model.evaluate(input, use_existing_maps=False, **eval_kwargs)
 
             backend_class = get_backend(name=backend)
             # Build backend model.
-            backend_obj = backend_class(
-                self, data, verbose=verbose, eval_kwargs=eval_kwargs,
-                **backend_options
-                )
-            self.backend = backend_obj
+            self.dstrf_backend = backend_class(
+                dstrf_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
+                **backend_options )
 
         dstrf = np.zeros((len(out_channels), len(t_indexes), input.shape[2], D))
 
         for j, out_channel in enumerate(out_channels):
             print(self.meta['cellids'][out_channel], self.meta['r_test'][out_channel, 0])
             for i, t in enumerate(t_indexes):
-                w = self.backend.get_jacobian(stim[np.newaxis, (t - D):t, :], out_channel)
+                w = self.dstrf_backend.get_jacobian(stim[np.newaxis, (t - D):t, :], out_channel)
                 dstrf[j, i, :, :] = w[0, :, :].numpy().T
 
         return dstrf
@@ -1358,11 +1365,14 @@ class Model:
         state-dependent objects from other packages that cannot copy correctly.
         
         """
-        backend = self.backend
+        backend_save = self.backend
+        dstrf_backend_save = self.dstrf_backend
         self.backend = None
+        self.dstrf_backend = None
         copied_model = copy.deepcopy(self)
-        self.backend = backend
-    
+        self.backend = backend_save
+        self.dstrf_backend = dstrf_backend_save
+
         return copied_model
 
     def __eq__(self, other):
