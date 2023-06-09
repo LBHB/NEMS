@@ -9,8 +9,11 @@ Contents
 
 """
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 font_size = 8
+# colorblind palette from seaborn
+palette = ['#0173b2', '#de8f05', '#029e73', '#d55e00', '#cc78bc', '#ca9161', '#fbafe4', '#949494', '#ece133', '#56b4e9']
 #'figure.figsize': (8, 6),
 params = {'legend.fontsize': font_size-2,
           'axes.labelsize': font_size,
@@ -21,7 +24,9 @@ params = {'legend.fontsize': font_size-2,
           'ytick.labelsize': font_size,
           'font.size': font_size,
           'pdf.fonttype': 42,
-          'ps.fonttype': 42}
+          'ps.fonttype': 42,
+          'axes.prop_cycle': mpl.cycler(color=palette)
+          }
 plt.rcParams.update(params)
 
 from .model import plot_model, plot_model_outputs, plot_layer, simple_strf, plot_strf, input_heatmap, plot_nl

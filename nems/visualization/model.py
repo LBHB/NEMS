@@ -561,7 +561,9 @@ def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
         else:
             strf = wc @ fir.T
 
-    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower')
+    mm = np.nanmax(abs(strf))
+    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
+              cmap='bwr', vmin=-mm, vmax=mm)
 
     return fig
 

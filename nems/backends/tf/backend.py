@@ -470,10 +470,21 @@ class TensorFlowBackend(Backend):
         This needs to be a tf.function for a huge speed increase.
         """
         out_channel = tf.cast(out_channel, tf.int32)
-        tensor = tf.cast(input, tf.float32)
+
+        # support for multiple inputs
+        if type(input) is list:
+            tensor = [tf.cast(i, tf.float32) for i in input]
+        else:
+            tensor = tf.cast(input, tf.float32)
+
         with tf.GradientTape(persistent=True) as g:
             g.watch(tensor)
-            z = self.model(tensor)[0, -1, out_channel]
+            z = self.model(tensor)
+            # assume we only care about first output (think this is NEMS standard)
+            if type(z) is list:
+                z = z[0][0, -1, out_channel]
+            else:
+                z = z[0, -1, out_channel]
 
         return g.jacobian(z, tensor)
 

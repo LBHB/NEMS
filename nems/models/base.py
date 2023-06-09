@@ -870,8 +870,11 @@ class Model:
         if out_channels is None: out_channels=[0]
         if t_indexes is None: t_indexes = np.arange(D,D*10,D)
         if backend_options is None: backend_options = {}
-
-        input = stim[np.newaxis, :D, :]
+        if type(stim) is dict:
+            # input = stim.copy()
+            input = {k: stim[k][np.newaxis, :D, :] for k in stim.keys()}
+        else:
+            input = stim[np.newaxis, :D, :]
 
         # Get Backend subclass if not running in place on the same backend
         if reset_backend | (self.dstrf_backend is None):
@@ -899,13 +902,28 @@ class Model:
                 dstrf_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
                 **backend_options )
 
-        dstrf = np.zeros((len(out_channels), len(t_indexes), input.shape[2], D))
+        # TODO - clean up single vs. >1 input divergence. Always use dictionary for inputs, even if just one?
+        if type(input) is dict:
+            dstrf = {k: np.zeros((len(out_channels), len(t_indexes), v.shape[2], D)) for k, v in input.items()}
+        else:
+            dstrf = np.zeros((len(out_channels), len(t_indexes), input.shape[2], D))
 
         for j, out_channel in enumerate(out_channels):
-            print(self.meta['cellids'][out_channel], self.meta['r_test'][out_channel, 0])
+            if ('cellids' in self.meta.keys()) & ('r_test' in self.meta.keys()):
+                log.info(f"{self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
+            else:
+                log.info(f'dSTRF for out channel {out_channel}')
             for i, t in enumerate(t_indexes):
-                w = self.dstrf_backend.get_jacobian(stim[np.newaxis, (t - D):t, :], out_channel)
-                dstrf[j, i, :, :] = w[0, :, :].numpy().T
+                if type(input) is dict:
+                    s = [stim[k][np.newaxis, (t - D + 1):(t+1), :] for k in stim.keys()]
+                else:
+                    s = stim[np.newaxis, (t - D + 1):(t+1), :]
+                w = self.dstrf_backend.get_jacobian(s, out_channel)
+                if type(input) is dict:
+                    for n, k in enumerate(dstrf.keys()):
+                        dstrf[k][j, i, :, :] = w[n][0, :, :].numpy().T
+                else:
+                    dstrf[j, i, :, :] = w[0, :, :].numpy().T
 
         return dstrf
 

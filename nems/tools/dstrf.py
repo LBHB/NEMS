@@ -3,9 +3,15 @@ Functions for computing and analyzing dSTRFs from NEMS model fits
 """
 
 import numpy as np
+import logging
+
+from sklearn.decomposition import PCA
+
 from nems.layers import FiniteImpulseResponse
 
-def compute_dpcs(dstrf, pc_count=3):
+log = logging.getLogger(__name__)
+
+def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
     """
     Perform PCA on 4D dstrf matrix, separately for each output channel
     dstrf matrix is [output X time X input channel X time lag]
@@ -23,14 +29,29 @@ def compute_dpcs(dstrf, pc_count=3):
 
     for c in range(channel_count):
         d = np.reshape(dstrf[c, :, :, :], (dstrf.shape[1], s[2] * s[3]))
+
+        if snr_threshold is not None:
+            md = d.mean(axis=0, keepdims=True)
+            e = np.std(d - md, axis=1) / np.std(md)
+
+            if (e > snr_threshold).sum() > 0:
+                log.info(f"Removed {(e>snr_threshold).sum()}/{len(d)} noisy dSTRFs for PCA calculation")
+            d = d[(e <= snr_threshold), :]
+
         # d -= d.mean(axis=0, keepdims=0)
 
-        _u, _s, _v = np.linalg.svd(d.T @ d)
+        pca = PCA(n_components=pc_count)
+        _u = pca.fit_transform(d)
+        _v = pca.components_
+        #_u, _s, _v = np.linalg.svd(d.T @ d)
         # print(d.shape, _v.shape)
         # _s = np.sqrt(_s)
-        _s /= np.sum(_s[:pc_count])
-
-        pcs[c, :, :, :] = np.reshape(_v[:pc_count, :], [pc_count, s[2], s[3]])
+        if norm_mag:
+            _s = np.sqrt(pca.explained_variance_ratio_)
+        else:
+            _s = np.sqrt(pca.explained_variance_)
+        #import pdb; pdb.set_trace()
+        pcs[c, :, :, :] = np.reshape(_v, [pc_count, s[2], s[3]])
 
         # flip sign of first PC so that mean is positive
         mdstrf = dstrf[c, :, :, :].mean(axis=0)
