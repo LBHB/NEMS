@@ -5,11 +5,10 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 * **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
 ## Table of Contents & Relevant Links
-### [Install](#installation) | [Examples](#examples) | [Upcoming](#upcoming)   
+### [Install](#installation) &middot; [Examples](#examples) &middot; [Upcoming](#upcoming) &middot; [Documentation](#documentation)   
 
-### * **Documentation:**  [https://nems.readthedocs.io/](https://nems.readthedocs.io/)   
-### * **Laboratory of Brain, Hearing, and Behavior:**  [https://hearingbrain.org/](https://hearingbrain.org/)    
-### * **Archived former NEMS version:**   [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0)   
+#### - **Laboratory of Brain, Hearing, and Behavior:**  [https://hearingbrain.org/](https://hearingbrain.org/)    
+#### - **Archived former NEMS version:**   [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0)   
 
 <br />
 <br />
@@ -17,46 +16,73 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 <br />
 
 # Installation
-## Recommended: Install from source.
+## Recommended: `Install from source`
+### Prerequisites: Python 3.9/3.10 | Anaconda or Venv
 NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
 
-**1. Download source code**
+1. **Download source code**
 ```console
 git clone https://github.com/LBHB/NEMS.git
 ```
-
-**2a. Create and activate a new virtual environment using your preferred environment manager (example for `venv` below).**
-```console
-python -m venv ./nems-env
-source nems-env/bin/activate
-```
-
-**2b. Install frozen dependencies. This will install the exact versions used during development.**
-```console
-pip install -r .\NEMS\requirements.txt
-```
-
-**2c. Alternatively, use `conda` to replace both step 2a and step 2b.**
-```console
-conda env create -f NEMS/environment.yml
-conda activate nems-env
-```
-
-**3. Install NEMS in editable mode along with optional development tools.**
+2. **Set up Virtual Environment Anaconda | Venv**
+    - 2a. Create and activate a new virtual environment using your preferred environment manager (example for `venv` below).   
+    ```console
+    python -m venv ./nems-env
+    source nems-env/bin/activate
+    ```   
+    - 2b. Install frozen dependencies. This will install the exact versions used during development.   
+    ```console
+    pip install -r ./NEMS/requirements.txt
+    ```   
+    - 2c. Alternatively, use `conda` to replace both step 2a and step 2b.  
+    ```console
+    conda env create -f NEMS/environment.yml
+    conda activate nems-env
+    ```    
+3. **Install NEMS in editable mode along with optional development tools.**
 ```console
 pip install -e NEMS[dev]
 ```
-
-**4. Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.**
+4. **Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.**
 ```console
 pytest NEMS
 ```
 
-## Alternative: PyPI (pip)
+## Alternative: `PyPI (pip)`
 **Create a new environment using your preferred environment manager, then use `pip install`.**
 ```console
 conda create -n nems-env python=3.9 pip  # note that python=3.9 is currently required
 pip install PyNEMS                       # note the leading Py
+```
+
+##  Alternative: `VSCode(Windows)`    
+### Prerequisites: Python 3.9/3.10 | Anaconda
+
+1.	Download the source-code   
+```console
+git clone https://github.com/LBHB/NEMS.git
+```  
+2. **Make sure you have Python and Anaconda installed onto your machine**
+	- 2a. Go to windows execution alias's and disable the default python.exe & python3.exe
+3. **Set up Visual Studio Code**
+    - 3a. Run VSCode as admin and open up your NEMS folder
+    - 3b. Install Python extension( Recommend installing environment manager extension too )
+    - 3c. ctrl-shift-p inside VSCode, search for "Python: Create Environment"
+    - 3d. Choose Anaconda 3.10
+4. **Set up virtual environment and install NEMS**
+    - 4a. Virtual Env
+    ```console
+    conda env create -f ./environment.yml
+    conda activate nems-env
+    conda init
+    ```
+    - 4b. Restart VSCode and install nems module
+    ```console
+    pip install -e NEMS[dev]
+    ```
+5. **Test that your installation was successful**
+```console
+py -m pytest
 ```
 
 ## Alternative: `conda install`.
@@ -126,6 +152,14 @@ training_dict, test_dict = nems.load_demo()
 spectrogram = training_dict['spectrogram']
 response = training_dict['response']
 ```
+
+# Documentation
+**Note: Documentation is currently a work-in-progress**   
+### - [Main Page](https://nems.readthedocs.io/en/latest/index.html)   
+### - [Introduction](https://nems.readthedocs.io/en/latest/tutorials/intro.html)   
+### - [Modules](https://nems.readthedocs.io/en/latest/api/modules.html)   
+### - [Quickstart](https://nems.readthedocs.io/en/latest/quickstart.html)   
+
 
 # Upcoming
 Roughly in order of priority:
