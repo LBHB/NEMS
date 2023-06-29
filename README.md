@@ -5,7 +5,7 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 * **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
 ## Table of Contents & Relevant Links
-### [Install](#installation) &middot; [Examples](#examples) &middot; [Upcoming](#upcoming) &middot; [Documentation](#documentation)   
+### [Install](#installation) &middot; [Examples](#examples) &middot; [Documentation](#documentation) &middot; [Upcoming](#upcoming)   
 
 #### - **Laboratory of Brain, Hearing, and Behavior:**  [https://hearingbrain.org/](https://hearingbrain.org/)    
 #### - **Archived former NEMS version:**   [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0)   
@@ -78,7 +78,7 @@ git clone https://github.com/LBHB/NEMS.git
     ```
     - 4b. Restart VSCode and install nems module
     ```console
-    pip install -e NEMS[dev]
+    pip install -e ./[dev]
     ```
 5. **Test that your installation was successful**
 ```console
@@ -153,6 +153,11 @@ spectrogram = training_dict['spectrogram']
 response = training_dict['response']
 ```
 
+<br />
+<br />
+<br />
+<br />
+
 # Documentation
 **Note: Documentation is currently a work-in-progress**   
 ### - [Main Page](https://nems.readthedocs.io/en/latest/index.html)   
@@ -160,6 +165,10 @@ response = training_dict['response']
 ### - [Modules](https://nems.readthedocs.io/en/latest/api/modules.html)   
 ### - [Quickstart](https://nems.readthedocs.io/en/latest/quickstart.html)   
 
+<br />
+<br />
+<br />
+<br />
 
 # Upcoming
 Roughly in order of priority:
