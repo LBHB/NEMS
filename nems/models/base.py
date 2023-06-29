@@ -209,6 +209,11 @@ class Model:
         #       aren't guaranteed to keep the same order. Hasn't caused problems
         #       so far, but...
 
+        # Really basic translation for Keyword layer intialization
+        if isinstance(layers[0], str):
+            layersTemp = [keyword_lib[k] for k in layers]
+            layers = layersTemp
+
         for layer in layers:
             layer.model = self  # each layer gets a reference to parent Model
             key = layer.name
@@ -223,6 +228,7 @@ class Model:
             layer._name = key
 
         self.set_dtype(self.dtype)
+        
 
     def get_layer_index(self, name):
         """Get integer index for Layer with `.name == name`."""
