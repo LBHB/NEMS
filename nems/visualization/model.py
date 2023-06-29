@@ -356,7 +356,6 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     iterator = enumerate(zip(layers, parmaxes, subaxes[1:], layer_info))
     previous_output = None
     for i, (layer, pax, ax, info) in iterator:
-
         k = list(layer.parameters.keys())
         if layer.name=='fir':
             if (i>0) & (layers[i-1].name=='wc'):
@@ -397,7 +396,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     if plot_input:
         # special case to plot input
         ax = subaxes[0]
-        if len(input.shape)>2:
+        if isinstance(input, dict) or len(input.shape)>2:
             pass
         elif (len(input.shape)>1) & (input.shape[1]>1):
             ax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
@@ -597,15 +596,16 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
             fig = plt.figure()
         ax = fig.subplots(1, 1)
 
-    all_outputs = [output[...,i] for i in range(output.shape[-1])]
-    if all_outputs[0].ndim > 2:
-        # TODO: Do something more useful here.
-        print("Too many dimensions to plot")
-        return fig
+    if(output.ndim > 0):
+        all_outputs = [output[...,i] for i in range(output.shape[-1])]
+        if all_outputs[0].ndim > 2:
+            # TODO: Do something more useful here.
+            print("Too many dimensions to plot")
+        else:
+            for output in all_outputs:
+                ax.plot(output, **plot_kwargs)
     else:
-        for output in all_outputs:
-            ax.plot(output, **plot_kwargs)
-
+        print("One of the outputs is a single integer and could not be plotted")
     return fig
 
 
