@@ -1,6 +1,7 @@
 """Demonstrates how to fit a basic LN-STRF model using NEMS."""
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from nems import Model
 from nems.layers import STRF, DoubleExponential, StateGain
@@ -27,20 +28,26 @@ def my_data_loader(file_path):
     # (assumed here to be pre-converted to firing rate / PSTH), and pupil size
     # as a measure of arousal.
     print(f'Loading data from {file_path}, but not really...')
-    spectrogram = np.random.rand(1000, 18)
-    response = np.random.rand(1000, 5)
-    pupil_size = np.random.rand(1000, 1)
 
-    return spectrogram, response, pupil_size
+    # Representation of Time & Channels for fake dataset and prefitted model.
+    # Actual values may vary
+    TIME = 1000
+    CHANNELS = 18
 
-spectrogram, response, pupil_size = my_data_loader('/path/to/my/data.csv')
+    spectrogram = np.random.rand(TIME, CHANNELS)
+    response = np.stack(spectrogram[:, :5])
+    pupil_size = np.random.rand(TIME, 1)
+    
+    return spectrogram, response, pupil_size, TIME, CHANNELS
+
+spectrogram, response, pupil_size, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
 
 
 # Build a Model instance, which composes the (typically sequential)
 # operations of several Layer instances.
 model = Model()
 model.add_layers(
-    STRF(shape=(15,18)),    # Full-rank STRF, 25 temporal x 18 spectral channels
+    STRF(shape=(25,18)),    # Full-rank STRF, 25 temporal x 18 spectral channels
     DoubleExponential(shape=(5,)) # Double-exponential nonlinearity, 100 outputs
 )
 
@@ -57,7 +64,7 @@ fit_model = model.fit(input=spectrogram, target=response,
 # as an additional model input, so we can specify `pupil_size` as state data.
 # (this is not necessary for models with no Layers that require state).
 model.add_layers(StateGain(shape=(1,1)))
-state_fit = model.fit(spectrogram, response, state=pupil_size, backend='scipy',
+state_fit = model.fit(input=spectrogram, target=response, state=pupil_size, backend='scipy',
                       fitter_options=options)
  
 # By default, `scipy.optimize.minimize` will be used for optimization
@@ -76,11 +83,21 @@ prediction = state_fit.predict(spectrogram, state=pupil_size)
 # layer that doesn't specify an output name will be called 'pred' instead
 # of the default, 'output'. Our standard LN_STRF model only needs the stimulus
 # spectrogram as input and neural response (as firing rates / PSTH) as a target.
-fitted_LN = LN_STRF.fit(spectrogram, response, output_name='pred')
-prediction = LN_STRF.predict(spectrogram)
+prefit_model = LN_STRF(time_bins=TIME, channels=CHANNELS)
+#fitted_LN = prefit_model.fit(input=spectrogram, target=response, output_name='pred')
+#prediction = prefit_model.predict(spectrogram)
 
 # TODO: Set this up for a pre-fit LN model so that the plots actually look nice
 #       without needing to run a long fit in the tutorial.
 # Plot the output of each Layer in order, and compare the final output to
 # the neural response.
-# fig = state_fit.plot(spectrogram, state=pupil_size, target=response)
+fig = state_fit.plot(spectrogram, state=pupil_size, target=response, figure_kwargs={'figsize': (12,8)})
+fig = fitted_LN.plot(spectrogram, target=response, figure_kwargs={'figsize': (12,8)})
+fig = fit_model.plot(spectrogram,target=response, figure_kwargs={'figsize': (12,8)})
+
+# Plots out 9 channels from our dataset to a graph before any models have used it
+raw_plot, ax = plt.subplots(3, 3, figsize=(12,8))
+for i in range(0, 9):
+    ax[int(np.ceil(i/3)-1)][i%3].plot(range(0,1000), (spectrogram[:, i]*10).astype(int)) 
+
+plt.show()
