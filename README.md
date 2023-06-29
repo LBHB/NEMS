@@ -153,6 +153,12 @@ spectrogram = training_dict['spectrogram']
 response = training_dict['response']
 ```
 
+**Looking for more?**   
+If you're looking for more information, examples, or details you can take a look at our provided tutorials at:   
+ * *NEMS/tutorials*   
+ * *NEMS/tutorials/notebooks*    
+ * or You can also stop by sources and documentation below
+
 <br />
 <br />
 <br />
