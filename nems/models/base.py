@@ -108,7 +108,12 @@ class Model:
         self.dtype = dtype
 
         if layers is not None:
-            self.add_layers(*layers)
+            if type(layers) is not str:
+                self.add_layers(*layers)
+            else:
+                # This stops python from converting our string init to a tuple of characters
+                self.add_layers(layers)
+
         self.name = name if name is not None else 'UnnamedModel'
 
         # Store optional metadata. This is a generic dictionary for information
@@ -210,9 +215,11 @@ class Model:
         #       so far, but...
 
         # Really basic translation for Keyword layer intialization
-        if isinstance(layers[0], str):
-            layersTemp = [keyword_lib[k] for k in layers]
-            layers = layersTemp
+        if type(layers[0]) is str:
+            # Check to see if initialized with a single layer, instead of a list
+            if len(layers[0]) <= 1:
+                layers = [layers]
+            layers = [keyword_lib[k] for k in layers]
 
         for layer in layers:
             layer.model = self  # each layer gets a reference to parent Model
