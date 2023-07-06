@@ -44,7 +44,6 @@ class MethodSyntaxTester2(Layer):
     def from_keyword():
         return 5
 
-
 def test_kw():
     model = Model.from_keywords('tester.zero.one.two.three')
     layer = model.layers[0]
@@ -55,6 +54,26 @@ def test_kw():
     # Full kw string should be passed to `from_keyword`.
     assert layer._options == ['zero', 'one', 'two', 'three']
 
+def test_kw_string():
+    # Should result in three layers
+    model = Model.from_keywords('tester.one-tester.five-tester.another')
+    assert len(model.layers) == 3
+    assert model.layers[0].name == 'tester'
+    # Duplicate names get incremented
+    assert model.layers[1].name != 'tester'
+
+def test_name():
+    model = Model.from_keywords('different')
+    layer = model.layers[0]
+    assert isinstance(layer, MethodNameTester)
+    assert layer.name == 'different'
+
+
+def test_syntax():
+    with pytest.raises(TypeError):
+        model = Model.from_keywords('notlayer')
+    with pytest.raises(TypeError):
+        model = Model.from_keywords('noargs')
 
 def test_kw_init_list():
     model = Model(layers=['init.zero.one.two.three.four'])
@@ -76,24 +95,16 @@ def test_kw_init_single():
     # Full kw string should be passed to `from_keyword`.
     assert layer._options == ['zero', 'one', 'two', 'three', 'four']
 
-def test_kw_string():
+def test_init_syntax():
+    with pytest.raises(TypeError):
+        model = Model('notlayer')
+    with pytest.raises(TypeError):
+        model = Model('noargs')
+
+def test_kw_init_string():
     # Should result in three layers
-    model = Model.from_keywords('tester.one-tester.five-tester.another')
+    model = Model('tester.one-tester.five-tester.another')
     assert len(model.layers) == 3
     assert model.layers[0].name == 'tester'
     # Duplicate names get incremented
     assert model.layers[1].name != 'tester'
-
-
-def test_name():
-    model = Model.from_keywords('different')
-    layer = model.layers[0]
-    assert isinstance(layer, MethodNameTester)
-    assert layer.name == 'different'
-
-
-def test_syntax():
-    with pytest.raises(TypeError):
-        model = Model.from_keywords('notlayer')
-    with pytest.raises(TypeError):
-        model = Model.from_keywords('noargs')
