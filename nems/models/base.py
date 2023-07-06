@@ -243,11 +243,61 @@ class Model:
         """Get one Layer. Key can be int or string (`Layer.name`)."""
         return self.layers[key]
 
-    # Maybe we don't need to implement this? Would require some refactoring of
-    # Model.layers.
-    def insert_layer(self, index, name=None):
-        """TODO: add layer at specific integer index."""
-        raise NotImplementedError
+    def insert_layers(self, index, *layers):
+        """Insert Layers at integer position to this Model, stored in `Model._layers`.
+
+        This will also update `Layer.name` for any layers with a name clash,
+        so that each Layer in the Model is guaranteed to have a unique name.
+
+        Parameters
+        ----------
+        index: Position to insert new layers at
+        layers : N-tuple of Layers
+
+        See also
+        --------
+        nems.layers.base.Layer
+        
+        """
+
+        # Maybe we don't need to implement this? Would require some refactoring of
+        # Model.layers.
+
+        # Temp solution: pulled base code from add_layer, convert dict to list, 
+        # insert key/value pairs, convert back to dict.
+        # TODO: Refactor existing code to implement this without entire conversions
+
+        layer_len = len(self._layers)
+        layer_list = list(self._layers.items())
+        # Make sure index location exists and an index was given
+        if type(index) == int and index < layer_len:
+            if type(layers[0]) is str:
+                # Check to see if a single string was sent instead of a list
+                if len(layers[0]) <= 1:
+                    layers = ''.join(layers[:])
+                    layers = layers.split('-')
+                layers = [keyword_lib[k] for k in layers]
+
+            for layer in layers:
+                i = 0
+                key = layer.name + f'{index}'
+                layer.model = self  # each layer gets a reference to parent Model
+                
+                while self._layers.get(key) and self._layers[key].name == layer.name:
+                    key = layer.name + f'{index + i}'
+                    i += 1
+
+                layer_list.insert(index, (key, layer))
+                self._layers = dict(layer_list)
+                # Also update `Layer.name` so that there's no mismatch between
+                # a Layer's name and its key in the Model.
+                layer._name = key
+            self.set_dtype(self.dtype)
+        else:
+            if layers:
+                raise ValueError("Index value out of range")
+            else:
+                raise TypeError("An Index integer value must be provided as the first argument")
 
     def evaluate(self, input, state=None, input_name=None, state_name=None,
                  output_name=None, n=None, return_full_data=True,
