@@ -104,9 +104,14 @@ conda install -c conda-forge numpy
 # Examples
 Build a standard linear-nonlinear spectrotemporal receptive field (LN-STRF) model.
 ```python
+import numpy as np
+import nems
 from nems import Model
 from nems.layers import FiniteImpulseResponse, DoubleExponential
+from nems.metrics import correlation
 
+
+# Model layers can be added in sequential order as a list, individually, or via keywords
 model = Model()
 model.add_layers(
     FiniteImpulseResponse(shape=(15, 18)),  # 15 taps, 18 spectral channels
@@ -115,16 +120,15 @@ model.add_layers(
 ```
 Or use the customizable keyword system for faster scripting and prototyping.
 ```python
-from nems import Model
 
 same_model = Model.from_keywords('fir.15x18-dexp.1')
+another_model = Model('fir.15x18-dexp.1')
 ```
 Fit the model to (fake) evoked neural activity (in this case, in response to a sound represented by a spectrogram).
 ```python
-import numpy as np
 
 spectrogram = np.random.rand(1000, 18)  # 1000 time bins, 18 channels
-response = np.random.rand(1000, 1)      # 1 neural response
+response = np.stack(spectrogram[:, :5]) # 1 neural response, relative to the spectrogram
 
 fitted_model = model.fit(spectrogram, response)
 ```
@@ -135,15 +139,13 @@ prediction = fitted_model.predict(test_spectrogram)
 ```
 Score the prediction
 ```python
-from nems.metrics import correlation
 print(correlation(prediction, response))
 # OR
 print(model.score(test_spectrogram, response, metric='correlation'))
 ```
 Try the above examples with real data:
 ```python
-import nems
-
+# Download our dataset and pull the data as a tuple of training/testing
 nems.download_demo()
 training_dict, test_dict = nems.load_demo()
 
