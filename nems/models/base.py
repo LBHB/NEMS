@@ -108,11 +108,8 @@ class Model:
         self.dtype = dtype
 
         if layers is not None:
-            if type(layers) is not str:
-                self.add_layers(*layers)
-            else:
-                # This stops python from converting our string init to a tuple of characters
-                self.add_layers(layers)
+            self.add_layers(*layers)
+            
 
         self.name = name if name is not None else 'UnnamedModel'
 
@@ -216,9 +213,10 @@ class Model:
 
         # Really basic translation for Keyword layer intialization
         if type(layers[0]) is str:
-            # Check to see if initialized with a single layer, instead of a list
+            # Check to see if a single string was sent instead of a list
             if len(layers[0]) <= 1:
-                layers = [layers]
+                layers = ''.join(layers[:])
+                layers = layers.split('-')
             layers = [keyword_lib[k] for k in layers]
 
         for layer in layers:
