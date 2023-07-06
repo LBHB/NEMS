@@ -6,33 +6,50 @@ from nems import Model, load_demo
 from nems.tools.debug import debug_fitter, animated_debug
 from nems.visualization.fitter import parameter_pca_table
 
-# NOTE: Requires first downloading demo data using `nems.download_demo`.
-#       Alternatively, modify the first few lines to use a different
-#       input and target.
 
-# 1. Load data.
-#    The NEMS demo data contains a single concatenated natural sound spectrogram
-#    and firing rate response for one neuron from ferret primary auditory cortex,
-#    both represented at 100 Hz.
-train, test = load_demo(tutorial_subset=True)  # First 5 sounds only
+########################################################
+# Downloading/Using demo data
+#
+# In this tutorial we will recommend you download and import our demo data.
+# !Change train, test, input, target lines to use your own data
+#
+# NEMS demo data contains one concatenated natural sound spectrogram and
+# firing rate response for one neuron from ferret primary auditory cortex,
+# both represented at 100 Hz.
+########################################################
+
+# NOTE: Uncomment the 2 lines below to download demo data if you have not before
+#from nems import download_demo
+#download_demo()
+
+
+###########################
+# load_demo()
+#   filebase: Lets you pull from a specific filebase, provides default
+#   tutorial_subset: if true, truncates the data in time to speed up example model fitting
+#
+# returns: Tuple (Training, Test) dictionaries containing spectrogram, response matrices
+###########################
+train, test = load_demo(tutorial_subset=True)  #First 5 sounds only
 input = train['spectrogram']  
 target = train['response']
 
-# 2. Specify model.
-#    Here we'll use a rank-3 LN model and start from random initial conditions.
+
+###########################
+# Rank-3 LN model, random conditions
+# Here we create a 3 layered model, in this case using from_keywords
+#   sample_from_priors(): creates model with new parameter values sampled from priors
+###########################
 model = Model.from_keywords('wc.18x3-fir.15x3-dexp.1').sample_from_priors()
 
 
-# 3a. Static debug plot.
-#    Fit the model for 10 iterations using the scipy backend, and report error,
-#    gradient, and parameter information for each iteration, along with the
-#    first 10 seconds of the spectrogram input and final model prediction.
-#
-#    Parameter PCs determined by treating each entry in the length-N
-#    vector returned by `model.get_parameter_vector()` as a feature, and the
-#    vector associated with each of the M models in `models` as one
-#    observation, then computing principal components for the resulting
-#    M x N matrix.
+###########################
+# Static Debug Plotting
+#   iterations: Set the amount of iterations for fitting our model
+#   sampling_rate: Labeling our time-axis to real units
+#   xlim: Positional arg for ax.set_xlim
+#   !See debug_fitter documentation for many other parameters 
+###########################
 fig, models = debug_fitter(
     model, input, target, iterations=10, sampling_rate=100,
     xlim=(0,10),  # specify in seconds since `sampling_rate` is given
@@ -41,26 +58,42 @@ fig, models = debug_fitter(
     # save_path="/path/to/directory"
     )
 
-# 3b. PCA table.
-#    Show information for the first 5 parameter PCs, including which Parameters
-#    are associated with the largest weights from each PC.
+
+###########################
+# PCA's and PCA table
+# parameter_pc_table: Generates table for first 5 weights of n parameter PC's
+#   n: The first n parameter PC's to show
+#   fontsize: Fontsize for the figure and graph being plotted
+#
+#    Parameter PCs determined by treating each entry in the length-N
+#    vector returned by `model.get_parameter_vector()` as a feature, and the
+#    vector associated with each of the M models in `models` as one
+#    observation, then computing principal components for the resulting
+#    M x N matrix.
+#
+###########################
 fig, ax = plt.subplots(figsize=(8,3))
 parameter_pca_table(models, n=5, fontsize=16)
 
 
-# 4. Animated debug plot.
-#    As 3a, but update the plot one iteration at a time. Most information is
-#    already present in the static plot, but the animation also shows the
-#    intermedite model prediction associated with each fit iteration.
-#    NOTE: matplotlib animations are very dependent on backend, IDE, OS, etc.
-#          For example, they tend not to work with jupyter notebooks. If the
-#          animation doesn't play, try saving it as a movie instead by
-#          specifying `animation_save_path`.
+###########################
+# Animated debug plots
+# animated_debug:
+#   animation_save_path: Path to save animated debug
+#   frame_interval: Delay between frames in milliseconds 
+#   Otherwise same parameters available as debug_fitter
+#
+# Updates the plot at each iteration via animations
+#
+# NOTE: matplotlib aimations are dependent on backend, IDE, OS, etc...
+# If animation is not playing, try saving a filepath for the animation
+###########################
 animation, models = animated_debug(
     model, input, target, iterations=10, sampling_rate=100,
     xlim=(0,10),
     ## Uncomment and provide the save location from step 3 if applicable.
     # load_path="/path/to/directory",
+
     ## Uncomment and provide a filepath where the animation should be saved,
     ## if desired.
     ## NOTE: You may need to install the FFmpeg encoder, for example using
