@@ -5,7 +5,7 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 * **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
 ## Table of Contents & Relevant Links
-### [Install](#installation) &middot; [Examples](#examples) &middot; [Documentation](#documentation) &middot; [Upcoming](#upcoming)   
+### [Install](#installation) &middot; [Visualization](#visualization) &middot; [Examples](#examples) &middot; [Documentation](#documentation) &middot; [Upcoming](#upcoming)   
 
 #### - **Laboratory of Brain, Hearing, and Behavior:**  [https://hearingbrain.org/](https://hearingbrain.org/)    
 #### - **Archived former NEMS version:**   [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0)   
@@ -88,13 +88,62 @@ py -m pytest
 ## Alternative: `conda install`.
 **Coming soon.**
 
-
 Note: the `mkl` library for `numpy` does not play well with `tensorflow`.
 If using `conda` to install dependencies manually, and you want to use the `tensorflow` backend, use `conda-forge` for `numpy` (which uses `openblas` instead of `mkl`):
 ```console
 conda install -c conda-forge numpy
 ```
 (See: https://github.com/conda-forge/numpy-feedstock/issues/84)
+
+<br />
+<br />
+<br />
+<br />
+
+# Visualization
+A variety of our scripts and tutorials focus on providing plots and graphs to visualize data at various points in time. Viewing and interacting with this data is important to understanding our models and for utilizing all of the tools provided.
+
+**There are many ways to visualize this data. We recommend using one of our current guides below.**
+
+<hr />
+
+## IPython
+IPython is an interative python shell, typically know for its use in jupyter notebooks. Exact installation can vary based on your environment
+
+### Install
+* Install ipython inside your nems-env
+```console
+    sudo pip3 install ipython
+```
+#### *VSCode*
+* Additionally, set up launch args for ipython so it's used properly running code from terminal
+```JSON
+"python.terminal.launchArgs": [
+    "-m",
+    "IPython",
+    "--no-autoindent",
+],
+```
+### Usage
+* Start ipython inside your shell
+    ```console
+    ipython
+    ```
+- Should see the following:
+    ```console
+    In [0]:|
+    ```
+* "exit" to leave ipython
+    ```console
+    In [n]: exit
+    ```
+
+#### *VSCode*
+1. Highlight code
+2. Click terminal at the top
+3. "Run selected code"
+4. Press enter in terminal
+* If your launch arg's are correct, you can also right-click -> run python -> run select code in terminal
 
 <br />
 <br />
