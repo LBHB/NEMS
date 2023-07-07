@@ -19,30 +19,23 @@ del nems.layers
 
 
 class Model:
+    """
+    A structured collection of Layers.
+            
+    This is the primary class for interacting with NEMS. Conceptually, a
+    Model encapsulates all computations needed to transform an input into
+    a desired output (or prediction).
 
-    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
-        """A structured collection of Layers.
-        
-        This is the primary class for interacting with NEMS. Conceptually, a
-        Model encapsulates all computations needed to transform an input into
-        a desired output (or prediction).
+    TODO: more context here?
+    
+    .. Sphynx documentation links
+    **Methods**: :py:func:`evaluate`, :py:func:`predict`, :py:func:`fit`, :py:func:`plot`
 
-        TODO: more context here?
+    **Attributes**: :py:attr:`layers`, :py:attr:`bounds`, :py:attr:`priors`, :py:attr:`parameter_count` 
 
-        Parameters
-        ----------
-        layers : list of Layer; optional.
-            Layers that will define the Model's data transformations.
-        name : str; optional.
-            Name for the Model.
-        dtype : type; default=np.float64.
-            TODO: docs. float64 not supported by all TensorFlow ops.
-        meta : dict; optional.
-            A general-purpose dictionary for storing additional information
-            about the model.
-
-        Attributes
-        ----------
+..
+    Attributes
+    ----------
         layers : _LayerDict.
             All model layers in a format that allows both integer and
             string indexing.
@@ -55,9 +48,9 @@ class Model:
             other supported backend, cached by the most recent call to
             `Model.fit()`. This will be `None` if `Model.fit()` has never been
             called.
-
-        Methods
-        -------
+    
+    Methods
+    -------
         evaluate(input, ...)
             Transform input by applying all Layers in a proscribed order.
         predict(input, ...)
@@ -73,30 +66,48 @@ class Model:
             output of a previous Layer). If `target` is also specified, plot
             `target` on the same axes as the output of the final Layer.
             NOTE: Currently this method assumes there is only one model output
-                  and a single target.
+                    and a single target.
+    """
+
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
+        """
+        Parameters
+        ----------
+            layers : list of Layer; optional.
+                Layers that will define the Model's data transformations.
+            name : str; optional.
+                Name for the Model.
+            dtype : type; default=np.float64.
+                TODO: docs. float64 not supported by all TensorFlow ops.
+            meta : dict; optional.
+                A general-purpose dictionary for storing additional information
+                about the model.
 
         See also
         --------
-        nems.layers.base.layer.Layer
-        nems.backends.base.Backend
-        nems.visualization.model.plot_model
+            nems.layers.base.layer.Layer
+            nems.backends.base.Backend
+            nems.visualization.model.plot_model
 
         Examples
         --------
-        >>> import numpy as np
-        >>> from nems import Model
-        >>> # Create some fake data
-        >>> input = np.random.rand(1000,18)  # 1000 time points, 18 channels
-        >>> target = np.random.rand(1000, 1)
-        >>> # Compute the model's output given the input data.
-        >>> evaluated_data = model.evaluate(input)
-        >>> # Get a fitted model
-        >>> fit_model = model.fit(input, target)
-        >>> # Plot the fitted model
-        >>> fig = fit_model.plot(input, target)
+        .. code-block:: python
+            :caption: Creating a simple Model
+
+            import numpy as np
+            from nems import Model
+            # Create some fake data
+            input = np.random.rand(1000,18)  # 1000 time points, 18 channels
+            target = np.random.rand(1000, 1)
+            # Compute the model's output given the input data.
+            evaluated_data = model.evaluate(input)
+            # Get a fitted model
+            fit_model = model.fit(input, target)
+            # Plot the fitted model
+            fig = fit_model.plot(input, target)
         
         """
-        self._layers = {}  #  layer.name : layer obj, increment on clashes
+        self._layers = {}  # layer.name : layer obj, increment on clashes
 
         # TODO: remove warning after fixing issues w/ scipy
         if dtype != np.float64:
@@ -122,6 +133,7 @@ class Model:
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
         self.dstrf_backend = None  # backend for model with output NL removed
+
     @property
     def layers(self):
         """Get all Model Layers. Supports integer or string indexing."""
@@ -144,16 +156,17 @@ class Model:
         Note that this is the total number of all parameter values, *not* the
         number of Parameter objects. I.e. a model with a single Parameter of
         shape (2,3) has a parameter_count of 6.
+
         TODO: rename this to avoid ambiguity? value_count? 
 
         Returns
         -------
-        int
+            int
 
         See also
         --------
-        Model.parameter_info
-        nems.layers.base.Layer.parameter_count
+            Model.parameter_info
+            nems.layers.base.Layer.parameter_count
         
         """
         return sum([layer.parameter_count for layer in self.layers])
@@ -164,18 +177,18 @@ class Model:
         
         Returns
         -------
-        dict
-            {'layer_name':  # per layer
-                {'total': int, 'unfrozen': int, 'frozen': int, 'permanent': int},
-                ...
-             'model':       # model totals
-                {'total': int, unfrozen': int, ... }  # etc.
-                }
+            dict
+                {'layer_name':  # per layer
+                    {'total': int, 'unfrozen': int, 'frozen': int, 'permanent': int},
+                    ...
+                'model':       # model totals
+                    {'total': int, unfrozen': int, ... }  # etc.
+                    }
 
         See also
         --------
-        Model.parameter_count
-        nems.layers.base.Layer.parameter_info
+            Model.parameter_count
+            nems.layers.base.Layer.parameter_info
         
         """
         info = {layer.name: layer.parameter_info for layer in self.layers}
@@ -192,21 +205,21 @@ class Model:
         self.dtype = dtype
 
     def add_layers(self, *layers):
-        """Add Layers to this Model, stored in `Model._layers`.
+        """Add Layers to this Model, stored in `Model._layers` which
+        can be retrieved from :py:class:`_LayerDict`
 
         This will also update `Layer.name` for any layers with a name clash,
         so that each Layer in the Model is guaranteed to have a unique name.
 
         Parameters
         ----------
-        layers : N-tuple of Layers
+            layers : N-tuple of Layers
 
         See also
         --------
-        nems.layers.base.Layer
+            nems.layers.base.Layer
         
         """
-
         # TODO: need to track name, layer lists instead? Apparently dictionaries
         #       aren't guaranteed to keep the same order. Hasn't caused problems
         #       so far, but...
@@ -251,12 +264,12 @@ class Model:
 
         Parameters
         ----------
-        index: Position to insert new layers at
-        layers : N-tuple of Layers
+            index: Position to insert new layers at
+            layers : N-tuple of Layers
 
         See also
         --------
-        nems.layers.base.Layer
+            nems.layers.base.Layer
         
         """
 
@@ -304,13 +317,15 @@ class Model:
                  as_dataset=False, use_existing_maps=False, batch_size=0,
                  permute_batches=False, debug_nans=False):
         """Transform input(s) by invoking `Layer.evaluate` for each Layer.
+
         TODO: add generator support (input = keras generator)
-        Evaluation encapsulates three steps:
+
+        * Evaluation encapsulates three steps:
             1) Package data and metadata in a single structured container.
             2) Loop over `Model.layers`, invoking `Layer._evaluate` to
                transform the data.
             3) Clean up no-longer-needed data, possibly re-format.
-        See `DataSet` and `Model.generate_layer_data` for implementation.
+        * See `DataSet` and `Model.generate_layer_data` for implementation.
 
         During the evaluation process, `input` (and `state` if provided) will
         be packaged into dictionaries, with the following structure:
