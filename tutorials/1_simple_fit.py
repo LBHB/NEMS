@@ -7,13 +7,16 @@ from nems import Model
 from nems.layers import STRF, DoubleExponential, StateGain
 from nems.models import LN_STRF
 
+# This indicates that our code is interactive, allowing a
+# matplotlib backend to show graphs
+plt.ion()
+
 # Fast-running toy fit options for demonstrations.
 options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
 
 ########################################################
-#
-# Typical nems.Layers structure:
-# layer_example(TIME, CHANNEL)
+# Typical nems.Layers data structure:
+# layer_data_example(TIME, CHANNEL)
 #
 # (X Axis, 2D Numpy Array): TIME can be any representation relevent to your data
 # (Y Axis, 2D Numpy Array): CHANNEL is some seperation of data inputs ie... Neuron, Sepctral Channel, etc...
@@ -105,7 +108,8 @@ prefit_prediction = prefit_model.predict(spectrogram)
 # TODO: Set this up for a pre-fit LN model so that the plots actually look nice
 #       without needing to run a long fit in the tutorial.
 # Plot the output of each Layer in order, and compare the final output to
-# the neural response.
+# the neural response. ion will use whatever backend is currently available
+
 fig = state_fit.plot(spectrogram, state=pupil_size, target=response, figure_kwargs={'figsize': (12,8)})
 fig = fitted_LN.plot(spectrogram, target=response, figure_kwargs={'figsize': (12,8)})
 fig = fit_model.plot(spectrogram,target=response, figure_kwargs={'figsize': (12,8)})
@@ -114,4 +118,5 @@ fig = fit_model.plot(spectrogram,target=response, figure_kwargs={'figsize': (12,
 raw_plot, ax = plt.subplots(3, 3, figsize=(12,8))
 for i in range(0, 9):
     ax[int(np.ceil(i/3)-1)][i%3].plot(range(0,TIME), (spectrogram[:, i]*10).astype(int)) 
-plt.show()
+## Uncomment if you don't have an interactive backend installed
+#plt.show()
