@@ -1,15 +1,14 @@
-"""Demonstrates how to fit a basic LN-STRF model using NEMS."""
+"""Demonstrates how to create and fit a basic model using NEMS."""
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from nems import Model
-from nems.layers import STRF, DoubleExponential, StateGain
-from nems.models import LN_STRF
+from nems.layers import LevelShift, WeightChannels
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-plt.ion()
+## This indicates that our code is interactive, allowing a matplotlib
+## backend to show graphs. Uncomment if you don't see any graphs
+#plt.ion()
 
 # Fast-running toy fit options for demonstrations.
 options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
@@ -30,7 +29,9 @@ options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
 ###########################
 # A dummy representation of potential LBHB data
 #   Spectrogram: A representation of sound stimulus and neuron response
-#   Pupil_size: A measurement of arousal
+#   Response: Fake target values that our model will try to fit. These
+#             are values relative to our spectrogram, so you can see how
+#             our model changes the input.
 ###########################
 def my_data_loader(file_path):
     print(f'Loading data from {file_path}, but not really...')
@@ -41,28 +42,52 @@ def my_data_loader(file_path):
     CHANNELS = 18
 
     # Creation of random 2D numpy array with X time representation and Y channel representations
-    spectrogram = np.random.rand(TIME, CHANNELS)
-    # Using our Spectrogram to create a target set of data that our model will attempt to fit
-    response = np.stack(spectrogram[:, :5])
-    # An example of using states to fit our model together
-    pupil_size = np.random.rand(TIME, 1)
+    spectrogram = np.random.randn(TIME, CHANNELS)
+
+    # Creating our target data to fit the model to. The first neuron channel - the
+    # values of the 5th neuron channel + some random values, all shifted by 0.5
+    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
     
-    return spectrogram, response, pupil_size, TIME, CHANNELS
+    return spectrogram, response, TIME, CHANNELS
 
 # Create variables from our data import function
-spectrogram, response, pupil_size, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
+spectrogram, response, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
 
 ###########################
 # Model can take in a (Usually) sequential set of layers
-#   STRF: Our inital layer, with provided channels
-#   DoubleExponential: The second layer taking the previous layer as input
+#   WeightChannels: Computes linear weights of input channels
+#                   comparable to a Dense layer.
+#   LevelShift: Applies a scalar shift to all inputs
 # See more at: https://temp.website.net/nems_model
 ###########################
 model = Model()
 model.add_layers(
-    STRF(shape=(25,18)),    # Full-rank STRF, 25 temporal x 18 spectral channels
-    DoubleExponential(shape=(5,)) # Double-exponential nonlinearity, 100 outputs
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
+
+###########################
+# Viewing the model and data
+#   Model.plot(): Takes input and many possible KWarg's to plot layer data and evaluation outputs
+#
+# Here we will plot our current data, and it's target before we actually fit the model.
+# You can see our model has done nothing to the blue line whose output is clearly false.
+# Our blue and orange lines should be similar or the same if our model is working.
+#
+# We can also view a lot of data directly from the model and it's layers, these can be
+# seen inside something like IPython, or printed out directly as well
+###########################
+
+# Plotting our model via .plot
+model.plot(spectrogram, target=response)
+
+# Viewing various data from our model and it's layers
+print(f"""
+    Model Layers:\n {model.layers}
+    layer shapes:\n {model.layers[0].shape}
+    layer priors:\n {model.layers[0].priors}
+    layer bounds:\n {model.layers[0].bounds}
+""")
 
 ###########################
 # Fitting our data to the model and layers
@@ -74,49 +99,31 @@ model.add_layers(
 fit_model = model.fit(input=spectrogram, target=response,
                       fitter_options=options)
 
-###########################
-# Certain layers may request or need more information ex:
-#   StateGain: Requires some form of state data, for example Pupil Size
-# Only specific models using these layers will require state
-# See more at: https://temp.website.net/nems_layers_stategain
-###########################
-model.add_layers(StateGain(shape=(1,1)))
-state_fit = model.fit(input=spectrogram, target=response, state=pupil_size, backend='scipy',
-                      fitter_options=options)
+# We are now viewing our data after it has fit the input to our target
+fit_model.plot(spectrogram, target=response)
+
+print(f"""
+    layer shapes:\n {fit_model.layers[0].shape}
+    layer priors:\n {fit_model.layers[0].priors}
+    layer bounds:\n {fit_model.layers[0].bounds}
+    pre-fit weighted layer values:\n {model.layers[0].coefficients}
+    post-fit weighted layer values:\n {fit_model.layers[0].coefficients}
+
+""")
  
 ###########################
 # Sets the model to predict data provided after fitting the model
 #   Backend(Not seen here): Can be specified to decide an Optimizer, default = scipy.optimize.minimize()
 #       - Other options exist such as tf for tensorflow
 #   Spectrogram: The data we will performing a prediction with
-#   State: Provided state for StateGain layer
 # See more at: https://temp.website.net/nems_model_predict and
 # See more at: https://temp.website.net/nems_backends
 ###########################
-prediction = state_fit.predict(spectrogram, state=pupil_size)
+state_fit = model.predict(input=spectrogram, backend='scipy',
+                      fitter_options=options)
 
-###########################
-# Pre-built models can be used as well
-#   LN_STRF: An already built model for use with time_bins x channels data/axes
-# Model can then be fit and predicted in the same way as your own model
-# See more at: https://temp.website.net/nems_model_lnstrf
-###########################
-prefit_model = LN_STRF(time_bins=TIME, channels=CHANNELS)
-fitted_LN = prefit_model.fit(input=spectrogram, target=response, output_name='pred')
-prefit_prediction = prefit_model.predict(spectrogram)
+# Finally viewing our last fit and relevant data
+fig = state_fit.plot(spectrogram)
 
-# TODO: Set this up for a pre-fit LN model so that the plots actually look nice
-#       without needing to run a long fit in the tutorial.
-# Plot the output of each Layer in order, and compare the final output to
-# the neural response. ion will use whatever backend is currently available
-
-fig = state_fit.plot(spectrogram, state=pupil_size, target=response, figure_kwargs={'figsize': (12,8)})
-fig = fitted_LN.plot(spectrogram, target=response, figure_kwargs={'figsize': (12,8)})
-fig = fit_model.plot(spectrogram,target=response, figure_kwargs={'figsize': (12,8)})
-
-# Plots out 9 channels from our spectrogram dataset to graphs before any models have used it
-raw_plot, ax = plt.subplots(3, 3, figsize=(12,8))
-for i in range(0, 9):
-    ax[int(np.ceil(i/3)-1)][i%3].plot(range(0,TIME), (spectrogram[:, i]*10).astype(int)) 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
