@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from nems import visualization
 from nems import Model
 from nems.layers import LevelShift, WeightChannels
 
@@ -119,11 +120,15 @@ print(f"""
 # See more at: https://temp.website.net/nems_model_predict and
 # See more at: https://temp.website.net/nems_backends
 ###########################
-state_fit = model.predict(input=spectrogram, backend='scipy',
-                      fitter_options=options)
+pred_model = model.predict(spectrogram)
 
-# Finally viewing our last fit and relevant data
-fig = state_fit.plot(spectrogram)
+# Viewing our model prediction, compared with the initial input given
+f, ax = plt.subplots(2, 1, sharex='col')
+ax[0].imshow(spectrogram.T,aspect='auto', interpolation='none',origin='lower')
+ax[0].set_ylabel('Test stimulus')
+ax[1].plot(pred_model, label='predicted')
+ax[1].set_ylabel('Prediction')
+
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
