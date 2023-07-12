@@ -43,6 +43,10 @@ git clone https://github.com/LBHB/NEMS.git
 ```console
 pip install -e NEMS[dev]
 ```
+    - 3a. **Optional** Install Tensorflow
+    ```console
+    pip install -e NEMS[tf]
+    ```
 4. **Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.**
 ```console
 pytest NEMS
@@ -125,13 +129,18 @@ IPython is an interative python shell, typically know for its use in jupyter not
 ],
 ```
 ### Usage
-* Start ipython inside your shell
+1. Start ipython inside your shell
     ```console
     ipython
     ```
-- Should see the following:
+2. Should see the following:
     ```console
     In [0]:|
+    ```
+3. Run script or file with interactive mode active:
+    ```console
+    %matplotlib
+    %run ./path/to/file
     ```
 * "exit" to leave ipython
     ```console
