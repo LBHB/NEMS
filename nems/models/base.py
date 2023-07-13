@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
-from nems.visualization import plot_model
+from nems.visualization import plot_model, plot_model_outputs, plot_model_list
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -27,11 +27,6 @@ class Model:
     a desired output (or prediction).
 
     TODO: more context here?
-    
-    .. Sphynx documentation links
-    **Methods**: :py:func:`evaluate`, :py:func:`predict`, :py:func:`fit`, :py:func:`plot`
-
-    **Attributes**: :py:attr:`layers`, :py:attr:`bounds`, :py:attr:`priors`, :py:attr:`parameter_count` 
 
 ..
     Attributes
@@ -281,7 +276,6 @@ class Model:
         # TODO: Refactor existing code to implement this without entire conversions
 
         layer_len = len(self._layers)
-        layer_list = list(self._layers.items())
         # Make sure index location exists and an index was given
         if type(index) == int and index < layer_len:
             if type(layers[0]) is str:
@@ -292,6 +286,7 @@ class Model:
                 layers = [keyword_lib[k] for k in layers]
 
             for layer in layers:
+                layer_list = list(self._layers.items())
                 i = 0
                 key = layer.name + f'{index}'
                 layer.model = self  # each layer gets a reference to parent Model
@@ -302,6 +297,7 @@ class Model:
 
                 layer_list.insert(index, (key, layer))
                 self._layers = dict(layer_list)
+                layer_len += 1
                 # Also update `Layer.name` so that there's no mismatch between
                 # a Layer's name and its key in the Model.
                 layer._name = key
@@ -1326,7 +1322,7 @@ class Model:
         
         """
         return plot_model(self, input, **kwargs)
-
+    
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
     def summary(self):
         """Prints long-form model description (alias for `print(Model)`)."""
@@ -1572,3 +1568,173 @@ class _LayerDict:
 
     def __repr__(self):
         return self._dict.__repr__()
+
+# TODO: Define general range of use cases.
+#       Maybe move this somewhere else?
+#       Creative ways to utilize this? Examples?
+
+class Model_List:
+    '''
+    A python list of Model objects
+
+    This is a supporting class to our base Model class. Providing
+    a variety of different methods to support visualization, iterations,
+    and processesing of groups of models. Supports existing lists of models
+    or creating new lists of models from scratch
+
+    ..
+
+        Methods
+        -------
+        test(test, ...)
+            A temporary test method
+        
+        compare_models(self)
+            Compares all models within a given list
+
+        plot_models(self)
+
+        predict_models(self)
+
+        test_models(self)
+        
+        function_to_models(self)
+
+        Attributes
+        ----------
+        model_list: List of model objects
+        
+        model_base: Base model object
+
+    Examples
+    --------
+        test
+        test
+        test
+        test
+        test
+        tes
+        te
+        t
+        this is a test :)
+        
+    '''
+    def __init__(self, model=None, model_list=None, samples=1):
+        '''
+        Create a Model_List object using an existing list, or by
+        creating it's own list via sample_from_priors and a provided model
+
+        Parameters
+        ----------
+            model: Model
+                A base model that would be used to create a model_list from scratch
+                if needed.
+            model_list: List of Models
+                An existing list of models to integrate into the class itself, 
+                base model in this case is first model in list
+        '''
+        if model_list and model_list[0]:
+            self.model_list = model_list
+            self.model_base = model_list[0]
+        elif model:
+            self.model_list = model.sample_from_priors(samples)
+            self.model_base = model
+        else:
+            raise ValueError("A Model or list of Models needs to be provided.")
+        self.best_fit = None
+
+    @property
+    def get_list(self):
+        ''' Returns model list '''
+        return self.model_list
+    @property
+    def get_model(self):
+        ''' Returns the base model '''
+        return self.model_base
+    @property
+    def get_best_fit(self):
+        ''' Returns the current best fit in the list, or None '''
+        return self.best_fit
+    
+    def fit_models(self, input, target, target_name=None, prediction_name=None,
+            backend='scipy', fitter_options=None, backend_options=None,
+            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+        '''
+        Loops through models and fits them with usual parameters
+
+        See Model.fit(self, ...)
+        '''
+        fit_list = self.model_list
+        for id, model in enumerate(fit_list):
+            fit_list[id] = model.fit(input, target, target_name, prediction_name,
+            backend, fitter_options, backend_options,
+            verbose, in_place, freeze_layers, **eval_kwargs)
+            if self.best_fit is None or self.best_fit.results.final_error < fit_list[id].results.final_error:
+                self.best_fit = fit_list[id]
+        self.model_list = fit_list
+
+    def compare_models(self):
+        '''
+        Compares all models within a given list and returns ...?
+
+        Returns
+        -------
+
+        '''
+        return
+    
+    def plot_models(self, input, target, plot_comparitive=True, plot_full=False):
+        '''
+        Wrapper function for plot_model_list
+
+        Plots all models in one of several views, or multiple views from a list
+        of fitted models.
+        '''
+        #if self.model_list[0].results:
+        return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full)
+        #else:
+            #raise ValueError('Models must be fitted before plotting this list')
+    
+    def predict_models(self):
+        '''
+        Predicts all models in list and returns their outputs as a list
+
+        Returns
+        -------
+
+        '''
+        return
+    
+    def test_models(self, response):
+        '''
+        Returns a list of correlation coefficients for each model and response data
+        '''
+        if response:
+            return
+        else:
+            raise ValueError("Please provide response data to compare to your models")
+        return
+    
+    def function_to_model(self, *kwargs):
+        '''
+        Allows you to run any base model function on all models in list
+        through keyword arguments. This serves as a way to apply functions
+        that have not been officially implemented...
+        
+        !!! Very basic, avoid if possible.
+
+        NOTE: (For Implementation) getatter? dictionary of functions?
+
+        Parameters
+        ---------
+            test: test
+                test
+
+        Example
+        ------
+            test
+            test
+            test
+            test
+        '''
+        return
