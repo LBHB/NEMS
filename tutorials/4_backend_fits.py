@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import nems
-from nems import Model
-from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential
+from nems import Model, Model_List
+from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 
 ## This indicates that our code is interactive, allowing a matplotlib
@@ -49,9 +49,11 @@ response_test = test_dict['response'][:,[cid]]
 # Creating a basic Rank2LNSTRF model to test parameters on
 model = Model()
 model.add_layers(
-    WeightChannels(shape=(18, 1)),  # 18 spectral channels->1 composite channels
-    FiniteImpulseResponse(shape=(15, 1)),  # 15 taps, 1 spectral channels
-    DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
+    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
+    FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
+    RectifiedLinear(shape=(3,)), # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)), # Another set of weights to apply
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
 
 ###########################
@@ -82,7 +84,7 @@ model.add_layers(
 ###########################
 backend = 'scipy'
 ## Uncomment if you have TensorFlow installed
-#backend='tf'
+backend='tf'
 if backend=='tf':
     options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 10,
                   'early_stopping_tolerance': 1e-3, 'validation_split': 0,
@@ -102,36 +104,48 @@ else:
 ###########################
 N = 5
 sample_list = model.sample_from_priors(N)
-fitted_list = []
-best_fit = None
-r_test_list = []
 
-# We also want to print out each of our models predictions on the same data, to compare
-f, ax = plt.subplots(N+2, 1, sharex='col')
-ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
-ax[0].set_ylabel('Test stimulus')
-ax[1].plot(response_test, label='actual response')
-ax[1].set_ylabel('Test response')
+###########################
+# Model_List
+# 
+# A way of creating and modifying groups of models, current
+# use is limited.
+#   __init__(): Can create a group via existing list or providing sample amount
+#   fit_models(): Fits group of models, using same inputs as normal fit
+#   plot_models(): Plots all models in group
+###########################
+list_of_models = Model_List(model, samples=N)
 
-# This loops fits each model, compares them to find best fit, and shows how they compare on a graph
-# In practice you will want to print entire models, not just predictions, to find your best model
-for fitidx, cnn_model in enumerate(sample_list):
-    cnn_model.name = f"{cellid}_CNN_fit-{fitidx}"
-    fitted_list.append(cnn_model.fit(spectrogram_fit, response_fit, backend=backend, fitter_options=options))
-    pred_cnn = cnn_model.predict(spectrogram_test)
-    r_test_list.append(np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1])
-    if best_fit is None or best_fit.results.final_error > fitted_list[fitidx].results.final_error:
-        best_fit = fitted_list[fitidx]
+existing_list_of_models = Model_List(sample_list)
 
-    ax[fitidx+2].plot(pred_cnn, label='predicted')
-    ax[fitidx+2].set_ylabel(f'fit {fitidx}')
+list_of_models.fit_models(spectrogram_fit, response_fit, backend=backend, fitter_options=options)
+
+###########################
+# Visualizing all our models
+#
+# With so many models being created and compared, it's worth taking
+# a look at how they all compare and get an idea of how parameters change
+# your models outcome.
+#
+# Here we're looping through our model list, comparing values to find the
+# best fitted model and showing a few graphs to see the differences.
+# !!! In practice, you will want to print the full model plots to compare models
+###########################
+list_of_models.plot_models(input=spectrogram_test, target=response_test)
+
+# Something like this will be more useful in practice
+list_of_models.plot_models(input=spectrogram_test, target=response_test, plot_comparitive=False, plot_full=True)
 
 # Plotting the model of our best fit
-best_fit.name = f"Best Fit, #{fitidx}"
+best_fit = list_of_models.get_best_fit
+best_fit.name = f"Best Fit"
 best_fit.plot(spectrogram_test, target=response_test)
 
-for fitidx, cnn in enumerate(fitted_list):
-    print(f"CNN fit {fitidx} final E={cnn.results.final_error:.3f} r test={r_test_list[fitidx]:.3f}")
+# Printing out error rates and correlation coeffecients of our models to see how they compare
+# Using .get_list we can retrieve the raw list of models
+for fitidx, cnn in enumerate(list_of_models.get_list):
+    pred_cnn = cnn.predict(spectrogram_test)
+    print(f"CNN fit {fitidx} final E={cnn.results.final_error:.3f} r test={np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]:.3f}")
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
