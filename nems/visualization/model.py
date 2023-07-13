@@ -676,3 +676,43 @@ def checkerboard(array):
     shape = array.shape
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
+
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False):
+    '''
+
+    '''
+    samples = len(model_list)
+    fig_list = []
+    best_fit = None
+    if plot_comparitive:
+        fig, ax = plt.subplots(samples+3, 1, sharex='col')
+        ax[0].imshow(input.T,aspect='auto', interpolation='none',origin='lower')
+        ax[0].set_ylabel('Test stimulus')
+        ax[1].plot(target, color='orange', label='actual response')
+        ax[1].set_ylabel('Test response')
+
+        # Loop through our list, compare models, plots data, and save best model
+        for fitidx, model in enumerate(model_list):
+            model.name = f"Model_Fit-{fitidx}"
+            pred_model = model.predict(input)
+
+            if best_fit is None or best_fit.results.final_error > model.results.final_error:
+                best_fit = model
+
+            ax[fitidx+2].plot(pred_model, label='predicted')
+            ax[fitidx+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
+            ax[fitidx+2].set_ylabel(f'Fit {fitidx}')
+
+        # Plotting some comparisons with our test data and the best models
+        ax[samples+2].set_ylabel('Best vs Resp')
+        ax[samples+2].plot(best_fit.predict(input), label = 'Best Fit')
+        ax[samples+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
+
+        ax[samples+2].legend()
+        fig_list.append(fig)
+
+    if plot_full:
+        for model in model_list:
+            fig_list.append(model.plot(input, target=target))
+
+    return fig_list
