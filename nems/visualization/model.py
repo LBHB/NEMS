@@ -429,7 +429,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
         else:
             for i, y in enumerate(target):
-                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
+                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
             #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
         cc = np.corrcoef(target[0][:,0], output[:,0])[0,1]
@@ -713,6 +713,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
     if plot_full:
         for model in model_list:
-            fig_list.append(model.plot(input, target=target))
+            model_figure = model.plot(input, target=target)
+            fig_list.append(model_figure)
 
     return fig_list
