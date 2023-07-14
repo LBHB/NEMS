@@ -11,6 +11,7 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model, plot_model_outputs, plot_model_list
+from nems.preprocessing import get_jackknife, get_jackknife_indices
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -535,6 +536,7 @@ class Model:
         as a generator to reduce memory overhead when only one Layer at a time
         is needed.
 
+        
         Parameters
         ----------
         input : dict or ndarray
@@ -923,6 +925,68 @@ class Model:
 
         return new_model
 
+    def fit_from_list(self, input_list, target_list, **fit_options):
+        """
+        Takes a given list of inputs, responses, and fits the model to each one
+        sequentially.
+
+        Parameters
+        ----------
+        input_list: list of input datasets np.array
+            A list of different input datasets to iterate over
+        target_list: List of target datasets np.array
+            A list of different target datasets to fit our inputs to
+        fit_options: Provides the options that our model fits will need to run
+
+        Returns
+        -------
+        Model object
+        """
+        input_size = len(input_list)
+        target_size = len(target_list)
+        new_model = self.copy()
+        if input_size == target_size:
+            for index in range(0, input_size):
+                new_model = new_model.fit(input_list[index], target_list[index], fit_options)
+        else:
+            raise IndexError("Size of inputs and targets must be equal")
+        return new_model
+    
+    def generate_fit_data(self, input, target, n=5, axis=0, batch_size=0):
+        """
+        Takes a given input dataset and performs various splits to gather a set of N new datasets
+        that can be run through fit_from_list, or manually. Returned data are lists of indicies,
+        which need passed into get_jackknife, to improve memory.
+
+        Parameters
+        ----------
+        Input: np.array
+            A dataset used for model fitting
+        Target: np.array
+            A dataset that our model would use to fit our input onto
+        N: int
+            The number of lists we wish to generate from our data
+        Axis: int
+            Axis used to create list of indices from datasets
+        TODO: Create a list of arguments to adjust data based on things like batches or axis 
+        Returns
+        -------
+        A touple containing input and target indicies list
+        """
+        input_list = []
+        target_list = []
+
+        # Determine if batch sizes matter in given dataset
+        if batch_size:
+            input_list = get_jackknife_indices(input, n, axis, shuffle_jacks=False)
+            target_list = get_jackknife_indices(target, n, axis, shuffle_jacks=False)
+        else:
+
+            #We need to remove shuffling, so our inputs & targets stay relevent
+            input_list = get_jackknife_indices(input, n, axis, shuffle_jacks=False)
+            target_list = get_jackknife_indices(target, n, axis, shuffle_jacks=False)
+
+        return (input_list, target_list)
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
               backend='tf', reset_backend=False, backend_options=None,
@@ -1574,7 +1638,7 @@ class _LayerDict:
 #       Creative ways to utilize this? Examples?
 
 class Model_List:
-    '''
+    """
     A python list of Model objects
 
     This is a supporting class to our base Model class. Providing
@@ -1585,18 +1649,20 @@ class Model_List:
     ..
 
         Methods
-        -------
-        test(test, ...)
-            A temporary test method
-        
-        compare_models(self)
-            Compares all models within a given list
-
+        ------- 
+        fit_models(self, input, ...): List of models
+            Iterates over our list of models, performs fits to each, updates
+            our fit_list and returns a list of fitted models
         plot_models(self)
 
-        predict_models(self)
-
+        predict_models(self, input, ...): List of models
+            Iterates over our list of models, performs predictions to each,
+             updates our pred_list and returns a list of predicted models
         test_models(self)
+
+        compare_models(self)
+            Compares all models within a given list, returns the best model
+            determined via error rate of completed fits
         
         function_to_models(self)
 
@@ -1608,19 +1674,11 @@ class Model_List:
 
     Examples
     --------
-        test
-        test
-        test
-        test
-        test
-        tes
-        te
-        t
-        this is a test :)
+
         
-    '''
+    """
     def __init__(self, model=None, model_list=None, samples=1):
-        '''
+        """
         Create a Model_List object using an existing list, or by
         creating it's own list via sample_from_priors and a provided model
 
@@ -1632,7 +1690,7 @@ class Model_List:
             model_list: List of Models
                 An existing list of models to integrate into the class itself, 
                 base model in this case is first model in list
-        '''
+        """
         if model_list and model_list[0]:
             self.model_list = model_list
             self.model_base = model_list[0]
@@ -1642,28 +1700,40 @@ class Model_List:
         else:
             raise ValueError("A Model or list of Models needs to be provided.")
         self.best_fit = None
+        self.fit_list = None
+        self.pred_list = None
 
     @property
     def get_list(self):
-        ''' Returns model list '''
+        """ Returns model list """
         return self.model_list
     @property
+    def get_fit_list(self):
+        """ Returns list of last fitted models """
+        return self.fit_list
+    @property
+    def get_pred_list(self):
+        """ Returns list of last predicted models """
+    @property
     def get_model(self):
-        ''' Returns the base model '''
+        """ Returns the base model """
         return self.model_base
     @property
     def get_best_fit(self):
-        ''' Returns the current best fit in the list, or None '''
+        """ Returns the current best fit in the list, or None """
         return self.best_fit
     
-    def fit_models(self, input, target, target_name=None, prediction_name=None,
+    def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
-        '''
-        Loops through models and fits them with usual parameters
+        """
+        Fits all models in list, updates our fit_list, and returns a list of
+        fitted models
 
-        See Model.fit(self, ...)
-        '''
+        Returns
+        -------
+        List of models
+        """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
             fit_list[id] = model.fit(input, target, target_name, prediction_name,
@@ -1671,52 +1741,95 @@ class Model_List:
             verbose, in_place, freeze_layers, **eval_kwargs)
             if self.best_fit is None or self.best_fit.results.final_error < fit_list[id].results.final_error:
                 self.best_fit = fit_list[id]
-        self.model_list = fit_list
+        self.fit_list = fit_list
+        return fit_list
+    
+    def fit_from_list(self, input_list, target_list, **fit_options):
+        """
+        Performs a fit_from_list on all models in our model_list, applied fits are added
+        to fit_list
 
-    def compare_models(self):
-        '''
-        Compares all models within a given list and returns ...?
+        parameters
+        ----------
+        See Model.fit_from_list(self, input_list, ...)
 
         Returns
         -------
+        Model list
+        """
+        fit_list = self.model_list
+        for id, model in enumerate(fit_list):
+            fit_list[id] = model.fit_from_list(input_list, target_list, fit_options)
+        self.fit_list = fit_list
+        return fit_list
 
-        '''
-        return
-    
-    def plot_models(self, input, target, plot_comparitive=True, plot_full=False):
-        '''
+    def predict(self, input, return_full_data=False, **eval_kwargs):
+        """
+        Predicts all models in list, updates our pred_list, and returns a list of
+        predicted models
+
+        parameters
+        ----------
+        See Model.predict(self, input, ...)
+
+        Returns
+        -------
+        List of models
+
+        """
+        pred_list = self.model_list
+        for id, model in enumerate(pred_list):
+            pred_list[id] = model.predict(input, return_full_data=False, **eval_kwargs)
+        self.pred_list = pred_list
+        return pred_list    
+
+    def plot(self, input, target, plot_comparitive=True, plot_full=False):
+        """
         Wrapper function for plot_model_list
 
         Plots all models in one of several views, or multiple views from a list
         of fitted models.
-        '''
-        #if self.model_list[0].results:
+        """
         return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full)
-        #else:
-            #raise ValueError('Models must be fitted before plotting this list')
     
-    def predict_models(self):
-        '''
-        Predicts all models in list and returns their outputs as a list
 
-        Returns
-        -------
-
-        '''
-        return
-    
     def test_models(self, response):
-        '''
+        """
         Returns a list of correlation coefficients for each model and response data
-        '''
+        """
         if response:
             return
         else:
             raise ValueError("Please provide response data to compare to your models")
         return
     
+    def compare_models(self):
+        """
+        Compares all models within a given list and returns the model with the lowest fitted error rate
+
+        Returns
+        -------
+        Model object
+        """
+        if self.fit_list:
+            for index, model in enumerate(self.model_list):
+                if self.best_fit is None or self.best_fit.results.final_error < model.results.final_error:
+                    self.best_fit = model
+        else:
+            raise AttributeError("Fit_list does not exist, please run a fit on your models")
+        return self.best_fit
+    
+    def insert_model(self, model, index=0):
+        """ 
+        Inserts a model at given index value into the list, or 0 if none is provided
+        """
+        if self.model_list[index-1]:
+            self.model_list.insert(index, model)
+        else:
+            raise IndexError("Provided index is out of range")
+        
     def function_to_model(self, *kwargs):
-        '''
+        """
         Allows you to run any base model function on all models in list
         through keyword arguments. This serves as a way to apply functions
         that have not been officially implemented...
@@ -1736,5 +1849,5 @@ class Model_List:
             test
             test
             test
-        '''
+        """
         return
