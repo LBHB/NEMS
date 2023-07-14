@@ -133,8 +133,8 @@ list_of_models.fit_models(spectrogram_fit, response_fit, backend=backend, fitter
 ###########################
 list_of_models.plot_models(input=spectrogram_test, target=response_test)
 
-# Something like this will be more useful in practice
-list_of_models.plot_models(input=spectrogram_test, target=response_test, plot_comparitive=False, plot_full=True)
+## Something like this will be more useful in practice
+# list_of_models.plot_models(input=spectrogram_test, target=response_test, plot_comparitive=False, plot_full=True)
 
 # Plotting the model of our best fit
 best_fit = list_of_models.get_best_fit
