@@ -925,34 +925,29 @@ class Model:
 
         return new_model
 
-    def fit_from_list(self, input_set, target_set **fit_options):
+    def fit_from_generator(self, input, target, n=5, **fit_options):
         """
-        Takes a given list of inputs, responses, and fits the model to each one
-        sequentially.
+        Takes a given input and fits our model n times using a jackknife
+        data generator
 
         Parameters
         ----------
-        input_list: list of input datasets np.array
-            A list of different input datasets to iterate over
-        target_list: List of target datasets np.array
+        input: np.array
+            A base 
+        target: np.array
             A list of different target datasets to fit our inputs to
         fit_options: Provides the options that our model fits will need to run
 
         Returns
         -------
         Model object
-        """
-        input, input_list = input
-        target, target_list = target
-        input_size = len(input_list)
-        target_size = len(target_list)
 
+        TODO: Allow this function to take in any data generator
+        """
+        input_generator = self.generate_fit_data(input, n)
         new_model = self.copy()
-        if input_size == target_size:
-            for index in range(0, input_size):
-                new_model = new_model.fit(get_jackknife(input, input_list[index]), get_jackknife(target, target_list[index]), fit_options)
-        else:
-            raise IndexError("Size of inputs and targets must be equal")
+        for index in range(0, n):
+            new_model = new_model.fit(input_generator, target, fit_options)
         return new_model
     
     def generate_fit_data(self, data, n=5, axis=0, batch_size=0):
@@ -970,7 +965,8 @@ class Model:
             Axis used to create list of indices from datasets
         Batch_size:
             Size of batches contained in the dataset, if any
-        TODO: Create a list of arguments to adjust data based on things like batches or axis 
+        TODO: Create a list of arguments to adjust data based on things like batches or axis,
+              Maybe move this to jackknife 
         Returns
         -------
         np.array dataset, subset of data
