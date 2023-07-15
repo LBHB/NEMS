@@ -925,7 +925,7 @@ class Model:
 
         return new_model
 
-    def fit_from_list(self, input_list, target_list, **fit_options):
+    def fit_from_list(self, input_set, target_set **fit_options):
         """
         Takes a given list of inputs, responses, and fits the model to each one
         sequentially.
@@ -942,51 +942,45 @@ class Model:
         -------
         Model object
         """
+        input, input_list = input
+        target, target_list = target
         input_size = len(input_list)
         target_size = len(target_list)
+
         new_model = self.copy()
         if input_size == target_size:
             for index in range(0, input_size):
-                new_model = new_model.fit(input_list[index], target_list[index], fit_options)
+                new_model = new_model.fit(get_jackknife(input, input_list[index]), get_jackknife(target, target_list[index]), fit_options)
         else:
             raise IndexError("Size of inputs and targets must be equal")
         return new_model
     
-    def generate_fit_data(self, input, target, n=5, axis=0, batch_size=0):
+    def generate_fit_data(self, data, n=5, axis=0, batch_size=0):
         """
-        Takes a given input dataset and performs various splits to gather a set of N new datasets
-        that can be run through fit_from_list, or manually. Returned data are lists of indicies,
-        which need passed into get_jackknife, to improve memory.
+        A generator that takes a dataset, and n index to generate and
+        return an input or target to be used in fitting. one at a time.
 
         Parameters
         ----------
-        Input: np.array
+        data: np.array
             A dataset used for model fitting
-        Target: np.array
-            A dataset that our model would use to fit our input onto
         N: int
             The number of lists we wish to generate from our data
         Axis: int
             Axis used to create list of indices from datasets
+        Batch_size:
+            Size of batches contained in the dataset, if any
         TODO: Create a list of arguments to adjust data based on things like batches or axis 
         Returns
         -------
-        A touple containing input and target indicies list
+        np.array dataset, subset of data
         """
-        input_list = []
-        target_list = []
+        input_mask = get_jackknife_indices(data, n, axis, shuffle_jacks=False, batch_size=batch_size)
+        for x in range(0, n):
+        #We need to remove shuffling, so our inputs & targets stay relevent
+            return_data = get_jackknife(data, input_mask[x], axis)
+            yield return_data
 
-        # Determine if batch sizes matter in given dataset
-        if batch_size:
-            input_list = get_jackknife_indices(input, n, axis, shuffle_jacks=False)
-            target_list = get_jackknife_indices(target, n, axis, shuffle_jacks=False)
-        else:
-
-            #We need to remove shuffling, so our inputs & targets stay relevent
-            input_list = get_jackknife_indices(input, n, axis, shuffle_jacks=False)
-            target_list = get_jackknife_indices(target, n, axis, shuffle_jacks=False)
-
-        return (input_list, target_list)
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
               backend='tf', reset_backend=False, backend_options=None,
@@ -1759,7 +1753,7 @@ class Model_List:
         """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit_from_list(input_list, target_list, fit_options)
+            fit_list[id] = model.fit_from_list(input_list, target_list, **fit_options)
         self.fit_list = fit_list
         return fit_list
 
