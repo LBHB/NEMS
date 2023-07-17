@@ -3,10 +3,20 @@ NOTE: This script may not actually work yet!
 
 """
 import numpy as np
+import matplotlib.pyplot as plt
 
 from nems.preprocessing import (
-    indices_by_fraction, split_at_indices, get_jackknife_indices, get_jackknife
+    indices_by_fraction, split_at_indices, get_jackknife_indices, get_jackknife, generate_jackknife_data
 )
+from nems import Model, Model_List
+from nems.layers import LevelShift, WeightChannels
+
+## This indicates that our code is interactive, allowing a matplotlib
+## backend to show graphs. Uncomment if you don't see any graphs
+#plt.ion()
+
+# Basic fitter options for testing
+options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 
 ########################################################
 # Creating validation/estimation data
@@ -23,8 +33,8 @@ from nems.preprocessing import (
 def my_data_loader(file_path):
     # Dummy function to demonstrate the data format.
     print(f'Loading data from {file_path}, but not really...')
-    spectrogram = np.random.random(size=(10000, 18))
-    response = np.stack(spectrogram[:, :5])
+    spectrogram = np.random.random(size=(1000, 18))
+    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
 
     return spectrogram, response
 spectrogram, response = my_data_loader('path/to_data.csv')
@@ -90,3 +100,55 @@ jack_dataset = [get_jackknife(spectrogram, x, axis=0) for x in jack_list]
 # This just prints some info on the new data we made
 print(f"Number of new datasets: {len(jack_dataset)}, and shape of datasets: ")
 [print(f'set {x+1}: {jack_dataset[x].shape}') for x in range(len(jack_dataset))]
+
+###########################
+# generate_jackknife_data
+# One way to utilize jackknifing is by taking advantage of
+# our generators to create more sets of data from our inputs 
+# and targets
+#   - data: Our input data to be split
+#   - samples: The number of sets we wish to generate
+#   - axis: What axis to split the data on
+#   - batch_size: The size of individual batches to take into account
+###########################
+input_gen = generate_jackknife_data(spectrogram, 5)
+target_gen = generate_jackknife_data(response, 5)
+
+###########################
+# fit_from_generator
+# Utilizing our new generators, we will fit our model
+# through a series of datasets
+#   # If you do not pass your own generated data
+#   - input: The input data our default generator will use
+#   - target: The target data for our default generator
+#   # Else, you can specify your own generators
+#   - input_gen: The generator called for inputs
+#   - target_gen: The generator called for target data
+#   - **fit_options: Our usual fit_options we will pass to Model().fit
+###########################
+
+# Basic model for testing
+model = Model()
+model.add_layers(
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
+)
+
+# Using fit generator with the generators we just created 
+gen_model = model.fit_from_generator(5, input_gen=input_gen, target_gen=target_gen, fitter_options=options, backend='scipy')
+
+# Fit generator with default generators, passing input, targets instead
+gen_model = model.fit_from_generator(spectrogram, response, 5, fitter_options=options, backend='scipy')
+
+# Visualizing our model after 5 fits using our data generator
+gen_model.plot(spectrogram, target=response)
+
+# We can also apply type of fitting to lists of models
+gen_model_list = Model_List(model)
+gen_model_list.fit_from_generator(spectrogram, response, 5, fitter_options=options, backend='scipy')
+
+# Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
+gen_model_list.plot(spectrogram, response)
+
+## Uncomment if you don't have an interactive backend installed
+#plt.show()
