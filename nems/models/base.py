@@ -11,7 +11,7 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model, plot_model_outputs, plot_model_list
-from nems.preprocessing import get_jackknife, get_jackknife_indices
+from nems.preprocessing import generate_jackknife_data
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -925,10 +925,10 @@ class Model:
 
         return new_model
 
-    def fit_from_generator(self, input, target, n=5, **fit_options):
+    def fit_from_generator(self, input=None, target=None, samples=5, *, input_gen=None, target_gen=None, **fit_options):
         """
-        Takes a given input and fits our model n times using a jackknife
-        data generator
+        Takes a input and fits our model n times using a given
+        data generator or jackknife generator by default.
 
         Parameters
         ----------
@@ -936,46 +936,30 @@ class Model:
             A base 
         target: np.array
             A list of different target datasets to fit our inputs to
-        fit_options: Provides the options that our model fits will need to run
-
+        n: int
+            How many time we wish to fit our model
+        input_get: generator function
+            Specify the data generator used for our inputs
+        target_gen: generator function
+            specify the data generator used for our targets
+        fit_options: KWArgs
+            Provides the options that our model fits will need to run
+        
         Returns
         -------
         Model object
-
-        TODO: Allow this function to take in any data generator
         """
-        input_generator = self.generate_fit_data(input, n)
+        if input_gen == None:
+            input_gen = generate_jackknife_data(input, samples)
+        if target_gen == None:
+            target_gen = generate_jackknife_data(target, samples)
+
         new_model = self.copy()
-        for index in range(0, n):
-            new_model = new_model.fit(input_generator, target, fit_options)
+        for index in range(0, samples):
+            model_input = next(input_gen)
+            model_target = next(target_gen)
+            new_model = new_model.fit(model_input, model_target, **fit_options)
         return new_model
-    
-    def generate_fit_data(self, data, n=5, axis=0, batch_size=0):
-        """
-        A generator that takes a dataset, and n index to generate and
-        return an input or target to be used in fitting. one at a time.
-
-        Parameters
-        ----------
-        data: np.array
-            A dataset used for model fitting
-        N: int
-            The number of lists we wish to generate from our data
-        Axis: int
-            Axis used to create list of indices from datasets
-        Batch_size:
-            Size of batches contained in the dataset, if any
-        TODO: Create a list of arguments to adjust data based on things like batches or axis,
-              Maybe move this to jackknife 
-        Returns
-        -------
-        np.array dataset, subset of data
-        """
-        input_mask = get_jackknife_indices(data, n, axis, shuffle_jacks=False, batch_size=batch_size)
-        for x in range(0, n):
-        #We need to remove shuffling, so our inputs & targets stay relevent
-            return_data = get_jackknife(data, input_mask[x], axis)
-            yield return_data
 
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
@@ -1667,7 +1651,7 @@ class Model_List:
 
         
     """
-    def __init__(self, model=None, model_list=None, samples=1):
+    def __init__(self, model=None, model_list=None, samples=2):
         """
         Create a Model_List object using an existing list, or by
         creating it's own list via sample_from_priors and a provided model
@@ -1682,11 +1666,14 @@ class Model_List:
                 base model in this case is first model in list
         """
         if model_list and model_list[0]:
-            self.model_list = model_list
             self.model_base = model_list[0]
+            self.model_list = model_list
         elif model:
-            self.model_list = model.sample_from_priors(samples)
             self.model_base = model
+            if samples > 1:
+                self.model_list = model.sample_from_priors(samples)
+            else:
+                self.model_list = [model.sample_from_priors(samples)]
         else:
             raise ValueError("A Model or list of Models needs to be provided.")
         self.best_fit = None
@@ -1734,14 +1721,13 @@ class Model_List:
         self.fit_list = fit_list
         return fit_list
     
-    def fit_from_list(self, input_list, target_list, **fit_options):
+    def fit_from_generator(self, input=None, target=None, samples=5, *, input_gen=None, target_gen=None, **fit_options):
         """
-        Performs a fit_from_list on all models in our model_list, applied fits are added
-        to fit_list
+        Performs a fit_from_generator on our set of models 
 
         parameters
         ----------
-        See Model.fit_from_list(self, input_list, ...)
+        See Model.fit_from_generator(self, input, ...)
 
         Returns
         -------
@@ -1749,7 +1735,7 @@ class Model_List:
         """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit_from_list(input_list, target_list, **fit_options)
+            fit_list[id] = model.fit_from_generator(input, target, samples, input_gen=input_gen, target_gen=target_gen, **fit_options)
         self.fit_list = fit_list
         return fit_list
 
@@ -1779,20 +1765,39 @@ class Model_List:
 
         Plots all models in one of several views, or multiple views from a list
         of fitted models.
+
+        parameters
+        ----------
+        See nems.visualization.plot_model_list(self, input, ...)
+
+        Returns
+        -------
+        Figure
         """
         return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full)
     
 
-    def test_models(self, response):
+    def score(self, input, target, metric='correlation', metric_kwargs=None,
+              prediction_name=None, **eval_kwargs):
         """
-        Returns a list of correlation coefficients for each model and response data
+        Wrapper for Model() function with the same name, iterated over model_list
+
+        parameters
+        ----------
+        See Model.score(self, input, ...)
+
+        Returns
+        -------
+        Metric result value
         """
-        if response:
-            return
-        else:
-            raise ValueError("Please provide response data to compare to your models")
-        return
-    
+        model_list = self.model_list
+        score_list = []
+        for model in model_list:
+            score = model.score(input, target, metric, metric_kwargs,
+              prediction_name, **eval_kwargs)
+            score_list.append(score)
+        return score_list
+        
     def compare_models(self):
         """
         Compares all models within a given list and returns the model with the lowest fitted error rate
@@ -1820,6 +1825,7 @@ class Model_List:
         
     def function_to_model(self, *kwargs):
         """
+        TODO: Implement this function
         Allows you to run any base model function on all models in list
         through keyword arguments. This serves as a way to apply functions
         that have not been officially implemented...
