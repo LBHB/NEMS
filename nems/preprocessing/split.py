@@ -84,3 +84,29 @@ def get_jackknife(data, indices, axis=0):
     return np.delete(data, obj=indices, axis=axis)
 
 # TODO: what other generic split functions would be useful here?
+
+def generate_jackknife_data(data, samples=5, axis=0, batch_size=0):
+    """
+    A generator that takes a dataset, and n index to generate and
+    return an input or target to be used in fitting. one at a time.
+
+    Parameters
+    ----------
+    data: np.array
+        A dataset used for model fitting
+    N: int
+        The number of lists we wish to generate from our data
+    Axis: int
+        Axis used to create list of indices from datasets
+    Batch_size:
+        Size of batches contained in the dataset, if any
+    TODO: Create a list of arguments to adjust data based on things like batches or axis,
+            Maybe move this to jackknife 
+    Returns
+    -------
+    np.array dataset, subset of data
+    """
+    input_mask = get_jackknife_indices(data, samples, axis)
+    for x in range(0, samples):
+        return_data = get_jackknife(data, input_mask[x], axis)
+        yield return_data
