@@ -42,8 +42,8 @@ git clone https://github.com/LBHB/NEMS.git
 3. **Install NEMS in editable mode along with optional development tools.**
 ```console
 pip install -e NEMS[dev]
-```
-    - 3a. **Optional** Install Tensorflow
+```   
+- 3a. **Optional** Install Tensorflow     
     ```console
     pip install -e NEMS[tf]
     ```
