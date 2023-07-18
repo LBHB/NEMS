@@ -2,6 +2,7 @@ import copy
 import textwrap
 import itertools
 import warnings
+import types
 
 import numpy as np
 import logging
@@ -817,8 +818,36 @@ class Model:
         """
         return self.evaluate(input, return_full_data=return_full_data,
                              **eval_kwargs)
-
     def fit(self, input, target, target_name=None, prediction_name=None,
+            backend='scipy', fitter_options=None, backend_options=None,
+            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+        """ 
+        Fit function wrapper to process various types of fits, such as fitting from
+        a generator function 
+        
+        Parameters
+        ----------
+        See more at: base_fit(self, input, ...), 
+                     fit_from_generator(self, input, ...)
+
+        Returns
+        -------
+        Model or List of Model()
+        """
+        if isinstance(input, types.GeneratorType):
+            return self.fit_from_generator(input_gen=next(input), target_gen=next(target), target_name=target_name, 
+            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
+            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
+            **eval_kwargs)
+        else:
+            return self.base_fit(input=input, target=target, target_name=target_name, 
+            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
+            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
+            **eval_kwargs)
+
+
+
+    def base_fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
@@ -925,8 +954,10 @@ class Model:
 
         return new_model
 
-    def fit_from_generator(self, input=None, target=None, samples=5, *, input_gen=None, target_gen=None, **fit_options):
+    def fit_from_generator(self, input=None, target=None, samples=None, *, input_gen=None, target_gen=None, **fit_options):
         """
+        TODO: Implement this directly in fit to simplify calls
+
         Takes a input and fits our model n times using a given
         data generator or jackknife generator by default.
 
@@ -949,16 +980,25 @@ class Model:
         -------
         Model object
         """
-        if input_gen == None:
-            input_gen = generate_jackknife_data(input, samples)
-        if target_gen == None:
-            target_gen = generate_jackknife_data(target, samples)
-
         new_model = self.copy()
-        for index in range(0, samples):
-            model_input = next(input_gen)
-            model_target = next(target_gen)
-            new_model = new_model.fit(model_input, model_target, **fit_options)
+
+        if input_gen == None:
+            input_gen = next(generate_jackknife_data(input, samples))
+        if target_gen == None:
+            target_gen = next(generate_jackknife_data(target, samples))
+
+        # If samples is specified as None we will iterate through all available generations
+        # or end after an arbitrarily large amount of fits
+        if samples == None:
+            samples = 20
+
+        try:
+            for index in range(0, samples):
+                model_input = next(input_gen)
+                model_target = next(target_gen)
+                new_model = new_model.fit(model_input, model_target, **fit_options)
+        except StopIteration:
+            pass
         return new_model
 
 
@@ -1713,10 +1753,10 @@ class Model_List:
         """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit(input, target, target_name, prediction_name,
-            backend, fitter_options, backend_options,
+            fit_list[id] = model.fit(input, target, target_name, 
+            prediction_name, backend, fitter_options, backend_options,
             verbose, in_place, freeze_layers, **eval_kwargs)
-            if self.best_fit is None or self.best_fit.results.final_error < fit_list[id].results.final_error:
+            if self.best_fit == None or self.best_fit.results.final_error < fit_list[id].results.final_error:
                 self.best_fit = fit_list[id]
         self.fit_list = fit_list
         return fit_list
@@ -1808,7 +1848,7 @@ class Model_List:
         """
         if self.fit_list:
             for index, model in enumerate(self.model_list):
-                if self.best_fit is None or self.best_fit.results.final_error < model.results.final_error:
+                if not self.best or self.best_fit.results.final_error < model.results.final_error:
                     self.best_fit = model
         else:
             raise AttributeError("Fit_list does not exist, please run a fit on your models")
