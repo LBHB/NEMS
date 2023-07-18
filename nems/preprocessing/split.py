@@ -85,9 +85,10 @@ def get_jackknife(data, indices, axis=0):
 
 # TODO: what other generic split functions would be useful here?
 
+# TODO: Merge functions together ie. lambda, inner def, etc...
 def generate_jackknife_data(data, samples=5, axis=0, batch_size=0):
     """
-    A generator that takes a dataset, and n index to generate and
+    Creates a generator of generators that take a dataset, and # of samples to index to
     return an input or target to be used in fitting. one at a time.
 
     Parameters
@@ -106,7 +107,14 @@ def generate_jackknife_data(data, samples=5, axis=0, batch_size=0):
     -------
     np.array dataset, subset of data
     """
-    input_mask = get_jackknife_indices(data, samples, axis)
-    for x in range(0, samples):
-        return_data = get_jackknife(data, input_mask[x], axis)
-        yield return_data
+    while True:
+        yield internal_jackknife_generator(data, samples, axis)
+
+# Testing a generator of generators to allow multiple fits and models to use same base generator
+# created by end user. Will be merging with above eventually
+def internal_jackknife_generator(data, samples, axis=0):
+    while True:
+        input_mask = get_jackknife_indices(data, samples, axis)
+        for x in range(0, samples):
+            return_data = get_jackknife(data, input_mask[x], axis)
+            yield return_data
