@@ -23,6 +23,7 @@ model = Model.from_keywords('wc.18x1-fir.15x1-dexp.1')
 
 # Keyword and Traditional models below would be equivalent
 keyword_model = Model(layers=['wc.18x1', 'fir.15x1', 'dexp.1'])
+single_keyword_model = Model(layers='wc.18x1-fir.15x1-dexp.1')
 
 layers = [WeightChannels(shape=(18,1)), FIR(shape=(15,1)), 
           DoubleExponential(shape=(1,))]

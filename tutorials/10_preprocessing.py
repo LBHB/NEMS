@@ -98,7 +98,7 @@ jack_dataset = [get_jackknife(spectrogram, x, axis=0) for x in jack_list]
 # to get all of our data sets
 
 # This just prints some info on the new data we made
-print(f"Number of new datasets: {len(jack_dataset)}, and shape of datasets: ")
+print(f"Number of new datasets: {len(jack_dataset)}, and shape of datasets: {jack_dataset[0].shape}")
 [print(f'set {x+1}: {jack_dataset[x].shape}') for x in range(len(jack_dataset))]
 
 ###########################
@@ -110,6 +110,8 @@ print(f"Number of new datasets: {len(jack_dataset)}, and shape of datasets: ")
 #   - samples: The number of sets we wish to generate
 #   - axis: What axis to split the data on
 #   - batch_size: The size of individual batches to take into account
+# NOTE: This function actually returns a second generator that performs the above work.
+#       To return relevant data, call next(next(test_gen_var))
 ###########################
 input_gen = generate_jackknife_data(spectrogram, 5)
 target_gen = generate_jackknife_data(response, 5)
@@ -134,18 +136,27 @@ model.add_layers(
     LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
 
-# Using fit generator with the generators we just created 
-gen_model = model.fit_from_generator(5, input_gen=input_gen, target_gen=target_gen, fitter_options=options, backend='scipy')
 
-# Fit generator with default generators, passing input, targets instead
+# There are 2 ways to call a fit using generators
+
+#1. Using our prebuilt generators, we can call it directly with fit
+gen_model = model.fit(input_gen, target_gen, fitter_options=options, backend='scipy')
+
+#2. Using fit_from_generator we can provide simply an input, output and a default generator will be used
 gen_model = model.fit_from_generator(spectrogram, response, 5, fitter_options=options, backend='scipy')
 
+# Keep in mind, you cannot reuse a declared generator, so you must create a new set for each model
 # Visualizing our model after 5 fits using our data generator
 gen_model.plot(spectrogram, target=response)
 
-# We can also apply type of fitting to lists of models
+# We can also apply all of this to our gen_model_list
+# NOTE: You must provide a list of generators, or set samples 
+# as (models*samples) so 5 samples in this list is 5*2 = 10 samples
+input_gen = generate_jackknife_data(spectrogram, 10)
+target_gen = generate_jackknife_data(response, 10)
+
 gen_model_list = Model_List(model)
-gen_model_list.fit_from_generator(spectrogram, response, 5, fitter_options=options, backend='scipy')
+gen_model_list.fit(input_gen, target_gen, fitter_options=options, backend='scipy')
 
 # Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
 gen_model_list.plot(spectrogram, response)
