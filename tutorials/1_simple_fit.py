@@ -3,7 +3,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from nems import visualization
 from nems import Model
 from nems.layers import LevelShift, WeightChannels
 
@@ -67,6 +66,9 @@ model.add_layers(
     LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
 
+# We can name our models, will show up as a title in plots
+model.name = "DummyData-SimpleLinearModel"
+
 ###########################
 # Viewing the model and data
 #   Model.plot(): Takes input and many possible KWarg's to plot layer data and evaluation outputs
@@ -95,20 +97,27 @@ print(f"""
 #   Input: Our 2D numpy array representing some form of TIME x CHANNEL structure
 #   Target: The model will try to fit Input to Target using layers and fitter options
 #   Fitter Options: Provide options for modifying how our model might fit the data
+#
+# NOTE: When fitting(& Predicting) our model, a copy of our original model is created
+# with the fit or prediction. This copy is returned and needs to be saved to be used.
+# For example: If we called our model again below, nothing will have changed. We need
+# to call fitted_model to see any changes. 
+#
 # See more at: https://temp.website.net/nems_model_fit
 ###########################
-fit_model = model.fit(input=spectrogram, target=response,
+fitted_model = model.fit(input=spectrogram, target=response,
                       fitter_options=options)
+fitted_model.name += "-Fitted"
 
 # We are now viewing our data after it has fit the input to our target
-fit_model.plot(spectrogram, target=response)
+fitted_model.plot(spectrogram, target=response)
 
 print(f"""
-    layer shapes:\n {fit_model.layers[0].shape}
-    layer priors:\n {fit_model.layers[0].priors}
-    layer bounds:\n {fit_model.layers[0].bounds}
+    layer shapes:\n {fitted_model.layers[0].shape}
+    layer priors:\n {fitted_model.layers[0].priors}
+    layer bounds:\n {fitted_model.layers[0].bounds}
     pre-fit weighted layer values:\n {model.layers[0].coefficients}
-    post-fit weighted layer values:\n {fit_model.layers[0].coefficients}
+    post-fit weighted layer values:\n {fitted_model.layers[0].coefficients}
 
 """)
  
@@ -117,10 +126,11 @@ print(f"""
 #   Backend(Not seen here): Can be specified to decide an Optimizer, default = scipy.optimize.minimize()
 #       - Other options exist such as tf for tensorflow
 #   Spectrogram: The data we will performing a prediction with
+# Again, we need to save our predicted model if we wish to use or view it
 # See more at: https://temp.website.net/nems_model_predict and
 # See more at: https://temp.website.net/nems_backends
 ###########################
-pred_model = model.predict(spectrogram)
+pred_model = fitted_model.predict(spectrogram)
 
 # Viewing our model prediction, compared with the initial input given
 f, ax = plt.subplots(2, 1, sharex='col')
