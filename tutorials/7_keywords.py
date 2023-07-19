@@ -55,6 +55,10 @@ traditional_model = Model(layers=layers)
 # in another tutorial, but it's important to know that you
 # can build your own keywords in this system, or specify
 # special/specific keywords for personal use
+#
+# The core 2 rules that need to be followed are 
+# 1. Maintain the current keyword structure "layer.param.param.etc ..."
+# 2. The function defined below the keyword MUST return an instanced layer
 ###########################
 
 # This module is required to register your own keywords, it will need
