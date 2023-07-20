@@ -70,6 +70,11 @@ from nems.registry import layer
 
 # This will create a special keyword to apply some specific logic to our layer
 # 'wcd' is the keyword you will need to provide in the future
+
+# You would need to import this file into your main script to access this specific keyword
+# since you are modifying a predefined layer
+# !! This only applies to layers already defined inside nems, you can add these directly
+# into your own layers normally which would register when your layer is imported
 @layer('wcd')
 def from_keyword(keyword):
     options = keyword.split('.')
