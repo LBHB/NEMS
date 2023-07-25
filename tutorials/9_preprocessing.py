@@ -175,6 +175,16 @@ inverse_single = get_inverse_jackknife(spectrogram, jack_list[0], axis=0, pad=Tr
 print(f'Base data: {jack_single.shape}\n Inverse data: {inverse_single.shape}')
 
 
+# We have a few other ways of padding our data too:
+# Mean pads with the mean value along a given axis
+test_array = pad_array(test_array, size=25, pad_type='mean')
+
+# Edge will use the the immediate values from the left or right of each added index
+test_array = pad_array(test_array, size=25, pad_type='edge')
+
+# Random will select some random value between the min and max of the array at a given axis
+test_array = pad_array(test_array, size=25, pad_type='random')
+
 
 ###########################
 # generate_jackknife_data
