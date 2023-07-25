@@ -182,9 +182,9 @@ def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=Non
         for index in mask:
             for_index = array[index+1]
             back_index = array[index-1]
-            if for_index:
+            if for_index is not None:
                 array[index] = for_index
-            elif back_index:
+            elif back_index is not None:
                 array[index] = back_index
             else:
                 array[index] = 0
@@ -195,9 +195,9 @@ def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=Non
         '''Replaces values at mask location in array with random array values from min to max'''
         array_max = np.max(array)
         array_min = np.min(array)
-        random_array = np.random.uniform(array_min, array_max, len(mask))
-        for index in mask:
-            array[index] = random_array[index]
+        random_array = np.random.uniform(array_min, array_max, len(mask)+1)
+        for x, index in enumerate(mask):
+            array[index] = random_array[x]
         return array
 
 
