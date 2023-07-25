@@ -818,7 +818,7 @@ class Model:
         """
         return self.evaluate(input, return_full_data=return_full_data,
                              **eval_kwargs)
-    def fit(self, input, target, target_name=None, prediction_name=None,
+    def fit(self, input, target=None, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
         """ 
@@ -834,8 +834,13 @@ class Model:
         -------
         Model or List of Model()
         """
+
         if isinstance(input, types.GeneratorType):
-            return self.fit_from_generator(input_gen=next(input), target_gen=next(target), target_name=target_name, 
+            input_gen = next(input)
+            if not isinstance(target, types.GeneratorType): target_gen = None
+            else: target_gen = next(target)
+                
+            return self.fit_from_generator(input_gen=input_gen, target_gen=target_gen, target_name=target_name, 
             prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
             backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
             **eval_kwargs)
@@ -981,11 +986,21 @@ class Model:
         Model object
         """
         new_model = self.copy()
+        inverse = False
 
-        if input_gen == None:
-            input_gen = next(generate_jackknife_data(input, samples))
-        if target_gen == None:
-            target_gen = next(generate_jackknife_data(target, samples))
+        # Creates generators from data if none are given. 
+        if input_gen is None:
+            if target is not None:
+                input_gen = next(generate_jackknife_data(input, samples))
+            else:
+                input_gen = generate_jackknife_data(input, samples, inverse=True)
+                inverse = True
+
+        if target_gen is None:
+            if target is not None:
+                target_gen = next(generate_jackknife_data(target, samples))
+            else:
+                inverse = True
 
         # If samples is specified as None we will iterate through all available generations
         # or end after an arbitrarily large amount of fits
@@ -994,8 +1009,12 @@ class Model:
 
         try:
             for index in range(0, samples):
-                model_input = next(input_gen)
-                model_target = next(target_gen)
+                if inverse:
+                    model_input, model_target = next(input_gen)
+                else:
+                    model_input = next(input_gen)
+                    model_target = next(target_gen)
+                
                 new_model = new_model.fit(model_input, model_target, **fit_options)
         except StopIteration:
             pass
@@ -1691,7 +1710,7 @@ class Model_List:
 
         
     """
-    def __init__(self, model=None, model_list=None, samples=2):
+    def __init__(self, model=None, model_list=None, samples=5):
         """
         Create a Model_List object using an existing list, or by
         creating it's own list via sample_from_priors and a provided model
