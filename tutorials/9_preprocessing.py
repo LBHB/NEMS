@@ -75,9 +75,8 @@ est_response, val_response = split_at_indices(
 
 ########################################################
 # Jackknifing
-# Creating data is a core component in making accurate and relevant models.
-# Using jackknifing we can create much more data then we're initially given,
-# by creating subsets that we can fit our models to.
+# Using jackknifes we can create subsets of our data to
+# more accurately fit models and provide predication data
 #
 # The core of our jackknife functions are based around generators. It is
 # important to keep in mind a few things about generators:
@@ -141,6 +140,88 @@ inverse_single = get_inverse_jackknife(spectrogram, jack_list[0], axis=0)
 inverse_jack_dataset = [get_inverse_jackknife(spectrogram, index_set, axis=0) for index_set in jack_list]
 
 ###########################
+# generate_jackknife_data
+# One way to utilize jackknifing is by taking advantage of
+# our generators to create available sets of inputs and targets
+#   - input: Data we wish to fit in a model
+#   - target: Our target data to fit our input onto
+#   - samples: The number of sets we wish to generate
+#   - axis: What axis to split the data on
+#   - batch_size: The size of individual batches to take into account
+#   - inverse: Allows you to access a tuple that provides the inverse data 
+# NOTE: This function actually returns a second generator that performs the above work.
+#       To return relevant data, call next(next(test_gen_var))
+###########################
+jackknife_dataset_generator = generate_jackknife_data(spectrogram, response, 5)
+
+# Genereate_jackknife_data creates a generator of generators so we can make new ones with the same parameters.
+# Calling next again will provide us with an actual generator that returns values
+jackknife_dataset_generator = next(jackknife_dataset_generator)
+
+# An example of how this generator will provide data,
+# typically this is for internal use by our fits:
+input_gen, target_gen = next(jackknife_dataset_generator)
+
+# We can also specify and have our jackknifes return inverse masks
+jackknife_full_generator = generate_jackknife_data(spectrogram, response, 5, inverse=True)
+
+# Our inverse sets will be used for validation
+est, val = next(jackknife_full_generator)
+
+# A generator we can pass to our model fitters
+est_gen = next(est)
+est_input, est_target = next(est_gen)
+
+# Our validation set
+val_input, val_target = next(val)
+
+###########################
+# fit_from_generator
+# Utilizing our new generators, we will fit our model
+# through a series of datasets
+#   # If you do not pass your own generated data
+#   - input: The input data our default generator will use
+#   - target: The target data for our default generatorjackknife_dataset_generator = jackknife_dataset_generator
+
+#   # Else, you can specify your own generators
+#   - input_gen: The generator called for inputs
+#   - target_gen: The generator called for target data
+#   - **fit_options: Our usual fit_options we will pass to Model().fit
+###########################
+
+# Basic model for testing
+model = Model()
+model.add_layers(
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
+)
+
+# There are 2 ways to call a fit using generators
+
+#1. We can fit our individual data sets as normal
+gen_model = model.fit(est_input, est_target, fitter_options=options, backend='scipy')
+
+#2. We can also fit using their generators directly, looping through all the given samples at once
+gen_model = gen_model.fit(est, fitter_options=options, backend='scipy')
+
+# Visualizing our model after 5 fits using our data generator
+gen_model.plot(spectrogram, target=response)
+
+# We can also apply all of this to our gen_model_list
+
+gen_model_list = Model_List(model)
+gen_model_list.fit(est, fitter_options=options, backend='scipy')
+
+# Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
+gen_model_list.plot(spectrogram, response)
+
+
+
+
+
+# TODO: Rewrite this
+
+###########################
 # pad_array
 # Often we may need to pad both our original jackknifes, and our inverse
 # sets, so we can properly fit models together. Using pad_array you can
@@ -186,85 +267,13 @@ test_array = pad_array(test_array, size=25, pad_type='edge')
 test_array = pad_array(test_array, size=25, pad_type='random')
 
 
-###########################
-# generate_jackknife_data
-# One way to utilize jackknifing is by taking advantage of
-# our generators to create more sets of data from our inputs 
-# and targets
-#   - data: Our input data to be split
-#   - samples: The number of sets we wish to generate
-#   - axis: What axis to split the data on
-#   - batch_size: The size of individual batches to take into account
-#   - inverse: Allows you to access a tuple that provides the inverse data 
-# NOTE: This function actually returns a second generator that performs the above work.
-#       To return relevant data, call next(next(test_gen_var))
-###########################
-input_gen = generate_jackknife_data(spectrogram, 5)
-target_gen = generate_jackknife_data(spectrogram, 5)
-
-# We can also use our inverse sets to generate the inverse for our targets
-# These inverses must be made at the same time an original set is made, so
-# it's best to use these to create single data points for models 
-# ex:
-
-# We specify we want inverses in our generation
-# This tells the generator to return the normal and inverse sets.
-# NOTE: Remember generate_jackknife_data is a generator that creates generators,
-#       so we still need to make an initial generator to use
-input_inverse_gen = generate_jackknife_data(spectrogram, 5, inverse=True)
-
-# Making our actual index generator from our parameters given above
-input_inverse_gen = next(input_inverse_gen)
-
-# We return a set of jackknifed values, as a tuple of (normal, inverse)
-input_data, target_data = next(input_inverse_gen)
 
 
-###########################
-# fit_from_generator
-# Utilizing our new generators, we will fit our model
-# through a series of datasets
-#   # If you do not pass your own generated data
-#   - input: The input data our default generator will use
-#   - target: The target data for our default generator
-#   # Else, you can specify your own generators
-#   - input_gen: The generator called for inputs
-#   - target_gen: The generator called for target data
-#   - **fit_options: Our usual fit_options we will pass to Model().fit
-###########################
-
-# Basic model for testing
-model = Model()
-model.add_layers(
-    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
-    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
-)
 
 
-# There are 2 ways to call a fit using generators
 
-#1. Using our prebuilt generators, we can call it directly with fit
-gen_model = model.fit(input_gen, target_gen, fitter_options=options, backend='scipy')
 
-#2. Using fit_from_generator we can provide simply an input, output and a default generator will be used
-gen_model = gen_model.fit_from_generator(spectrogram, response, 5, fitter_options=options, backend='scipy')
 
-#3. We can fit our model using a single generator and our inverse sets
-input_inverse_gen = generate_jackknife_data(spectrogram, 5, inverse=True)
-gen_model = gen_model.fit(input_inverse_gen, fitter_options=options, backend='scipy')
-
-# Visualizing our model after 5 fits using our data generator
-gen_model.plot(spectrogram, target=response)
-
-# We can also apply all of this to our gen_model_list
-input_gen = generate_jackknife_data(spectrogram, 5)
-target_gen = generate_jackknife_data(response, 5)
-
-gen_model_list = Model_List(model)
-gen_model_list.fit(input_gen, target_gen, fitter_options=options, backend='scipy')
-
-# Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
-gen_model_list.plot(spectrogram, response)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
