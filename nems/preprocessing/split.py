@@ -85,8 +85,9 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
     else:
         jack_indices = np.array_split(indices, n)
 
-    if shuffle_jacks:
-        jack_indices = np.random.permutation(jack_indices)
+    # Temp disabled, issue with new numpy versions due to arrays of different sizes
+    #if shuffle_jacks:
+        #jack_indices = np.random.permutation(jack_indices)
 
     # If true, changes the generator to return the original full list of indicies once.
     if full_list:
@@ -234,7 +235,7 @@ def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=Non
 # TODO: what other generic split functions would be useful here?
 
 # TODO: Merge functions together ie. lambda, inner def, etc...
-def generate_jackknife_data(data, samples=5, axis=0, batch_size=0, inverse=False):
+def generate_jackknife_data(input, target, samples=5, axis=0, batch_size=0, inverse=False):
     """
     Creates a generator of generators that take a dataset, and # of samples to index to
     return an input or target to be used in fitting. one at a time.
@@ -256,28 +257,40 @@ def generate_jackknife_data(data, samples=5, axis=0, batch_size=0, inverse=False
     np.array dataset, subset of data
     """
     while True:
-        yield internal_jackknife_generator(data, samples, axis=axis, batch_size=batch_size, inverse=inverse)
+        if inverse:
+            yield (generate_jackknife_data(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=False), 
+                   internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True))
+        else:
+            yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size)
+            
+                   
 
 
 # Testing a generator of generators to allow multiple fits and models to use same base generator
 # created by end user. Will be merging with above eventually
-def internal_jackknife_generator(data, samples, axis=0, batch_size=0, inverse=False):
-    while True:
-        return_set = None
-        dataset = None
-        inverse_dataset = None
-        pad = False
+def internal_jackknife_generator(input, target, samples=5, axis=0, batch_size=0, inverse=False):
+    return_set = None
+    dataset = None
+    inverse_dataset = None
 
-        if inverse is True:
-            pad = True
+    mask_gen = get_jackknife_indices(input, samples, axis=axis, batch_size=batch_size)
+    for index in range(0, samples):
+        mask = next(mask_gen)
 
-        mask_gen = get_jackknife_indices(data, samples, axis=axis, batch_size=batch_size)
-        for index in range(0, samples):
-            input_mask = next(mask_gen)
-            dataset = get_jackknife(data, input_mask, axis=axis, pad=pad)
+        if inverse:
+            inverse_input = get_inverse_jackknife(input, mask, axis=axis)
+            inverse_dataset = inverse_input
+            if target is not None:
+                inverse_target = get_inverse_jackknife(target, mask, axis=axis)
+                inverse_dataset = (inverse_input, inverse_target)
+            return_set = inverse_dataset
+        else:
+            input_data = get_jackknife(input, mask, axis=axis)
+            dataset = input_data
+            if target is not None:
+                target_data = get_jackknife(target, mask, axis=axis)    
+                dataset = (input_data, target_data)
             return_set = dataset
-            if inverse:
-                inverse_dataset = get_inverse_jackknife(data, input_mask, axis=axis, pad=pad)
-                inverse_dataset = inverse_dataset
-                return_set = (dataset, inverse_dataset)
-            yield return_set
+
+        print(f'{index}, {samples}')
+        yield return_set
