@@ -122,7 +122,7 @@ print(f'Total # of elements: {len(jack_list)} \n Each elements shape ~{jack_list
 ###########################
 jack_single = get_jackknife(spectrogram, jack_list[0], axis=0)
 jack_dataset = [get_jackknife(spectrogram, x, axis=0) for x in jack_list]
-# Since get_jackknife_indices returns a list of indexs, we must iterate on that list
+# Since get_jackknife_indices returns a list of indexs or generator, we must iterate on that list
 # to get all of our data sets
 
 # This just prints some info on the new data we made
@@ -204,6 +204,10 @@ gen_model = model.fit(est_input, est_target, fitter_options=options, backend='sc
 
 #2. We can also fit using their generators directly, looping through all the given samples at once
 gen_model = gen_model.fit(est, fitter_options=options, backend='scipy')
+
+# Creating a quick gen from scratch and fitting our model
+test_gen = generate_jackknife_data(spectrogram, response, 5)
+gen_model = gen_model.fit(test_gen, fitter_options=options, backend='scipy')
 
 # Using this data, we can predict our models as well using our validation sets
 pred_gen_model = gen_model.predict(val_input)
