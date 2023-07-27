@@ -258,12 +258,17 @@ def generate_jackknife_data(input, target, samples=5, axis=0, batch_size=0, inve
     """
     while True:
         if inverse:
-            yield (generate_jackknife_data(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=False), 
-                   internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True))
+            yield (split_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=False), 
+                   split_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True))
         else:
             yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size)
-            
-                   
+
+# Another internal function for our generator. Used to allow creation of tuple of gens for validation/fit data
+def split_jackknife_generator(input, target, samples=5, axis=0, batch_size=0, inverse=False):
+    while True:
+        if inverse:
+            yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True)
+        yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size)
 
 
 # Testing a generator of generators to allow multiple fits and models to use same base generator
@@ -292,5 +297,4 @@ def internal_jackknife_generator(input, target, samples=5, axis=0, batch_size=0,
                 dataset = (input_data, target_data)
             return_set = dataset
 
-        print(f'{index}, {samples}')
         yield return_set
