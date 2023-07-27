@@ -816,8 +816,38 @@ class Model:
               in input.
         
         """
-        return self.evaluate(input, return_full_data=return_full_data,
-                             **eval_kwargs)
+        def base_predict(input, return_full_data=False, **eval_kwargs):
+            return self.evaluate(input, return_full_data=return_full_data, **eval_kwargs)
+        
+        def generator_predict(input, return_full_data=False, **eval_kwargs):
+            input_result = input
+            while isinstance(input_result, types.GeneratorType):
+                input_gen = input_result
+                input_result = next(input_result)
+            val_list = []
+            val_list.append(input_result)
+
+            try:
+                for index in input_gen:
+                    if isinstance(input_result, tuple):
+                        input_result, _ = input_result 
+                    eval_result = self.evaluate(input_result, return_full_data=return_full_data, **eval_kwargs)
+                    val_list.append(eval_result)
+                    input_result = next(input_gen)
+            except StopIteration:
+                pass
+            return val_list
+            
+        
+        predict_type = 'base'
+        predict_functions = {}
+        if isinstance(input, types.GeneratorType):
+            predict_type = 'generator'
+        predict_functions['base'] = base_predict
+        predict_functions['generator'] = generator_predict
+
+        return predict_functions[predict_type](input, return_full_data=False, **eval_kwargs)
+    
     def fit(self, input, target=None, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
@@ -834,19 +864,28 @@ class Model:
         -------
         Model or List of Model()
         """
+        def base_fit(input_val, target_val):
+            return self.base_fit(input=input_val, target=target_val, target_name=target_name, 
+            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
+            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
+            **eval_kwargs)
+        
+        def generator_fit(input_val, target_val):
+            return self.fit_from_generator(input_gen=input_val, target_gen=target_val, target_name=target_name, 
+            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
+            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
+            **eval_kwargs)
+    
+        fit_functions = {}
+        fit_functions['base'] = base_fit
+        fit_functions['generator'] = generator_fit
+        fit_type = 'base'
+
         if isinstance(input, types.GeneratorType):
-            input = next(input)
-            if isinstance(target, types.GeneratorType):
-                target = next(target)
-            return self.fit_from_generator(input_gen=input, target_gen=target, target_name=target_name, 
-            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
-            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
-            **eval_kwargs)
-        else:
-            return self.base_fit(input=input, target=target, target_name=target_name, 
-            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
-            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
-            **eval_kwargs)
+            fit_type = 'generator'
+        
+        return fit_functions[fit_type](input, target)
+            
 
 
     def base_fit(self, input, target, target_name=None, prediction_name=None,
@@ -983,19 +1022,24 @@ class Model:
         Model object
         """
         new_model = self.copy()
-        model_generator = None
 
-        # Creates generators from data if none are given. 
+        # Organizing/Creating generators to organize data for fits
         if input_gen is None and target_gen is None:
             model_generator = generate_jackknife_data(input, target)
         elif target_gen is None:
+            # Most likely working with tuple generator for input/target
+            input_result = input_gen
+            while isinstance(input_result, types.GeneratorType):
+                input_gen = input_result
+                input_result = next(input_gen)
             model_generator = input_gen
 
         try:
             if model_generator is not None:
+                model_input, model_target = input_result
                 for index in model_generator:
-                    model_input, model_target = next(model_generator)
                     new_model = new_model.fit(model_input, model_target, **fit_options)
+                    model_input, model_target = next(model_generator)
             else:
                 for index in input_gen:
                     new_model = new_model.fit(next(input_gen), next(target_gen), **fit_options)
