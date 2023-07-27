@@ -38,9 +38,9 @@ def split_at_indices(data, idx1, idx2, axis=0):
 
     return first_subset, second_subset
 
-
+#TODO: Manually split arrays to allow for more optimized generator
 def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
-                          shuffle_jacks=True, full_list=False):
+                        full_list=False):
     """Returns a generator that when called will provide 
     a single index set from `n` sets created through `data`..
     
@@ -73,29 +73,63 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
         `get_jackknife`.
     
     """
+    def split(arr, n, axis=0):
+        '''
+        See source numpy.array_split(ary, ...)
+        
+        A copy of np.array_split as a generator, to return a proportional split at each iteration
+        '''
+        try:
+            arr_len = arr.shape[axis]
+        except AttributeError:
+            arr_len = len(arr)
+        try:
+            arr_sections = len(n) + 1
+            splits = [0] + list(n) + [arr_len]
+        except:
+            arr_sections = int(n)
+            if arr_sections <= 0:
+                raise ValueError('number sections must be larger than 0.') from None
+        arr_single, _ = divmod(arr_len, arr_sections)
+        arr_section_size = ([0] + _*[arr_single]+(arr_sections-_)*[arr_single])
+        splits = np.array(arr_section_size, dtype='int16').cumsum()
+
+        sub_arr = []
+        arr_ax = np.swapaxes(arr, axis, 0)
+        for i in range(arr_sections):
+            start = splits[i]
+            end = splits[i+1]
+            sub_arr.append(np.swapaxes(arr_ax[start:end], axis, 0))
+
+            yield sub_arr[i]
+
     data_length = data.shape[axis]
     indices = np.arange(0, data_length)
-    # TODO: Decide if we actually need this in practice?
     if full_shuffle:
         indices = np.random.permutation(indices)
 
-    # If batch size is given, split array by creating an array of batch_sized index points
-    if batch_size > 0:
-        jack_indices = np.array_split(indices, np.arange(batch_size, data_length, batch_size))
-    else:
-        jack_indices = np.array_split(indices, n)
-
-    # Temp disabled, issue with new numpy versions due to arrays of different sizes
-    #if shuffle_jacks:
-        #jack_indices = np.random.permutation(jack_indices)
-
-    # If true, changes the generator to return the original full list of indicies once.
     if full_list:
-        jack_indices = [jack_indices]
-
-    # Provides next set of jackknife indices
-    for index in range(0, len(jack_indices)):
-        yield jack_indices[index]
+        full_set = []
+        try:
+            for index in range(0, n):
+                if batch_size > 0:
+                    new_data = np.arange(batch_size, data_length, batch_size)
+                    jack_set = split(new_data, n, axis=axis)
+                else:
+                    jack_set = split(indices, n, axis=axis)
+                mask = next(jack_set)
+                full_set.append(mask)
+        except StopIteration:
+            pass
+        yield full_set
+    else:
+        for index in range(0, n):
+            if batch_size > 0:
+                new_data = np.arange(batch_size, data_length, batch_size)
+                jack_set = split(new_data, n, axis=axis)
+            else:
+                jack_set = split(indices, n, axis=axis)
+            yield next(jack_set)
 
 
 def get_jackknife(data, indices, axis=0, pad=False, **pad_kwargs):
