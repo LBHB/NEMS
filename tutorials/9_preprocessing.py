@@ -99,7 +99,7 @@ est_response, val_response = split_at_indices(
 #   - full_list: Provides entire lists of jackknife sets, instead of generator
 # See more at: https://temp.website.net/split_jackknifing
 ###########################
-jack_generator = get_jackknife_indices(spectrogram, 12, axis=0, shuffle_jacks=True)
+jack_generator = get_jackknife_indices(spectrogram, 12, axis=0)
 
 # Here we're printing a single set of jackknife indices
 print(next(jack_generator).shape)
@@ -110,8 +110,8 @@ for indices_set in jack_generator:
     jack_list.append(indices_set)
 
 # Or pull a whole list at once
-jack_list = get_jackknife_indices(spectrogram, 12, axis=0, shuffle_jacks=True, full_list=True)
-jack_list = next(jack_list)
+jack_list = next(get_jackknife_indices(spectrogram, 12, axis=0, full_list=True))
+print(f'Total # of elements: {len(jack_list)} \n Each elements shape ~{jack_list[0].shape}')
 
 ###########################
 # get_jackknife
