@@ -90,7 +90,7 @@ est_response, val_response = split_at_indices(
 ###########################
 # get_jackknife_indices
 # Using this tool we can create a generator that provides sets of jackknifed
-# indicies. These indices can then be used to create datasets using get_jackknife
+# indicies. These indices can then be used to create datasets with get_jackknife
 #   - data: The data we want to perform operations on
 #   - n: The number of samples we wish to create from our data
 #   - batch_size: The size of batches to organize indicies by
@@ -104,7 +104,7 @@ jack_generator = get_jackknife_indices(spectrogram, 12, axis=0, shuffle_jacks=Tr
 # Here we're printing a single set of jackknife indices
 print(next(jack_generator).shape)
 
-# Creating a list of all our generated lists
+# Creating a list of all our generated indicies
 jack_list = []
 for indices_set in jack_generator:
     jack_list.append(indices_set)
@@ -173,7 +173,8 @@ est_gen = next(est)
 est_input, est_target = next(est_gen)
 
 # Our validation set
-val_input, val_target = next(val)
+val_gen = next(val)
+val_input, val_target = next(val_gen)
 
 ###########################
 # fit_from_generator
@@ -204,76 +205,20 @@ gen_model = model.fit(est_input, est_target, fitter_options=options, backend='sc
 #2. We can also fit using their generators directly, looping through all the given samples at once
 gen_model = gen_model.fit(est, fitter_options=options, backend='scipy')
 
+# Using this data, we can predict our models as well using our validation sets
+pred_gen_model = gen_model.predict(val_input)
+# Or pass the generator and predict over an entire set
+pred_gen_model = gen_model.predict(val)
+
 # Visualizing our model after 5 fits using our data generator
 gen_model.plot(spectrogram, target=response)
 
 # We can also apply all of this to our gen_model_list
-
 gen_model_list = Model_List(model)
 gen_model_list.fit(est, fitter_options=options, backend='scipy')
 
 # Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
 gen_model_list.plot(spectrogram, response)
-
-
-
-
-
-# TODO: Rewrite this
-
-###########################
-# pad_array
-# Often we may need to pad both our original jackknifes, and our inverse
-# sets, so we can properly fit models together. Using pad_array you can
-# fill our new data with empty data so you can start fitting models.
-#   - array: The original array
-#   - size: Lets you specify how much bigger you want the end array to be
-#   - axis: Lets you choose which axis to use for certain pad_types ie. Mean
-#   - pad_type: Pick which way you wish to pad your data
-#   - pad_path: Choose to pad only the end or start of the array if you wish
-#   - indicies: Provide the mask used to replace indicies of the array with fake data
-###########################
-test_array = spectrogram
-test_array = pad_array(test_array, size=25, pad_type='zero')
-print(f'Our original array size: {spectrogram.shape}\n Our padded array size: {test_array.shape}')
-
-# This is all important because if you want to split your data into groups and also fit your model to 
-# the inverse of that data, you need to make sure there is an equal sized axis to measure for each
-
-# For example:
-print(f'Base data: {jack_single.shape}\n Inverse data: {inverse_single.shape}')
-
-# Now if we try to fit these it won't work, but we can pad them both.
-
-# Here we are replacing our data with padding, instead of deleting it
-jack_single = get_jackknife(spectrogram, jack_list[0], axis=0, pad=True)
-
-# This will create our inverse as normal, but instead of deleting the other data it will replace
-# it with our padding
-inverse_single = get_inverse_jackknife(spectrogram, jack_list[0], axis=0, pad=True)
-
-# Now they should both have the same size
-print(f'Base data: {jack_single.shape}\n Inverse data: {inverse_single.shape}')
-
-
-# We have a few other ways of padding our data too:
-# Mean pads with the mean value along a given axis
-test_array = pad_array(test_array, size=25, pad_type='mean')
-
-# Edge will use the the immediate values from the left or right of each added index
-test_array = pad_array(test_array, size=25, pad_type='edge')
-
-# Random will select some random value between the min and max of the array at a given axis
-test_array = pad_array(test_array, size=25, pad_type='random')
-
-
-
-
-
-
-
-
-
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
