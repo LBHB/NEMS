@@ -90,6 +90,8 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
             arr_sections = int(n)
             if arr_sections <= 0:
                 raise ValueError('number sections must be larger than 0.') from None
+            
+
         arr_single, rem = divmod(arr_len, arr_sections)
         arr_section_size = ([0] + rem*[arr_single]+(arr_sections-rem)*[arr_single])
         splits = np.array(arr_section_size, dtype='int16').cumsum()
@@ -123,14 +125,15 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
         except StopIteration:
             pass
         yield full_set
+
     else:
-        for index in range(0, n):
-            if batch_size > 0:
+        if batch_size > 0:
                 batched_ind = np.arange(0, data_length, batch_size)
                 jack_set = np.array_split(indices, batched_ind, axis=axis)[1:]
                 jack_set = split(jack_set, n, axis=axis)
-            else:
-                jack_set = split(indices, n, axis=axis)
+        else:
+            jack_set = split(indices, n, axis=axis)
+        for index in range(0, n):
             yield next(jack_set)
 
 
