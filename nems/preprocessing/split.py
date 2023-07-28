@@ -113,8 +113,9 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
         try:
             for index in range(0, n):
                 if batch_size > 0:
-                    new_data = np.arange(batch_size, data_length, batch_size)
-                    jack_set = split(new_data, n, axis=axis)
+                    batched_ind = np.arange(0, data_length, batch_size)
+                    jack_set = np.array_split(indices, batched_ind, axis=axis)[1:]
+                    jack_set = split(jack_set, n, axis=axis)
                 else:
                     jack_set = split(indices, n, axis=axis)
                 mask = next(jack_set)
