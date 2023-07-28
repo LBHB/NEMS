@@ -77,10 +77,11 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 f, ax = plt.subplots(3, 1, sharex='col')
 ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
 ax[0].set_ylabel('Test stimulus')
-ax[1].plot(response_test, label='actual response')
+
+# When we have a large population of inputs/targets, it's a good idea to represent these as something other then graphs
+ax[1].imshow(response_test.T, label='actual response', aspect='auto', interpolation='none', origin='lower')
 ax[1].set_ylabel('Test response')
-ax[2].plot(pred_cnn, label='predicted')
-ax[2].set_ylabel('Prediction')
+ax[2].imshow(pred_cnn.T, label='predicted', aspect='auto', interpolation='none', origin='lower')
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
