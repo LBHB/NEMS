@@ -113,6 +113,15 @@ for indices_set in jack_generator:
 jack_list = next(get_jackknife_indices(spectrogram, 12, axis=0, full_list=True))
 print(f'Total # of elements: {len(jack_list)} \n Each elements shape ~{jack_list[0].shape}')
 
+# We can also provide batch data to our jackknifes and all indicies will be batched together before being split
+# NOTE: Keep track of # of samples and how much your data splits into batches. length of batched data list
+# must be longer then samples.
+
+# This example fails, 357 splits our data into only 3 arrays, and we try to sample 4.
+jack_batch = get_jackknife_indices(spectrogram, 4, batch_size=357, axis=0)
+# This works however
+jack_batch = get_jackknife_indices(spectrogram, 4, batch_size=50, axis=0)
+
 ###########################
 # get_jackknife
 # This uses given index or generator and creates a jackknife dataset from it
