@@ -453,7 +453,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             target=np.concatenate(target, axis=1)
             last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
         else:
-            # If our given targets is greater than 3, we want to create a heatmap of it instead
+            # If our given targets is greater than 3, we want to replace graphs with heatmaps
             if len(target[0][0]) > 3:
                 second_last_ax = subaxes[-2]
                 last_ax.clear()
@@ -760,6 +760,59 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
     if plot_full:
         for model in model_list:
+            model_figure = model.plot(input, target=target)
+            fig_list.append(model_figure)
+
+    return fig_list
+
+def plot_generator_model(model, input, target, init_input, init_target, plot_comparitive=True, plot_full=False):
+    '''
+
+    '''
+    tuple_check = False
+    if isinstance(init_input, tuple):
+        input_value, target_value = init_input
+        tuple_check = True
+    else:
+        input_value = init_input
+        target_value = init_target
+    fig_list = []
+    
+    if plot_comparitive:
+        fig = plt.figure()
+        ax = []
+        ax.append(fig.add_subplot())
+        pred_model = model.predict(input_value)
+        ax[0].plot(pred_model, label='f{index}')
+        if target_value is not None:
+            ax[0].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+        
+        for index, _ in enumerate(input):
+            if tuple_check:
+                input_value, target_value = next(input)
+            else:
+                input_value = next(input)
+                if target_value is not None:
+                    target_value = next(target)
+            pred_model = model.predict(input_value)
+            ax.append(fig.add_subplot())
+            ax[index+1].plot(pred_model, label='f{index}')
+            if target_value is not None:
+                ax[index+1].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+
+        n = len(fig.axes)
+        gs = matplotlib.gridspec.GridSpec(n+1, 1)
+        axes = fig.axes
+        for ax in fig.axes:
+            fig.delaxes(ax)
+        for ax, sgs in zip(axes, gs):
+            ax.set_subplotspec(sgs)   
+            fig.add_subplot(ax)
+        fig_list.append(fig)
+            
+
+    if plot_full:
+        for input_value in input:
             model_figure = model.plot(input, target=target)
             fig_list.append(model_figure)
 
