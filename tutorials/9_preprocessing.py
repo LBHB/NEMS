@@ -226,6 +226,9 @@ pred_gen_model = gen_model.predict(val)
 # Visualizing our model after 5 fits using our data generator
 gen_model.plot(spectrogram, target=response)
 
+# We can also plot our model using a generator
+gen_model.plot(val, plot_comparitive=True, plot_full=False)
+
 # We can also apply all of this to our gen_model_list
 gen_model_list = Model_List(model)
 gen_model_list.fit(est, fitter_options=options, backend='scipy')
