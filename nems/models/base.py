@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
-from nems.visualization import plot_model, plot_model_outputs, plot_model_list
+from nems.visualization import plot_model, plot_model_outputs, plot_model_list, plot_generator_model
 from nems.preprocessing import generate_jackknife_data
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
@@ -1439,13 +1439,47 @@ class Model:
         for layer in self.layers.get(*layer_keys):
             layer.unfreeze_parameters()
 
-    def plot(self, input, **kwargs):
+    def plot(self, input, target=None, **kwargs):
         """Alias for `nems.visualization.model.plot_model`.
         
         By default, the result of each `Layer.evaluate` will be shown.
         
         """
-        return plot_model(self, input, **kwargs)
+        def base_plot(self, input, target, **kwargs):
+            return plot_model(self, input, target, **kwargs)
+        
+        def generator_plot(self, input, target, **kwargs):
+            plot_list = []
+            input_gen = input
+            target_gen = target
+            input_value = next(input_gen)
+            target_value = None
+            
+            # If given target & output gen, find bottom gen and send
+            # Or if not, assume tuple input/target and send
+            if target is not None and isinstance(target, types.GeneratorType):
+                target_gen = target_value
+                target_value = next(target_gen)
+                while isinstance(input_value, types.GeneratorType):
+                    input_gen = input_value
+                    input_value = next(input_value)
+                    target_gen = target_value
+                    target_value = next(target_gen)
+            else:
+                while isinstance(input_value, types.GeneratorType):
+                    input_gen = input_value
+                    input_value = next(input_value)
+            return plot_generator_model(self, input_gen, target_gen, init_input=input_value, init_target=target_value, **kwargs)
+        
+        plot_functions = {}
+        plot_functions['base'] = base_plot
+        plot_functions['generator'] = generator_plot
+        plot_type = 'base'
+
+        if isinstance(input, types.GeneratorType):
+            plot_type = 'generator'
+
+        return plot_functions[plot_type](self, input, target, **kwargs)
     
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
     def summary(self):
