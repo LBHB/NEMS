@@ -116,9 +116,11 @@ sample_list = model.sample_from_priors(N)
 ###########################
 list_of_models = Model_List(model, samples=N)
 
+# Creating models from an existing list
 existing_list_of_models = Model_List(sample_list)
 
-list_of_models.fit_models(spectrogram_fit, response_fit, backend=backend, fitter_options=options)
+# We can then fit all these models together
+list_of_models.fit(spectrogram_fit, response_fit, backend=backend, fitter_options=options)
 
 ###########################
 # Visualizing all our models
@@ -131,7 +133,7 @@ list_of_models.fit_models(spectrogram_fit, response_fit, backend=backend, fitter
 # best fitted model and showing a few graphs to see the differences.
 # !!! In practice, you will want to print the full model plots to compare models
 ###########################
-list_of_models.plot_models(input=spectrogram_test, target=response_test)
+list_of_models.plot(input=spectrogram_test, target=response_test)
 
 ## Something like this will be more useful in practice
 # list_of_models.plot_models(input=spectrogram_test, target=response_test, plot_comparitive=False, plot_full=True)

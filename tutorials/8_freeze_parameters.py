@@ -1,6 +1,7 @@
 """Shows how to freeze Layer parameters in a multi-step fitting process."""
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from nems import Model
 from nems.layers import WeightChannels, FIR, DoubleExponential
@@ -21,6 +22,10 @@ from nems.layers import WeightChannels, FIR, DoubleExponential
 # Creating fake data, see "1_simple_fit" tutorial for more information
 input = np.random.rand(1000, 18)  # 18-channel spectrogram stimulus
 target = np.stack(input[:, :5])   # PSTH response of a single neuron
+
+# This indicates that our code is interactive, allowing a
+# matplotlib backend to show graphs
+plt.ion()
 
 ###########################
 # Building a standard linear model
@@ -51,6 +56,9 @@ print(f'Parameters for first fit:\n{model.parameter_info}\n')
 # the same model name (i.e. the unfit model will be overwritten).
 model = model.fit(input=input, target=target, fitter_options=initialization)
 
+# Plot our model after the first fit
+model.plot(input, target)
+
 # Opens our non-linear paramenters back up to modification again
 model.layers['dexp'].unskip_nonlinearity()
 
@@ -67,6 +75,9 @@ print(f'\nParameters for second fit:\n{model.parameter_info}\n')
 # Fit the model again, using the previous fit as a starting point.
 model = model.fit(input=input, target=target, fitter_options=initialization)
 
+# Plot our model after the second fit
+model.plot(input, target)
+
 ###########################
 # Unfreezing Layers
 #
@@ -81,6 +92,9 @@ print(f'\nParameters for final fit:\n{model.parameter_info}\n')
 final_fit = {'options': {'ftol': 1e4, 'maxiter': 10}}
 model = model.fit(input=input, target=target, fitter_options=final_fit)
 
+# Plot model after final fit
+model.plot(input, target)
+
 # NOTE: In this example, we always froze all parameters of a given module using
 #       the model-level method. If we had wanted to freeze some of a module's
 #       parameters but not others, we could use the module-level method.
@@ -88,3 +102,6 @@ model = model.fit(input=input, target=target, fitter_options=final_fit)
 # Just freeze DoubleExponential's kappa parameter:
 model.layers['dexp'].freeze_parameters('kappa')
 print(f'\nParameters for final fit:\n{model.parameter_info}\n')
+
+## Uncomment if you don't have an interactive backend installed
+#plt.show()

@@ -29,7 +29,7 @@ params = {'legend.fontsize': font_size-2,
           }
 plt.rcParams.update(params)
 
-from .model import plot_model, plot_model_outputs, plot_layer, simple_strf, plot_strf, input_heatmap, plot_nl, plot_model_list
+from .model import plot_model, plot_model_outputs, plot_layer, simple_strf, plot_strf, input_heatmap, plot_nl, plot_model_list, plot_generator_model
 from .layers import stp_input_output
 from .fitter import (
     prediction_vs_target, iteration_vs_error, evals_per_iteration,

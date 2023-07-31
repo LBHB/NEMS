@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
 
-
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
     'show_x': False, 'xlabel': None, 'xmax_scale': 1, 'xmin_scale': 1,
@@ -337,6 +336,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     # (otherwise fill columns before rows).
     figure_kwargs = {} if figure_kwargs is None else figure_kwargs
     figure = plt.figure(**figure_kwargs)
+
     if select_layers is not None:
         layers = model.layers.__getitem__(select_layers)
         if not isinstance(layers, list):
@@ -344,44 +344,71 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     else:
         layers = model.layers[:n]
     layer_info = model.generate_layer_data(input, **eval_kwargs)
+
     if plot_input:
         n_rows = len(layers)+1
     else:
         n_rows = len(layers)
 
+    # Setting up our layout for plotting layers and parameters
     spec = figure.add_gridspec(n_rows, 3)
     subaxes = [figure.add_subplot(spec[n, 1:]) for n in range(n_rows)]
     parmaxes = [figure.add_subplot(spec[n+1, 0]) for n in range(n_rows-1)]
+    last_ax = subaxes[-1]
+    last_px = parmaxes[-1]
 
     iterator = enumerate(zip(layers, parmaxes, subaxes[1:], layer_info))
     previous_output = None
-    for i, (layer, pax, ax, info) in iterator:
-        k = list(layer.parameters.keys())
-        if layer.name=='fir':
-            if (i>0) & (layers[i-1].name=='wc'):
-                plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+
+    # Loop all our layers and plots to visualize our data
+    for index, (layer, pax, ax, info) in iterator:
+        parameters = list(layer.parameters.keys())
+
+        # Check our final outputs, if we have > 3 we will create a heatmap instead and ignore parmaxes to
+        # make room for our response
+        if ax == last_ax and target[0][0] > 9999:
+            #_____________
+            if isinstance(input, dict) or len(input.shape)>2:
+                pax.clear()
+                pax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
             else:
-                plot_strf(layer, ax=pax)
-        elif 'coefficients' in k:
-            if len(layer.coefficients.shape)==2:
-                pax.plot(layer.coefficients, lw=0.5)
-            else:
-                pax.imshow(layer.coefficients[:,0,:],
-                           aspect='auto', interpolation='none', origin='lower')
-            x_pos = pax.get_xlim()[0]
-            y_pos = pax.get_ylim()[1]
-            title = f'coefficients'
-            pax.text(x_pos, y_pos, title, va='top')
-        elif 'nonlinearity' in str(type(layer)):
-            plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+                if (index>0) & (layers[index-1].name=='wc'):
+                    plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+                else:
+                    plot_strf(layer, ax=pax)
+
+        # Normal layer->layer plotting
         else:
-            pax.set_visible(False)
+            # Plotting FIR layers
+            if layer.name=='fir':
+                if (index>0) & (layers[index-1].name=='wc'):
+                    plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+                else:
+                    plot_strf(layer, ax=pax)
+
+            # Plotting coefficients of specific layers
+            elif 'coefficients' in parameters:
+                if len(layer.coefficients.shape)==2:
+                    pax.plot(layer.coefficients, lw=0.5)
+                else:
+                    pax.imshow(layer.coefficients[:,0,:],
+                            aspect='auto', interpolation='none', origin='lower')
+                x_pos = pax.get_xlim()[0]
+                y_pos = pax.get_ylim()[1]
+                title = f'coefficients'
+                pax.text(x_pos, y_pos, title, va='top')
+
+            # Plot if non-linear
+            elif 'nonlinearity' in str(type(layer)):
+                plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+            else:
+                pax.set_visible(False)
 
         output = info['out']
-        lkw = layer.plot_kwargs
-        lkw['lw'] = '0.5'
+        plot_args = layer.plot_kwargs
+        plot_args['lw'] = '0.5'
         layer.plot_options['legend'] = False
-        layer.plot(output, ax=ax, **lkw)
+        layer.plot(output, ax=ax, **plot_args)
 
         if show_titles:
             x_pos = ax.get_xlim()[0]
@@ -393,8 +420,8 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
 
+    # Plot input info as well
     if plot_input:
-        # special case to plot input
         ax = subaxes[0]
         if isinstance(input, dict) or len(input.shape)>2:
             pass
@@ -412,24 +439,44 @@ def plot_model(model, input, target=None, target_name=None, n=None,
 
     # Final x-axis of the final layer in each column is always visible
     # so that time is visually synchronized for all plots above.
-
-    last_ax = subaxes[-1]
     last_ax.xaxis.set_visible(True)
 
     # Add plot of target if given, on last axis of last subfig.
-    if target_name is not None:
-        target = input[target_name]
-    else:
-        target_name = 'Target'
     if target is not None:
+        if target_name is not None:
+            target = input[target_name]
+        else:
+            target_name = 'Target'
         if not isinstance(target, list):
             target = [target]
         if len(target)>3:
             target=np.concatenate(target, axis=1)
             last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
         else:
-            for i, y in enumerate(target):
-                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
+            # If our given targets is greater than 3, we want to replace graphs with heatmaps
+            if len(target[0][0]) > 3:
+                second_last_ax = subaxes[-2]
+                last_ax.clear()
+                second_last_ax.clear()
+
+                last_ax.imshow(target[0].T, aspect='auto', interpolation='none', origin='lower')
+                second_last_ax.imshow(output.T, aspect='auto', interpolation='none', origin='lower')
+
+                last_ax.set_xlim(subaxes[0].get_xlim())
+                x_pos = last_ax.get_xlim()[0]
+                y_pos = last_ax.get_ylim()[1]
+                last_ax.text(x_pos, y_pos, 'Target', va='top')
+
+                second_last_ax.set_xlim(subaxes[0].get_xlim())
+                x_pos = second_last_ax.get_xlim()[0]
+                y_pos = second_last_ax.get_ylim()[1]
+                second_last_ax.text(x_pos, y_pos, 'Output', va='top')
+
+
+                return
+            else:
+                for i, y in enumerate(target):
+                    last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
             #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
         cc = np.corrcoef(target[0][:,0], output[:,0])[0,1]
@@ -720,6 +767,59 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
     if plot_full:
         for model in model_list:
+            model_figure = model.plot(input, target=target)
+            fig_list.append(model_figure)
+
+    return fig_list
+
+def plot_generator_model(model, input, target, init_input, init_target, plot_comparitive=True, plot_full=False):
+    '''
+
+    '''
+    tuple_check = False
+    if isinstance(init_input, tuple):
+        input_value, target_value = init_input
+        tuple_check = True
+    else:
+        input_value = init_input
+        target_value = init_target
+    fig_list = []
+    
+    if plot_comparitive:
+        fig = plt.figure()
+        ax = []
+        ax.append(fig.add_subplot())
+        pred_model = model.predict(input_value)
+        ax[0].plot(pred_model, label='f{index}')
+        if target_value is not None:
+            ax[0].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+        
+        for index, _ in enumerate(input):
+            if tuple_check:
+                input_value, target_value = next(input)
+            else:
+                input_value = next(input)
+                if target_value is not None:
+                    target_value = next(target)
+            pred_model = model.predict(input_value)
+            ax.append(fig.add_subplot())
+            ax[index+1].plot(pred_model, label='f{index}')
+            if target_value is not None:
+                ax[index+1].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+
+        n = len(fig.axes)
+        gs = matplotlib.gridspec.GridSpec(n+1, 1)
+        axes = fig.axes
+        for ax in fig.axes:
+            fig.delaxes(ax)
+        for ax, sgs in zip(axes, gs):
+            ax.set_subplotspec(sgs)   
+            fig.add_subplot(ax)
+        fig_list.append(fig)
+            
+
+    if plot_full:
+        for input_value in input:
             model_figure = model.plot(input, target=target)
             fig_list.append(model_figure)
 

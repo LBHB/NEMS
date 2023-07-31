@@ -67,6 +67,7 @@ print(f"""
 
 # Fitting our Spectrogram data to our target response data
 fitted_model = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
+fitted_model.name += "-Fitted"
 
 ###########################
 # Built- in visualization

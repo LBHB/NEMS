@@ -10,6 +10,10 @@ from nems.layers.base import Layer, Phi, Parameter
 # Fast-running toy fit options for demonstrations.
 options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
 
+# This indicates that our code is interactive, allowing a
+# matplotlib backend to show graphs
+plt.ion()
+
 ########################################################
 # Creating custom layers
 # Sometimes you may need to deal with more data that our Inp, Out, and State
@@ -141,5 +145,6 @@ axes.set_title("State")
 axes = ax[2][2]
 axes.plot(range(0,TIME), (input['pupil'][:, :]*10).astype(int)) 
 axes.set_title("Pupil")
-plt.show()
+## Uncomment if you don't have an interactive backend installed
+#plt.show()
 
