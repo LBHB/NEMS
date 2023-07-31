@@ -462,7 +462,7 @@ def plot_nl(layer, range, ax=None, fig=None):
     ax.set_ylabel('out')
 
 
-def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
+def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=None):
     """Wrapper for `plot_strf`, gets FIR and WeightChannels from Model.
     
     Parameters
@@ -497,14 +497,15 @@ def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
         fig, ax = plt.subplots()
 
     fir_layer, wc_layer = model.layers[fir_idx, wc_idx]
-    plot_strf(fir_layer, wc_layer, ax=ax)
+    plot_strf(fir_layer, wc_layer, ax=ax, fs=fs)
     ax.set_xlabel('Time lag')
     ax.set_ylabel('Freuqency channel')
-
+    if title is not None:
+        fig.suptitle(title)
     return fig
 
 
-def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
+def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
     """Generate a heatmap representing a Spectrotemporal Receptive Field (STRF).
     
     Parameters
@@ -561,9 +562,15 @@ def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
             strf = wc @ fir.T
 
     mm = np.nanmax(abs(strf))
-    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
-              cmap='bwr', vmin=-mm, vmax=mm)
+    if fs is not None:
+        extent=[0, strf.shape[0]/fs, 0, strf.shape[1]]
+    else:
+        extent=[0, strf.shape[0], 0, strf.shape[1]]
 
+    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
+              cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+    plt.tight_layout()
+    
     return fig
 
 
