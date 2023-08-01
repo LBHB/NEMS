@@ -19,6 +19,16 @@ from nems.layers import LevelShift, WeightChannels
 # Basic fitter options for testing
 options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 
+# Dummy data loader. Refer to tutorial 1 for more info
+def my_data_loader(file_path):
+    # Dummy function to demonstrate the data format.
+    print(f'Loading data from {file_path}, but not really...')
+    spectrogram = np.random.random(size=(1000, 18))
+    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
+
+    return spectrogram, response
+
+
 ########################################################
 # Creating validation/estimation data
 #
@@ -30,14 +40,6 @@ options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 # for how to do so.
 ########################################################
 
-# Assume data has been loaded. Refer to tutorial 1 for more info
-def my_data_loader(file_path):
-    # Dummy function to demonstrate the data format.
-    print(f'Loading data from {file_path}, but not really...')
-    spectrogram = np.random.random(size=(1000, 18))
-    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
-
-    return spectrogram, response
 spectrogram, response = my_data_loader('path/to_data.csv')
 
 ###########################
@@ -47,6 +49,7 @@ spectrogram, response = my_data_loader('path/to_data.csv')
 #   - fraction: The ratio you want to split the data by
 #   - axis: Which axis to split the data by
 ###########################
+
 idx_before, idx_after = indices_by_fraction(response, fraction=0.9, axis=0)
 
 ###########################
@@ -71,7 +74,7 @@ est_response, val_response = split_at_indices(
     response, idx1=est_neurons, idx2=val_neurons, axis=1
     )
 
-# TODO: jackknifing, other stuff
+# TODO : add code to fit model with this data splitting
 
 ########################################################
 # Jackknifing
@@ -99,12 +102,55 @@ est_response, val_response = split_at_indices(
 #   - full_list: Provides entire lists of jackknife sets, instead of generator
 # See more at: https://temp.website.net/split_jackknifing
 ###########################
+spectrogram, response = my_data_loader('path/to_data.csv')
+
+#jack_dataset = create_jackknife_iterator(
+#    input, state=None, target=None, input_name=None,
+#    state_name=None, output_name=None, target_name=None,
+#    count=10, axis=0, inverse=False)
+
+jack_dataset = create_jackknife_iterator(spectrogram, target=response,
+                                         count=10, inverse=False)
+
+fit_data = jack_dataset(input, target=target, n=10, inverse=False)
+test_data = jack_dataset(input, target=target, n=10, inverse=True)
+fit_data, test_data = jack_dataset(input, target=target, n=10, inverse='both')
+
+
+# put inside model_list = fit_iter(fit_data)
+model_list=[]
+for dataset in fit_data:
+    model_list.append(model0.fit(dataset))
+
+
+# put inside final_prediction=model.predict_iter(test_data)
+predictions =[]
+for dataset, m in zip(test_data,model_list):
+    predictions.append(m.predict(dataset['input']))
+
+final_prediction = jack_dataset.combine(predictions)
+
+
+
+assert(final_prediction.shape[0] == response.shape[0])
+
+from nems.metrics import correlation
+test_correlations = correlation(final_prediction, response)
+
+
+
 jack_generator = get_jackknife_indices(spectrogram, 12, axis=0)
+
+
+
+
 
 # Here we're printing a single set of jackknife indices
 print(next(jack_generator).shape)
 
 # Creating a list of all our generated indicies
+# need to reinitialize generator
+jack_generator = get_jackknife_indices(spectrogram, 12, axis=0)
 jack_list = []
 for indices_set in jack_generator:
     jack_list.append(indices_set)
@@ -216,7 +262,7 @@ gen_model = gen_model.fit(est, fitter_options=options, backend='scipy')
 
 # Creating a quick gen from scratch and fitting our model
 test_gen = generate_jackknife_data(spectrogram, response, 5)
-gen_model = gen_model.fit(test_gen, fitter_options=options, backend='scipy')
+gen_model = model.fit(test_gen, fitter_options=options, backend='scipy')
 
 # Using this data, we can predict our models as well using our validation sets
 pred_gen_model = gen_model.predict(val_input)

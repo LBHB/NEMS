@@ -38,12 +38,14 @@ def split_at_indices(data, idx1, idx2, axis=0):
 
     return first_subset, second_subset
 
+
+
+
 #TODO: Manually split arrays to allow for more optimized generator
 def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
                         full_list=False):
     """Returns a generator that when called will provide 
     a single index set from `n` sets created through `data`..
-    
 
     Parameters
     ----------
@@ -90,7 +92,6 @@ def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
             arr_sections = int(n)
             if arr_sections <= 0:
                 raise ValueError('number sections must be larger than 0.') from None
-            
 
         arr_single, rem = divmod(arr_len, arr_sections)
         arr_section_size = ([0] + rem*[arr_single]+(arr_sections-rem)*[arr_single])
