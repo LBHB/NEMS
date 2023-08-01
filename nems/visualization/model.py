@@ -794,21 +794,30 @@ def plot_generator_model(model, input, target, init_input, init_target, plot_com
         ax.append(fig.add_subplot())
         pred_model = model.predict(input_value)
         ax[0].plot(pred_model, label='f{index}')
+        x_pos = ax[0].get_xlim()[0]
+        y_pos = ax[0].get_ylim()[1]
+        title = f'Model 1'
+        ax[0].text(x_pos, y_pos, title, va='top')
+
         if target_value is not None:
             ax[0].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
         
-        for index, _ in enumerate(input):
+        for index, enum_input in enumerate(input):
             if tuple_check:
-                input_value, target_value = next(input)
+                input_value, target_value = enum_input
             else:
-                input_value = next(input)
+                input_value = enum_input
                 if target_value is not None:
                     target_value = next(target)
             pred_model = model.predict(input_value)
             ax.append(fig.add_subplot())
-            ax[index+1].plot(pred_model, label='f{index}')
+            ax[index+1].plot(pred_model, label=f'{index+1}')
             if target_value is not None:
                 ax[index+1].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+            x_pos = ax[index+1].get_xlim()[0]
+            y_pos = ax[index+1].get_ylim()[1]
+            title = f'Model {index+2}'
+            ax[index+1].text(x_pos, y_pos, title, va='top')
 
         n = len(fig.axes)
         gs = matplotlib.gridspec.GridSpec(n+1, 1)
