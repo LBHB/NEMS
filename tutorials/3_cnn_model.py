@@ -5,6 +5,7 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
+from nems.metrics import correlation
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
@@ -50,6 +51,7 @@ response_test = test_dict['response'][:,[cid]]
 #       - FiniteImpulseResponse: Convolve our linear filters onto inputs with 3 filters
 #       - RectifiedLinear: Apply ReLU activation to inputs, along 3 channels
 ###########################
+# TODO: replace "cnn_simple" with "ln" or "ln_model"
 cnn_simple = Model()
 cnn_simple.add_layers(
     WeightChannels(shape=(18, 3)),  # 18 spectral channels->1 composite channels
@@ -82,10 +84,10 @@ cnn_simple = cnn_simple.sample_from_priors()
 cnn = cnn.sample_from_priors()
 
 # Plotting and comparing our 2 CNN's before anything any fitting
-cnn.plot(spectrogram_fit, target=response_fit)
+cnn.plot(spectrogram_test, target=response_test)
 
 # We can specifiy some plotting parameters by providing figure_kwargs to our plot
-cnn_simple.plot(spectrogram_fit, target=response_fit, figure_kwargs={'facecolor': 'papayawhip'})
+cnn_simple.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
 
 
 # We can also see the additional dimension added to our FIR layer,
@@ -104,16 +106,17 @@ fitted_cnn = cnn.fit(spectrogram_fit, response_fit, fitter_options=options, back
 fitted_cnn.name += "-Fitted"
 
 # Plotting our CNN's again after fits
-fitted_cnn_simple.plot(spectrogram_fit, target=response_fit, figure_kwargs={'facecolor': 'papayawhip'})
-fitted_cnn.plot(spectrogram_fit, target=response_fit)
-visualization.simple_strf(fitted_cnn)
+fitted_cnn_simple.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
+fitted_cnn.plot(spectrogram_test, target=response_test)
 
 # Our FIR Coefficients after we've fit the model
 print(f'FIR coefficients: {fitted_cnn.layers[1].coefficients}')
 
 # Now we can predict some new data
+pred_ln = fitted_cnn_simple.predict(spectrogram_test)
 pred_cnn = fitted_cnn.predict(spectrogram_test)
-
+pred_cc_ln = correlation(pred_ln, response_test)
+pred_cc_cnn = correlation(pred_cnn, response_test)
 
 results_cnn = np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]
 
@@ -123,9 +126,16 @@ f, ax = plt.subplots(3, 1, sharex='col')
 ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
 ax[0].set_ylabel('Test stimulus')
 ax[1].plot(response_test, label='actual response')
+ax[1].plot(pred_cnn_simple, label='predicted')
 ax[1].set_ylabel('Test response')
+ax[1].set_title(f"LN correlation={pred_cc_ln:.3f}")
+ax[1].legend()
+ax[2].plot(response_test, label='actual response')
 ax[2].plot(pred_cnn, label='predicted')
 ax[2].set_ylabel('Prediction')
+ax[2].set_title(f"CNN correlation={pred_cc_cnn:.3f}")
+ax[2].legend()
+plt.tight_layout()
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

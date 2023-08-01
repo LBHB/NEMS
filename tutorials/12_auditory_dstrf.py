@@ -34,6 +34,25 @@ plt.ion()
 # 
 ###########################
 
+# TODO : use model from CNN fit tutorial, focus on comparison of
+#  dstrfs from LN and CNN
+
+dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+dstrf = fitted_cnn_simple.dstrf(spectrogram_test, D=15, reset_backend=True)
+
+absmax = np.max(np.abs(dstrf))
+dstrf_count = dstrf.shape[1]
+rows=int(np.ceil(dstrf_count/5))
+cols = int(np.ceil(dstrf_count/rows))
+f,ax=plt.subplots(rows,cols)
+ax=ax.flatten()[:dstrf_count]
+for i,a in enumerate(ax):
+    # flip along time axis so that x axis is timelag
+    d = np.fliplr(dstrf[0,i,:,:])
+    a.imshow(d, aspect='auto', interpolation='none',
+             cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+
+
 ###########################
 # do_bnt_fit()
 # Creates a model based on given parameters and returns the fitted model and
