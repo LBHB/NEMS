@@ -420,12 +420,14 @@ class CNN_reconstruction(Model):
 
         wc1 = WeightChannels(shape=(channels, 1, L1))
         fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
-        relu1 = RectifiedLinear(shape=(L1,))
+        relu1 = RectifiedLinear(shape=(L1,), no_offset=False)
         if L2 > 0:
 
             wc2 = WeightChannels(shape=(L1, L2))
+            relu2 = RectifiedLinear(shape=(L2,), no_offset=False)
+            wc3 = WeightChannels(shape=(L2, out_channels))
 
-            self.add_layers(wc1, fir1, relu1, wc2)
+            self.add_layers(wc1, fir1, relu1, wc2, relu2, wc3)
         else:
             wc2 = WeightChannels(shape=(L1, out_channels))
 
@@ -451,9 +453,31 @@ class CNN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    def fit_LBHB():
-        # TODO: 3-stage fit with freezing/unfreezing NL
-        pass
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+
+        fitter_options = {'cost_function': cost_function,  # 'nmse'
+                          'early_stopping_tolerance': 5e-3,
+                          'validation_split': 0,
+                          'learning_rate': 1e-2, 'epochs': 3000
+                          }
+        fitter_options2 = {'cost_function': cost_function,
+                           'early_stopping_tolerance': 1e-4,
+                           'validation_split': 0,
+                           'learning_rate': 1e-3, 'epochs': 8000
+                           }
+
+        model = self.sample_from_priors()
+        #model = model.sample_from_priors()
+
+        model.layers[-1].skip_nonlinearity()
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          fitter_options=fitter_options, batch_size=None)
+        model.layers[-1].unskip_nonlinearity()
+        log.info('Fit stage 2: with static output nonlinearity')
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          verbose=0, fitter_options=fitter_options2, batch_size=None)
+
+        return model
 
     # TODO
     # @module('CNNrecon')
