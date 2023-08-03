@@ -6,11 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from nems.preprocessing import (
-    indices_by_fraction, split_at_indices, get_jackknife_indices, get_jackknife, generate_jackknife_data, get_inverse_jackknife,
-    pad_array
-)
-from nems import Model, Model_List
+    indices_by_fraction, split_at_indices, JackknifeIterator)
+from nems import Model
 from nems.layers import LevelShift, WeightChannels
+from nems.metrics import correlation
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
@@ -29,6 +28,7 @@ def my_data_loader(file_path):
     return spectrogram, response
 
 
+
 ########################################################
 # Creating validation/estimation data
 #
@@ -39,7 +39,6 @@ def my_data_loader(file_path):
 # using different tools to find out where to split data, and give you options
 # for how to do so.
 ########################################################
-
 spectrogram, response = my_data_loader('path/to_data.csv')
 
 ###########################
@@ -49,7 +48,6 @@ spectrogram, response = my_data_loader('path/to_data.csv')
 #   - fraction: The ratio you want to split the data by
 #   - axis: Which axis to split the data by
 ###########################
-
 idx_before, idx_after = indices_by_fraction(response, fraction=0.9, axis=0)
 
 ###########################
@@ -74,213 +72,86 @@ est_response, val_response = split_at_indices(
     response, idx1=est_neurons, idx2=val_neurons, axis=1
     )
 
-# TODO : add code to fit model with this data splitting
-
 ########################################################
 # Jackknifing
-# Using jackknifes we can create subsets of our data to
-# more accurately fit models and provide predication data
+# The process of creating many sub-arrays from large sets of data. 
+# We do this by creating a mask of indicies(0's and 1's) and deleting, 
+# or taking, from an dataset using that mask.
 #
-# The core of our jackknife functions are based around generators. It is
-# important to keep in mind a few things about generators:
-#   1. Using next(generator_function) will provide you with the next iteration of a generator
-#   2. Generators may have limited iterations, which require you to create new ones
-#       See, nems.preprocessing.split.internal_jackknife_generator(data, ...)
-#   3. Generators only provide a single iteration of data, this saves on memory but also
-#      means you need call the next iteration for more data.
+# Jackknifing is typically used as a way to measure and compare
+# a models stability over the course of many smaller fits when
+# compared to it's target data.
+#
 ########################################################
 
 ###########################
-# get_jackknife_indices
-# Using this tool we can create a generator that provides sets of jackknifed
-# indicies. These indices can then be used to create datasets with get_jackknife
-#   - data: The data we want to perform operations on
-#   - n: The number of samples we wish to create from our data
-#   - batch_size: The size of batches to organize indicies by
-#   - full_shuffle: Allows us to shuffle all entries in array
-#   - shuffle_jacks: Shuffles the indices created
-#   - full_list: Provides entire lists of jackknife sets, instead of generator
-# See more at: https://temp.website.net/split_jackknifing
+# JackknifeIterator
+# The core of jackknifing is done through our JackknifeIterator.
+# This class allows you to create indicies for a given dataset
+# and return smaller subsets that are iterated over the main data
+# and given indicies.
+#
+#   input: Input data we wish to modify
+#   target: Target data we wish to modify
+#   samples: The number of samples to create masks of
+#   axis: The axis on which we wish to create our mask and modify data from
+#   Inverse: Indicate if you would like the inverse masks of given data
 ###########################
+
+############Basics###############
 spectrogram, response = my_data_loader('path/to_data.csv')
-
-#jack_dataset = create_jackknife_iterator(
-#    input, state=None, target=None, input_name=None,
-#    state_name=None, output_name=None, target_name=None,
-#    count=10, axis=0, inverse=False)
-
-jack_dataset = create_jackknife_iterator(spectrogram, target=response,
-                                         count=10, inverse=False)
-
-fit_data = jack_dataset(input, target=target, n=10, inverse=False)
-test_data = jack_dataset(input, target=target, n=10, inverse=True)
-fit_data, test_data = jack_dataset(input, target=target, n=10, inverse='both')
-
-
-# put inside model_list = fit_iter(fit_data)
-model_list=[]
-for dataset in fit_data:
-    model_list.append(model0.fit(dataset))
-
-
-# put inside final_prediction=model.predict_iter(test_data)
-predictions =[]
-for dataset, m in zip(test_data,model_list):
-    predictions.append(m.predict(dataset['input']))
-
-final_prediction = jack_dataset.combine(predictions)
-
-
-
-assert(final_prediction.shape[0] == response.shape[0])
-
-from nems.metrics import correlation
-test_correlations = correlation(final_prediction, response)
-
-
-
-jack_generator = get_jackknife_indices(spectrogram, 12, axis=0)
-
-
-
-
-
-# Here we're printing a single set of jackknife indices
-print(next(jack_generator).shape)
-
-# Creating a list of all our generated indicies
-# need to reinitialize generator
-jack_generator = get_jackknife_indices(spectrogram, 12, axis=0)
-jack_list = []
-for indices_set in jack_generator:
-    jack_list.append(indices_set)
-
-# Or pull a whole list at once
-jack_list = next(get_jackknife_indices(spectrogram, 12, axis=0, full_list=True))
-print(f'Total # of elements: {len(jack_list)} \n Each elements shape ~{jack_list[0].shape}')
-
-# We can also provide batch data to our jackknifes and all indicies will be batched together before being split
-# NOTE: Keep track of # of samples and how much your data splits into batches. length of batched data list
-# must be longer then samples.
-
-# This example fails, 357 splits our data into only 3 arrays, and we try to sample 4.
-jack_batch = get_jackknife_indices(spectrogram, 4, batch_size=357, axis=0)
-# This works however
-jack_batch = get_jackknife_indices(spectrogram, 4, batch_size=50, axis=0)
-
-###########################
-# get_jackknife
-# This uses given index or generator and creates a jackknife dataset from it
-#   - data: The data we will be seperating
-#   - x: The index to seperate
-#   - axis: The axis we wish to seperate
-###########################
-jack_single = get_jackknife(spectrogram, jack_list[0], axis=0)
-jack_dataset = [get_jackknife(spectrogram, x, axis=0) for x in jack_list]
-# Since get_jackknife_indices returns a list of indexs or generator, we must iterate on that list
-# to get all of our data sets
-
-# This just prints some info on the new data we made
-print(f"Number of new datasets: {len(jack_dataset)}, and shape of datasets: {jack_dataset[0].shape}")
-[print(f'set {x+1}: {jack_dataset[x].shape}') for x in range(len(jack_dataset))]
-
-###########################
-# get_inverse_jackknife
-# Uses the given jackknife indicies or generator and provides the inverse dataset
-#   - data: The data we will be seperating
-#   - x: The original index to inverse
-#   - axis: The axis we wish to seperate
-###########################
-inverse_single = get_inverse_jackknife(spectrogram, jack_list[0], axis=0)
-inverse_jack_dataset = [get_inverse_jackknife(spectrogram, index_set, axis=0) for index_set in jack_list]
-
-###########################
-# generate_jackknife_data
-# One way to utilize jackknifing is by taking advantage of
-# our generators to create available sets of inputs and targets
-#   - input: Data we wish to fit in a model
-#   - target: Our target data to fit our input onto
-#   - samples: The number of sets we wish to generate
-#   - axis: What axis to split the data on
-#   - batch_size: The size of individual batches to take into account
-#   - inverse: Allows you to access a tuple that provides the inverse data 
-# NOTE: This function actually returns a second generator that performs the above work.
-#       To return relevant data, call next(next(test_gen_var))
-###########################
-jackknife_dataset_generator = generate_jackknife_data(spectrogram, response, 5)
-
-# Genereate_jackknife_data creates a generator of generators so we can make new ones with the same parameters.
-# Calling next again will provide us with an actual generator that returns values
-jackknife_dataset_generator = next(jackknife_dataset_generator)
-
-# An example of how this generator will provide data,
-# typically this is for internal use by our fits:
-input_gen, target_gen = next(jackknife_dataset_generator)
-
-# We can also specify and have our jackknifes return inverse masks
-jackknife_full_generator = generate_jackknife_data(spectrogram, response, 5, inverse=True)
-
-# Our inverse sets will be used for validation
-est, val = next(jackknife_full_generator)
-
-# A generator we can pass to our model fitters
-est_gen = next(est)
-est_input, est_target = next(est_gen)
-
-# Our validation set
-val_gen = next(val)
-val_input, val_target = next(val_gen)
-
-###########################
-# fit_from_generator
-# Utilizing our new generators, we will fit our model
-# through a series of datasets
-#   # If you do not pass your own generated data
-#   - input: The input data our default generator will use
-#   - target: The target data for our default generatorjackknife_dataset_generator = jackknife_dataset_generator
-
-#   # Else, you can specify your own generators
-#   - input_gen: The generator called for inputs
-#   - target_gen: The generator called for target data
-#   - **fit_options: Our usual fit_options we will pass to Model().fit
-###########################
-
-# Basic model for testing
+print(f'Our original dataset size is {spectrogram.shape}')
 model = Model()
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
 
-# There are 2 ways to call a fit using generators
+# This creates an iterator that we can use to modify our data with 5 samples at axis 0
+jackknife_iterator = JackknifeIterator(spectrogram, 5, axis=0, target=response)
 
-#1. We can fit our individual data sets as normal
-gen_model = model.fit(est_input, est_target, fitter_options=options, backend='scipy')
+# We can then fit this iterator directly and return a list of fitted model
+# This will fit range(0, samples) models with given masks before returning a list of fitted models
+model_fit_list = model.fit(jackknife_iterator)
 
-#2. We can also fit using their generators directly, looping through all the given samples at once
-gen_model = gen_model.fit(est, fitter_options=options, backend='scipy')
 
-# Creating a quick gen from scratch and fitting our model
-test_gen = generate_jackknife_data(spectrogram, response, 5)
-gen_model = model.fit(test_gen, fitter_options=options, backend='scipy')
 
-# Using this data, we can predict our models as well using our validation sets
-pred_gen_model = gen_model.predict(val_input)
-# Or pass the generator and predict over an entire set
-pred_gen_model = gen_model.predict(val)
 
-# Visualizing our model after 5 fits using our data generator
-gen_model.plot(spectrogram, target=response)
+############Advanced###############
+# Calling next will return a single sub-array of our data from our jackknife masks
+jackknife_single = next(jackknife_iterator)
+model.fit(jackknife_single)
 
-# We can also plot our model using a generator
-gen_model.plot(val, plot_comparitive=True, plot_full=False)
+# The object returned on each iteration is actually a Dataset object which can used like below:
+print(type(jackknife_single))
+input_data = jackknife_single['input']
+target_data = jackknife_single['target']
 
-# We can also apply all of this to our gen_model_list
-gen_model_list = Model_List(model)
-gen_model_list.fit(est, fitter_options=options, backend='scipy')
+# Each time we call next, we iterate over our object and can see it's current index via:
+print(f'Current index: {jackknife_iterator.index} \n')
 
-# Comparitive plot of our 5 graphs, with 5 fits each, process through generated data
-gen_model_list.plot(spectrogram, response)
+# We can reset our index to start back at 0, normally this index will loop back to 0 after 
+# 'Samples' # of iterations but it may be good to keep it at 0 when starting a new process
+jackknife_iterator.reset_iter()
+
+# We can also find and use our sample amounts to iterate over the intended amount of masks
+jackknife_dataset = [next(jackknife_iterator) for x in range(jackknife_iterator.samples)]
+
+print(f'Our index: {jackknife_iterator.index} \n Dataset size: {len(jackknife_dataset)} \n Data shape: {jackknife_dataset[0]["input"].shape}\n')
+
+# Once we have a fitted list, we can predict on one of our models and compare it to another, or to
+# inverse data.
+
+# Getting the inverse masks requires you to pass 'both' to our inverse attribute. Then when you iterate,
+# you will recieve a tuple that gives you base and inverse for each mask
+jackknife_iterator_both = JackknifeIterator(spectrogram, samples=5, axis=0, target=response, inverse='both')
+est, val = next(jackknife_iterator_both)
+
+# Now we can compare two different models predictions
+print(f" Model 1 vs Model 2: {correlation(model_fit_list[0].predict(val['input']), model_fit_list[1].predict(val['input']))}")
+
+# We can also compare our models prediction to the target data
+print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['input']), val['target'])}")
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

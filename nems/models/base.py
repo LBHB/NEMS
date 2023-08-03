@@ -12,7 +12,6 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model, plot_model_outputs, plot_model_list, plot_generator_model
-from nems.preprocessing import generate_jackknife_data
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -870,23 +869,29 @@ class Model:
             backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
             **eval_kwargs)
         
-        def generator_fit(input_val, target_val):
-            return self.fit_from_generator(input_gen=input_val, target_gen=target_val, target_name=target_name, 
+        def iterator_fit(input_val, target_val):
+            return self.iterator_fit(iterator=input, target_name=target_name, 
             prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
             backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
             **eval_kwargs)
     
         fit_functions = {}
         fit_functions['base'] = base_fit
-        fit_functions['generator'] = generator_fit
+        fit_functions['iter'] = iterator_fit
         fit_type = 'base'
 
-        if isinstance(input, types.GeneratorType):
-            fit_type = 'generator'
+        if input.__iter__() is input:
+            fit_type = 'iter'
         
         return fit_functions[fit_type](input, target)
             
-
+    def iterator_fit(self, iterator, **fit_options):
+        ''' Returns list of fitted models from iterator. See, Model.base_fit(input, ...)'''
+        if iterator.inverse is 'both':
+            fit_list = [self.copy().base_fit(dataset['input'], target=dataset['target'], **fit_options) for x, (dataset,_) in zip(range(iterator.samples), iterator)]
+        else:
+            fit_list = [self.copy().base_fit(dataset['input'], target=dataset['target'], **fit_options) for x, dataset in zip(range(iterator.samples), iterator)]
+        return fit_list
 
     def base_fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
@@ -948,6 +953,8 @@ class Model:
         if backend_options is None: backend_options = {}
 
         # Initialize DataSet
+        if isinstance(input, DataSet):
+            input, target = (input['input'], input['target'])
         data = DataSet(
             input, target=target, target_name=target_name,
             prediction_name=prediction_name, **eval_kwargs
@@ -994,59 +1001,6 @@ class Model:
         new_model.results = fit_results
 
         return new_model
-
-    def fit_from_generator(self, input=None, target=None, *, input_gen=None, target_gen=None, **fit_options):
-        """
-        TODO: Implement this directly in fit to simplify calls
-
-        Takes a input and fits our model n times using a given
-        data generator or jackknife generator by default.
-
-        Parameters
-        ----------
-        input: np.array
-            A base 
-        target: np.array
-            A list of different target datasets to fit our inputs to
-        n: int
-            How many time we wish to fit our model
-        input_get: generator function
-            Specify the data generator used for our inputs
-        target_gen: generator function
-            specify the data generator used for our targets
-        fit_options: KWArgs
-            Provides the options that our model fits will need to run
-        
-        Returns
-        -------
-        Model object
-        """
-        new_model = self.copy()
-
-        # Organizing/Creating generators to organize data for fits
-        if input_gen is None and target_gen is None:
-            model_generator = generate_jackknife_data(input, target)
-        elif target_gen is None:
-            # Most likely working with tuple generator for input/target
-            input_result = input_gen
-            while isinstance(input_result, types.GeneratorType):
-                input_gen = input_result
-                input_result = next(input_gen)
-            model_generator = input_gen
-
-        try:
-            if model_generator is not None:
-                model_input, model_target = input_result
-                for index in model_generator:
-                    new_model = new_model.fit(model_input, model_target, **fit_options)
-                    model_input, model_target = next(model_generator)
-            else:
-                for index in input_gen:
-                    new_model = new_model.fit(next(input_gen), next(target_gen), **fit_options)
-        except StopIteration:
-            pass
-        return new_model
-
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
               backend='tf', reset_backend=False, backend_options=None,
