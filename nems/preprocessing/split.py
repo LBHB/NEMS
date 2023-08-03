@@ -1,5 +1,6 @@
 import numpy as np
 import types
+from nems.models.dataset import DataSet
 
 
 def indices_by_fraction(data, fraction=0.9, axis=0):
@@ -38,138 +39,87 @@ def split_at_indices(data, idx1, idx2, axis=0):
 
     return first_subset, second_subset
 
+class JackknifeIterator:
+    """
+    Iterator object used to create jackknife subsets of larger datasets
 
-
-
-#TODO: Manually split arrays to allow for more optimized generator
-def get_jackknife_indices(data, n, batch_size=0, axis=0, full_shuffle=False,
-                        full_list=False):
-    """Returns a generator that when called will provide 
-    a single index set from `n` sets created through `data`..
-
-    Parameters
+    Attributes
     ----------
-    data : numpy.ndarray
-        Array to make jackknife replicates of.
-    n : int
-        Number of jackknife replicates to generate indices for.
-    batch_size: int
-        Split the data into batches before creating new arrays.
-    axis : int
-        Axis on which replicate indices will be generated.
-    full_shuffle : bool
-        If true, shuffle all array entries along `axis`.
-    shuffle_jacks : bool
-        If true, shuffle the ordering of the replicate indices. This is useful
-        if you want the jackknife replicates to be semi-random but still want
-        to (mostly) maintain the original structure of the data.
-        Redundant if setting `full_shuffle = True`.
-    full_list : bool
-        If true, changes the output of this generator to be the entire list of
-        given indicies. Only to be called once.
-        
-    Returns
+    include_inverse : boolean; optional
+        A variable used to determine if inverse masks should be provided
+    mask_list : ndarray;
+        The list of indicies used for modifying our larger dataset into subsets
+    index : int; 
+        The current index of our iterator
+    samples : int; default=5
+        The total number of samples we used to create masks
+    dataset : DataSet object 
+        The dataset object that contains our input/target data
+
+    Methods
     -------
-    jack_indices[x] : list
-        Each element in the list is a suitable `indices` argument for
-        `get_jackknife`.
+    __next__(self) :
+        Returns the next subset of data using our dataset and created masks
+    create_jackknife_mask(data, n, axis=0, ...) : 
+        Used a given dataset, n samplesize and axis to create a list of masks
+    get_jackknife(data, indicies, axis) :
+        Uses data and a single mask to return subset of data
+    get_jackknife(data, indicies, axis) :
+        Uses data and a single mask to return inverse subset of data
     
     """
-    def split(arr, n, axis=0):
-        '''
-        See source numpy.array_split(ary, ...)
+    def __init__(self, input, samples=5,*, axis=0, inverse=False, state=None, target=None, 
+                 input_name=None, state_name=None, output_name=None, target_name=None,
+                 prediction_name=None, dtype=None, **kwargs):
+        """
         
-        A copy of np.array_split as a generator, to return a proportional split at each iteration
-        '''
-        try:
-            arr_len = arr.shape[axis]
-        except AttributeError:
-            arr_len = len(arr)
-        try:
-            arr_sections = len(n) + 1
-            splits = [0] + list(n) + [arr_len]
-        except:
-            arr_sections = int(n)
-            if arr_sections <= 0:
-                raise ValueError('number sections must be larger than 0.') from None
 
-        arr_single, rem = divmod(arr_len, arr_sections)
-        arr_section_size = ([0] + rem*[arr_single]+(arr_sections-rem)*[arr_single])
-        splits = np.array(arr_section_size, dtype='int16').cumsum()
+        """
+        self.inverse = inverse
+        self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, **kwargs)
+        self.index           = 0
+        self.samples         = samples
+        self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
+                               output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
 
-        sub_arr = []
-        arr_ax = np.swapaxes(arr, axis, 0)
-        for i in range(arr_sections):
-            start = splits[i]
-            end = splits[i+1]
-            sub_arr.append(np.swapaxes(arr_ax[start:end], axis, 0))
+    def __iter__(self):
+        return self
 
-            yield sub_arr[i]
+    def __next__(self):
+        """ Returns jackknifed data with mask at current index, then iterates index  """
+        jackknife_data = DataSet(self.get_jackknife(self.dataset['input'], self.mask_list[self.index]), 
+                                 target=self.get_jackknife(self.dataset['target'], self.mask_list[self.index]),
+                                 state=self.get_jackknife(self.dataset['state'], self.mask_list[self.index]))
+        
+        if self.inverse is 'both':
+            jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[self.index]), 
+                                 target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[self.index]),
+                                 state=self.get_inverse_jackknife(self.dataset['state'], self.mask_list[self.index])))
 
-    data_length = data.shape[axis]
-    indices = np.arange(0, data_length)
-    if full_shuffle:
-        indices = np.random.permutation(indices)
+        self.index = (self.index + 1)%self.samples
+        return jackknife_data
+        
+    def reset_iter(self):
+        """ Resets internal index to 0  """
+        self.index = 0
 
-    if full_list:
-        full_set = []
-        try:
-            for index in range(0, n):
-                if batch_size > 0:
-                    batched_ind = np.arange(0, data_length, batch_size)
-                    jack_set = np.array_split(indices, batched_ind, axis=axis)[1:]
-                    jack_set = split(jack_set, n, axis=axis)
-                else:
-                    jack_set = split(indices, n, axis=axis)
-                mask = next(jack_set)
-                full_set.append(mask)
-        except StopIteration:
-            pass
-        yield full_set
+    def create_jackknife_masks(self, data, n, axis=0, full_shuffle=False, full_list=False, **kwargs):
+        """ returns list of masks for jackknifes """
+        masks = np.arange(0, data.shape[axis])
+        if full_shuffle:
+            masks = np.random.permutation(masks)
+        masks = np.array_split(masks, n)
+        return masks
 
-    else:
-        if batch_size > 0:
-                batched_ind = np.arange(0, data_length, batch_size)
-                jack_set = np.array_split(indices, batched_ind, axis=axis)[1:]
-                jack_set = split(jack_set, n, axis=axis)
-        else:
-            jack_set = split(indices, n, axis=axis)
-        for index in range(0, n):
-            yield next(jack_set)
-
-
-def get_jackknife(data, indices, axis=0, pad=False, **pad_kwargs):
-    """Get a jackknife replicate by deleting slices at `indices` along `axis`."""
-    mask = indices
-    if isinstance(mask, types.GeneratorType):
-        mask = next(indices)
-    # Check if the given indices is a set or generator so we can call next automatically
-    if pad:
-        jackknife = pad_array(data, indices=mask, **pad_kwargs)
-    else:
-        jackknife = np.delete(data, obj=mask, axis=axis)
-
-    return jackknife
-
-
-def get_inverse_jackknife(data, indices, axis=0, pad=False, **pad_kwargs):
-    '''Returns the inverse replicate of the given jackknife indices.'''
-    inverse_jackknife = None
-    inverse_indices = indices
-
-    # Check if the given indices is a set or generator so we can call next automatically
-    if isinstance(inverse_indices, types.GeneratorType):
-        inverse_indices = next(inverse_indices)
-
-    if pad:
-        inverse_jackknife = pad_array(data, indices=inverse_indices, **pad_kwargs)
-    else:
-        inverse_jackknife = np.take(data, inverse_indices, axis=axis)
-
-    return inverse_jackknife
-
-# TODO: Move this somewhere else? Not a jackknife specific operation
-#       Add more pad_type's eg. linear_ramp, reflect, wrap, etc...
+    def get_jackknife(self, data, mask, axis=0, pad=False, **pad_kwargs):
+        """Get a jackknife replicate by deleting slices at `indices` along `axis`."""
+        return np.delete(data, obj=mask, axis=axis) if data is not None else None
+    
+    def get_inverse_jackknife(self, data, mask, axis=0, pad=False, **pad_kwargs):
+        '''Returns the inverse replicate of the given jackknife indices.'''
+        return np.take(data, mask, axis=axis) if data is not None else None
+    
+# TODO: Do we need this for anything?
 def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=None):
     '''
     Pads given array using options settings and jackknife indicies
@@ -273,68 +223,3 @@ def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=Non
     return pad_list[pad_type](padded_array, padded_mask, axis=axis)
 
 # TODO: what other generic split functions would be useful here?
-
-# TODO: Merge functions together ie. lambda, inner def, etc...
-def generate_jackknife_data(input, target, samples=5, axis=0, batch_size=0, inverse=False):
-    """
-    Creates a generator of generators that take a dataset, and # of samples to index to
-    return an input or target to be used in fitting. one at a time.
-
-    Parameters
-    ----------
-    data: np.array
-        A dataset used for model fitting
-    N: int
-        The number of lists we wish to generate from our data
-    Axis: int
-        Axis used to create list of indices from datasets
-    Batch_size:
-        Size of batches contained in the dataset, if any
-    TODO: Create a list of arguments to adjust data based on things like batches or axis,
-            Maybe move this to jackknife 
-    Returns
-    -------
-    np.array dataset, subset of data
-    """
-    while True:
-        if inverse:
-            yield (split_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=False), 
-                   split_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True))
-        else:
-            yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size)
-
-# Another internal function for our generator. Used to allow creation of tuple of gens for validation/fit data
-def split_jackknife_generator(input, target, samples=5, axis=0, batch_size=0, inverse=False):
-    while True:
-        if inverse:
-            yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size, inverse=True)
-        yield internal_jackknife_generator(input, target, samples=samples, axis=axis, batch_size=batch_size)
-
-
-# Testing a generator of generators to allow multiple fits and models to use same base generator
-# created by end user. Will be merging with above eventually
-def internal_jackknife_generator(input, target, samples=5, axis=0, batch_size=0, inverse=False):
-    return_set = None
-    dataset = None
-    inverse_dataset = None
-
-    mask_gen = get_jackknife_indices(input, samples, axis=axis, batch_size=batch_size)
-    for index in range(0, samples):
-        mask = next(mask_gen)
-
-        if inverse:
-            inverse_input = get_inverse_jackknife(input, mask, axis=axis)
-            inverse_dataset = inverse_input
-            if target is not None:
-                inverse_target = get_inverse_jackknife(target, mask, axis=axis)
-                inverse_dataset = (inverse_input, inverse_target)
-            return_set = inverse_dataset
-        else:
-            input_data = get_jackknife(input, mask, axis=axis)
-            dataset = input_data
-            if target is not None:
-                target_data = get_jackknife(target, mask, axis=axis)    
-                dataset = (input_data, target_data)
-            return_set = dataset
-
-        yield return_set
