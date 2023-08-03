@@ -89,12 +89,12 @@ class JackknifeIterator:
         """ Returns jackknifed data with mask at current index, then iterates index  """
         jackknife_data = DataSet(self.get_jackknife(self.dataset['input'], self.mask_list[self.index]), 
                                  target=self.get_jackknife(self.dataset['target'], self.mask_list[self.index]),
-                                 state=self.get_jackknife(self.dataset['state'], self.mask_list[self.index]))
+                                 state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[self.index]))
         
         if self.inverse is 'both':
             jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[self.index]), 
                                  target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[self.index]),
-                                 state=self.get_inverse_jackknife(self.dataset['state'], self.mask_list[self.index])))
+                                 state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[self.index])))
 
         self.index = (self.index + 1)%self.samples
         return jackknife_data
