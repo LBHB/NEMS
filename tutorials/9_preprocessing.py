@@ -118,8 +118,6 @@ model_fit_list = model.fit(jackknife_iterator)
 
 
 ############Advanced###############
-
-
 # Calling next will return a single sub-array of our data from our jackknife masks
 jackknife_single = next(jackknife_iterator)
 model.fit(jackknife_single)
@@ -133,7 +131,7 @@ target_data = jackknife_single['target']
 print(f'Current index: {jackknife_iterator.index} \n')
 
 # We can reset our index to start back at 0, normally this index will loop back to 0 after 
-# 'Samples' # of iterations but it may be good to keep it at 0 starting a new process
+# 'Samples' # of iterations but it may be good to keep it at 0 when starting a new process
 jackknife_iterator.reset_iter()
 
 # We can also find and use our sample amounts to iterate over the intended amount of masks
