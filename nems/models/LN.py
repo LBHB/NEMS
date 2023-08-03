@@ -424,7 +424,7 @@ class CNN_reconstruction(Model):
         if L2 > 0:
 
             wc2 = WeightChannels(shape=(L1, L2))
-            relu2 = RectifiedLinear(shape=(L2,), no_offset=False)
+            relu2 = RectifiedLinear(shape=(L2,), no_offset=False, no_shift=False)
             wc3 = WeightChannels(shape=(L2, out_channels))
 
             self.add_layers(wc1, fir1, relu1, wc2, relu2, wc3)

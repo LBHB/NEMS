@@ -19,11 +19,11 @@ from nems.metrics import correlation
 options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 
 # Dummy data loader. Refer to tutorial 1 for more info
-def my_data_loader(file_path):
+def my_data_loader(file_path=None):
     # Dummy function to demonstrate the data format.
     print(f'Loading data from {file_path}, but not really...')
     spectrogram = np.random.random(size=(1000, 18))
-    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
+    response = spectrogram[:,[1]] - spectrogram[:,[7]]*0.5 + np.random.randn(1000, 1)*1.0 + 0.5
 
     return spectrogram, response
 
@@ -108,7 +108,8 @@ model.add_layers(
 )
 
 # This creates an iterator that we can use to modify our data with 5 samples at axis 0
-jackknife_iterator = JackknifeIterator(spectrogram, 5, axis=0, target=response)
+jack_samples = 5
+jackknife_iterator = JackknifeIterator(spectrogram, target=response, samples=jack_samples, axis=0)
 
 # We can then fit this iterator directly and return a list of fitted model
 # This will fit range(0, samples) models with given masks before returning a list of fitted models
@@ -119,6 +120,7 @@ model_fit_list = model.fit(jackknife_iterator)
 
 ############Advanced###############
 # Calling next will return a single sub-array of our data from our jackknife masks
+jackknife_iterator.reset_iter()
 jackknife_single = next(jackknife_iterator)
 model.fit(jackknife_single)
 
@@ -144,7 +146,7 @@ print(f'Our index: {jackknife_iterator.index} \n Dataset size: {len(jackknife_da
 
 # Getting the inverse masks requires you to pass 'both' to our inverse attribute. Then when you iterate,
 # you will recieve a tuple that gives you base and inverse for each mask
-jackknife_iterator_both = JackknifeIterator(spectrogram, samples=5, axis=0, target=response, inverse='both')
+jackknife_iterator_both = JackknifeIterator(spectrogram, samples=jack_samples, axis=0, target=response, inverse='both')
 est, val = next(jackknife_iterator_both)
 
 # Now we can compare two different models predictions
@@ -155,3 +157,72 @@ print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['in
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
+
+
+# plot parameters with errorbars based on the jackknife estimates
+c = np.concatenate([model.layers[0].coefficients for model in model_fit_list], axis=1)
+
+m = np.mean(c, axis=1)
+se = np.std(c, axis=1) * np.sqrt(jack_samples-1)
+plt.figure()
+plt.plot(c, color='lightgray', lw=0.5)
+plt.errorbar(np.arange(len(m)), m, se*2)
+plt.axhline(0, ls='--', color='black', lw=0.5)
+
+# TODO : make sure shuffling works
+# TODO : make sure iterator stops and is reset when index at max.
+
+# pseudocode for handling jackknifed predictions
+jackknife_iterator_both= split.jack_predict(model_fit_list, jackknife_iterator_both)
+
+# pull pred out of jackknife_iterator_both (or also target?)
+reconstructed_dataset = split.jack_inverse_reconstruct(jackknife_iterator_both)
+full_pred = reconstructed_dataset['prediction']
+full_target = reconstructed_dataset['target']
+
+
+
+# TODO -- break off into a separate state-dependent model example that actually works
+
+def my_data_loader2(file_path=None):
+    # Dummy function to demonstrate the data format.
+    print(f'Loading data from {file_path}, but not really...')
+    spectrogram = np.random.random(size=(1000, 18))
+    response = spectrogram[:,[1]] - spectrogram[:,[7]]*0.5 + np.random.randn(1000, 1)*0.1 + 0.5
+
+    state = np.ones((len(response), 2))
+    state[:500,:] = 0
+    response = response * (1+state[:,1])
+
+    return spectrogram, response, state
+
+
+spectrogram, response = my_data_loader('path/to_data.csv')
+print(f'Our original dataset size is {spectrogram.shape}')
+model = Model()
+model.add_layers(
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,)) ,# WeightChannels will provide 1 input to shift
+)
+fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
+fitter_options = {'options': {'maxiter': 1000, 'tolerance': 1e-5}}
+
+model_fit = model.fit(spectrogram, target=response,
+                      fitter_options=fitter_options)
+
+
+
+
+spectrogram, response, state = my_data_loader2('path/to_data.csv')
+from nems.layers import LevelShift, WeightChannels, StateGain
+print(f'Our original dataset size is {spectrogram.shape}')
+model = Model()
+model.add_layers(
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    StateGain(shape=(2,1))
+)
+fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
+fitter_options = {'options': {'maxiter': 1000, 'tolerance': 1e-5}}
+
+model_fit = model.fit(spectrogram, target=response, state=state,
+                      fitter_options=fitter_options)
