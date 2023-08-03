@@ -28,7 +28,6 @@ def my_data_loader(file_path):
     return spectrogram, response
 
 
-
 ########################################################
 # Creating validation/estimation data
 #
@@ -48,6 +47,7 @@ spectrogram, response = my_data_loader('path/to_data.csv')
 #   - fraction: The ratio you want to split the data by
 #   - axis: Which axis to split the data by
 ###########################
+
 idx_before, idx_after = indices_by_fraction(response, fraction=0.9, axis=0)
 
 ###########################

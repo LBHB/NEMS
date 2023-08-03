@@ -488,7 +488,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
 
     return figure
 
-def plot_nl(layer, range, ax=None, fig=None):
+def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
 
     if ax is not None:
         fig = ax.figure
@@ -504,7 +504,10 @@ def plot_nl(layer, range, ax=None, fig=None):
     if outcount>1:
         x=np.broadcast_to(x[:,np.newaxis],[x.shape[0],outcount])
     y = layer.evaluate(x)
-    ax.plot(x, y, lw=0.5)
+    if channel is None:
+        ax.plot(x, y, lw=0.5)
+    else:
+        ax.plot(x, y[:,channel])
     ax.set_xlabel('in')
     ax.set_ylabel('out')
 
