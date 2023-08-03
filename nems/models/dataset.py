@@ -129,8 +129,8 @@ class DataSet:
             input_dict = input.copy()
         else:
             input_dict = {self.input_name: input}
-            if state is not None:
-                input_dict[self.state_name] = state
+            #if state is not None:
+            input_dict[self.state_name] = state
         if isinstance(input, dict) | isinstance(input, np.ndarray):
             self.data_format = 'array'
         else:
