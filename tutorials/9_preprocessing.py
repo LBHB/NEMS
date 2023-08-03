@@ -28,6 +28,7 @@ def my_data_loader(file_path):
     return spectrogram, response
 
 
+
 ########################################################
 # Creating validation/estimation data
 #
@@ -47,7 +48,6 @@ spectrogram, response = my_data_loader('path/to_data.csv')
 #   - fraction: The ratio you want to split the data by
 #   - axis: Which axis to split the data by
 ###########################
-
 idx_before, idx_after = indices_by_fraction(response, fraction=0.9, axis=0)
 
 ###########################
@@ -119,20 +119,6 @@ model_fit_list = model.fit(jackknife_iterator)
 
 ############Advanced###############
 
-# Once we have a fitted list, we can predict on one of our models and compare it to another, or to
-# inverse data.
-
-# Getting the inverse masks requires you to pass 'both' to our inverse attribute. Then when you iterate,
-# you will recieve a tuple that gives you base and inverse for each mask
-jackknife_iterator_both = JackknifeIterator(spectrogram, samples=5, axis=0, target=response, inverse='both')
-est, val = next(jackknife_iterator_both)
-
-# Now we can compare two different models predictions
-print(f" Model 1 vs Model 2: {correlation(model_fit_list[0].predict(val['input']), model_fit_list[1].predict(val['input']))}")
-
-# We can also compare our models prediction to the target data
-print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['input']), val['target'])}")
-
 
 # Calling next will return a single sub-array of our data from our jackknife masks
 jackknife_single = next(jackknife_iterator)
@@ -154,6 +140,20 @@ jackknife_iterator.reset_iter()
 jackknife_dataset = [next(jackknife_iterator) for x in range(jackknife_iterator.samples)]
 
 print(f'Our index: {jackknife_iterator.index} \n Dataset size: {len(jackknife_dataset)} \n Data shape: {jackknife_dataset[0]["input"].shape}\n')
+
+# Once we have a fitted list, we can predict on one of our models and compare it to another, or to
+# inverse data.
+
+# Getting the inverse masks requires you to pass 'both' to our inverse attribute. Then when you iterate,
+# you will recieve a tuple that gives you base and inverse for each mask
+jackknife_iterator_both = JackknifeIterator(spectrogram, samples=5, axis=0, target=response, inverse='both')
+est, val = next(jackknife_iterator_both)
+
+# Now we can compare two different models predictions
+print(f" Model 1 vs Model 2: {correlation(model_fit_list[0].predict(val['input']), model_fit_list[1].predict(val['input']))}")
+
+# We can also compare our models prediction to the target data
+print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['input']), val['target'])}")
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
