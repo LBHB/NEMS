@@ -793,15 +793,8 @@ def plot_generator_model(model, input, target, init_input, init_target, plot_com
         ax = []
         ax.append(fig.add_subplot())
         pred_model = model.predict(input_value)
-        ax[0].plot(pred_model, label='f{index}')
-        x_pos = ax[0].get_xlim()[0]
-        y_pos = ax[0].get_ylim()[1]
         title = f'Model 1'
-        ax[0].text(x_pos, y_pos, title, va='top')
-
-        if target_value is not None:
-            ax[0].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
-        
+        plot_basic(pred_model, ax[0], title=title, label=f'{index}', target_value=target_value)
         for index, enum_input in enumerate(input):
             if tuple_check:
                 input_value, target_value = enum_input
@@ -809,15 +802,10 @@ def plot_generator_model(model, input, target, init_input, init_target, plot_com
                 input_value = enum_input
                 if target_value is not None:
                     target_value = next(target)
+            title = f'Model {index+1}'
             pred_model = model.predict(input_value)
             ax.append(fig.add_subplot())
-            ax[index+1].plot(pred_model, label=f'{index+1}')
-            if target_value is not None:
-                ax[index+1].plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
-            x_pos = ax[index+1].get_xlim()[0]
-            y_pos = ax[index+1].get_ylim()[1]
-            title = f'Model {index+2}'
-            ax[index+1].text(x_pos, y_pos, title, va='top')
+            plot_basic(pred_model, ax[index+1], title=title, label=f'{index+1}', target_value=target_value)
 
         n = len(fig.axes)
         gs = matplotlib.gridspec.GridSpec(n+1, 1)
@@ -828,7 +816,6 @@ def plot_generator_model(model, input, target, init_input, init_target, plot_com
             ax.set_subplotspec(sgs)   
             fig.add_subplot(ax)
         fig_list.append(fig)
-            
 
     if plot_full:
         for input_value in input:
@@ -836,3 +823,30 @@ def plot_generator_model(model, input, target, init_input, init_target, plot_com
             fig_list.append(model_figure)
 
     return fig_list
+
+def plot_dstrf(dstrf):
+    """ Plotting DSTRF information from dstrf of a model """
+    absmax = np.max(np.abs(dstrf))
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols)
+    ax=ax.flatten()[:dstrf_count]
+    for i,a in enumerate(ax):
+        # flip along time axis so that x axis is timelag
+        d = np.fliplr(dstrf[0,i,:,:])
+        a.imshow(d, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+    plt.tight_layout()
+    return ax
+
+def plot_basic(data, ax, label, title, target_value):
+    """ Plotting most basic/important information of given models. Returns plotted ax """
+    ax.plot(data, label=label)
+    x_pos = ax.get_xlim()[0]
+    y_pos = ax.get_ylim()[1]
+    ax.text(x_pos, y_pos, title, va='top')
+
+    if target_value is not None:
+        ax.plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+    return ax
