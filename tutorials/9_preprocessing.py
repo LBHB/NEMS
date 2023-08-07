@@ -113,7 +113,14 @@ jackknife_iterator = JackknifeIterator(spectrogram, target=response, samples=jac
 
 # We can then fit this iterator directly and return a list of fitted model
 # This will fit range(0, samples) models with given masks before returning a list of fitted models
-model_fit_list = model.fit(jackknife_iterator)
+model_fit_list = jackknife_iterator.get_fitted_jackknifes(model)
+print(len(model_fit_list))
+
+# Predictions can be done across the entire list of fitted models, using our sets of masks as well
+prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
+predictions = prediction_set['prediction']
+targets = prediction_set['target']
+print(len(predictions))
 
 
 
@@ -155,74 +162,16 @@ print(f" Model 1 vs Model 2: {correlation(model_fit_list[0].predict(val['input']
 # We can also compare our models prediction to the target data
 print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['input']), val['target'])}")
 
+# We can also choose to shuffle the groups of indicies so the removed data is less sequential
+shuffle_set = JackknifeIterator(spectrogram, samples=jack_samples, axis=0, target=response, inverse='both', shuffle=True)
+print(shuffle_set.mask_list[0])
+
+# Here we can plot some data from a fitted model set and predictions to see how our model is performing
+prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
+
+# The plot itself will use it's internal set of fitted models and samples amount to plot the data
+jackknife_iterator.plot_estimate_error()
+
+
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
-
-
-# plot parameters with errorbars based on the jackknife estimates
-c = np.concatenate([model.layers[0].coefficients for model in model_fit_list], axis=1)
-
-m = np.mean(c, axis=1)
-se = np.std(c, axis=1) * np.sqrt(jack_samples-1)
-plt.figure()
-plt.plot(c, color='lightgray', lw=0.5)
-plt.errorbar(np.arange(len(m)), m, se*2)
-plt.axhline(0, ls='--', color='black', lw=0.5)
-
-# TODO : make sure shuffling works
-# TODO : make sure iterator stops and is reset when index at max.
-
-# pseudocode for handling jackknifed predictions
-jackknife_iterator_both= split.jack_predict(model_fit_list, jackknife_iterator_both)
-
-# pull pred out of jackknife_iterator_both (or also target?)
-reconstructed_dataset = split.jack_inverse_reconstruct(jackknife_iterator_both)
-full_pred = reconstructed_dataset['prediction']
-full_target = reconstructed_dataset['target']
-
-
-
-# TODO -- break off into a separate state-dependent model example that actually works
-
-def my_data_loader2(file_path=None):
-    # Dummy function to demonstrate the data format.
-    print(f'Loading data from {file_path}, but not really...')
-    spectrogram = np.random.random(size=(1000, 18))
-    response = spectrogram[:,[1]] - spectrogram[:,[7]]*0.5 + np.random.randn(1000, 1)*0.1 + 0.5
-
-    state = np.ones((len(response), 2))
-    state[:500,:] = 0
-    response = response * (1+state[:,1])
-
-    return spectrogram, response, state
-
-
-spectrogram, response = my_data_loader('path/to_data.csv')
-print(f'Our original dataset size is {spectrogram.shape}')
-model = Model()
-model.add_layers(
-    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
-    LevelShift(shape=(1,)) ,# WeightChannels will provide 1 input to shift
-)
-fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
-fitter_options = {'options': {'maxiter': 1000, 'tolerance': 1e-5}}
-
-model_fit = model.fit(spectrogram, target=response,
-                      fitter_options=fitter_options)
-
-
-
-
-spectrogram, response, state = my_data_loader2('path/to_data.csv')
-from nems.layers import LevelShift, WeightChannels, StateGain
-print(f'Our original dataset size is {spectrogram.shape}')
-model = Model()
-model.add_layers(
-    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
-    StateGain(shape=(2,1))
-)
-fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
-fitter_options = {'options': {'maxiter': 1000, 'tolerance': 1e-5}}
-
-model_fit = model.fit(spectrogram, target=response, state=state,
-                      fitter_options=fitter_options)
