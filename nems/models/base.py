@@ -65,7 +65,8 @@ class Model:
                     and a single target.
     """
 
-    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None):
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None,
+                 fs=None):
         """
         Parameters
         ----------
@@ -129,6 +130,7 @@ class Model:
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
         self.dstrf_backend = None  # backend for model with output NL removed
+        self.fs = fs
 
     @property
     def layers(self):

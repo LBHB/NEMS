@@ -508,8 +508,8 @@ def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
         ax.plot(x, y, lw=0.5)
     else:
         ax.plot(x, y[:,channel])
-    ax.set_xlabel('in')
-    ax.set_ylabel('out')
+    ax.set_xlabel('NL input')
+    ax.set_ylabel('NL output')
 
 
 def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=None):
