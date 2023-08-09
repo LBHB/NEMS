@@ -110,7 +110,7 @@ class LN_STRF(Model):
                            }
 
         strf = self.sample_from_priors()
-
+        log.info('Fit stage 1: w/o static output nonlinearity')
         strf.layers[-1].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         fitter_options=fitter_options, batch_size=None)
@@ -408,9 +408,29 @@ class LN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    def fit_LBHB():
-        # TODO: 3-stage fit with freezing/unfreezing NL
-        pass
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+        fitter_options = {'cost_function': cost_function,  # 'nmse'
+                          'early_stopping_tolerance': 5e-3,
+                          'validation_split': 0,
+                          'learning_rate': 1e-2, 'epochs': 3000
+                          }
+        fitter_options2 = {'cost_function': cost_function,
+                           'early_stopping_tolerance': 5e-4,
+                           'validation_split': 0,
+                           'learning_rate': 1e-3, 'epochs': 8000
+                           }
+
+        model = self.sample_from_priors()
+
+        model.layers[-1].skip_nonlinearity()
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          fitter_options=fitter_options, batch_size=None)
+        model.layers[-1].unskip_nonlinearity()
+        log.info('Fit stage 2: with static output nonlinearity')
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          verbose=0, fitter_options=fitter_options2, batch_size=None)
+
+        return model
 
     # TODO
     # @module('CNNrecon')
@@ -515,7 +535,7 @@ class CNN_reconstruction(Model):
                           'learning_rate': 1e-2, 'epochs': 3000
                           }
         fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 1e-4,
+                           'early_stopping_tolerance': 5e-4,
                            'validation_split': 0,
                            'learning_rate': 1e-3, 'epochs': 8000
                            }
