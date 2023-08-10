@@ -734,15 +734,30 @@ def checkerboard(array):
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
 
-def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False):
+def plot_list(model_list, input, target=None, plot_comparitive=True, plot_full=False, find_best=False):
+    '''Allows you to plot a list of models or predictions together'''
+    if isinstance(model_list[0], np.ndarray):
+        return plot_pred_list(model_list, input)
+    else:
+        return plot_model_list(model_list, input, target, plot_comparitive, plot_full, find_best)
+
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, find_best=False):
     '''
 
     '''
     samples = len(model_list)
     fig_list = []
-    best_fit = None
+
+    pred_list = []
+    for model in model_list:
+        pred_list.append(model.predict(input))
+
+    if find_best:
+        best_fit = None
+        samples += 1
+
     if plot_comparitive:
-        fig, ax = plt.subplots(samples+3, 1, sharex='col')
+        fig, ax = plt.subplots(samples+2, 1, sharex='col')
         ax[0].imshow(input.T,aspect='auto', interpolation='none',origin='lower')
         ax[0].set_ylabel('Test stimulus')
         ax[1].plot(target, color='orange', label='actual response')
@@ -751,21 +766,15 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
             model.name = f"Model_Fit-{fitidx}"
-            pred_model = model.predict(input)
 
-            if best_fit is None or best_fit.results.final_error > model.results.final_error:
-                best_fit = model
-
-            ax[fitidx+2].plot(pred_model, label='predicted')
-            ax[fitidx+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
-            ax[fitidx+2].set_ylabel(f'Fit {fitidx}')
+            if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
+                best_fit = fitidx
+            plot_basic(pred_list[fitidx], label='predicted', title=f'Fit {fitidx}', target_value=target, ax=ax[fitidx+2])
 
         # Plotting some comparisons with our test data and the best models
-        ax[samples+2].set_ylabel('Best vs Resp')
-        ax[samples+2].plot(best_fit.predict(input), label = 'Best Fit')
-        ax[samples+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
-
-        ax[samples+2].legend()
+        if find_best:
+            plot_basic(pred_list[best_fit], label='best_fit', title='Best vs Target', target_value=target, ax=ax[samples+2])
+            ax[samples+2].legend()
         fig_list.append(fig)
 
     if plot_full:
@@ -775,57 +784,20 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
     return fig_list
 
-def plot_generator_model(model, input, target, init_input, init_target, plot_comparitive=True, plot_full=False):
-    '''
-
-    '''
-    tuple_check = False
-    if isinstance(init_input, tuple):
-        input_value, target_value = init_input
-        tuple_check = True
-    else:
-        input_value = init_input
-        target_value = init_target
+def plot_pred_list(pred_list, target):
+    """Plots a list of predicted models"""
+    samples = len(pred_list)
     fig_list = []
-    
-    if plot_comparitive:
-        fig = plt.figure()
-        ax = []
-        ax.append(fig.add_subplot())
-        pred_model = model.predict(input_value)
-        title = f'Model 1'
-        plot_basic(pred_model, ax[0], title=title, label=f'{index}', target_value=target_value)
-        for index, enum_input in enumerate(input):
-            if tuple_check:
-                input_value, target_value = enum_input
-            else:
-                input_value = enum_input
-                if target_value is not None:
-                    target_value = next(target)
-            title = f'Model {index+1}'
-            pred_model = model.predict(input_value)
-            ax.append(fig.add_subplot())
-            plot_basic(pred_model, ax[index+1], title=title, label=f'{index+1}', target_value=target_value)
+    fig, ax = plt.subplots(samples, 1, sharex='col')
 
-        n = len(fig.axes)
-        gs = matplotlib.gridspec.GridSpec(n+1, 1)
-        axes = fig.axes
-        for ax in fig.axes:
-            fig.delaxes(ax)
-        for ax, sgs in zip(axes, gs):
-            ax.set_subplotspec(sgs)   
-            fig.add_subplot(ax)
-        fig_list.append(fig)
-
-    if plot_full:
-        for input_value in input:
-            model_figure = model.plot(input, target=target)
-            fig_list.append(model_figure)
-
+    for fitidx, data in enumerate(pred_list):
+            plot_basic(data, label='predicted', title=f'Pred {fitidx}', target_value=target, ax=ax[fitidx])
+    ax[0].legend()
+    fig_list.append(fig)
     return fig_list
 
 def plot_dstrf(dstrf):
-    """ Plotting DSTRF information from dstrf of a model """
+    """Plotting DSTRF information from dstrf of a model"""
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
@@ -840,13 +812,16 @@ def plot_dstrf(dstrf):
     plt.tight_layout()
     return ax
 
-def plot_basic(data, ax, label, title, target_value):
-    """ Plotting most basic/important information of given models. Returns plotted ax """
+def plot_basic(data, label, title, target_value, ax=None):
+    """Plotting most basic/important information of given models. Returns plotted ax"""
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+        ax.legend()
     ax.plot(data, label=label)
     x_pos = ax.get_xlim()[0]
     y_pos = ax.get_ylim()[1]
     ax.text(x_pos, y_pos, title, va='top')
 
     if target_value is not None:
-        ax.plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+        ax.plot(target_value, label='Target', color='orange', lw=1, zorder=-1)
     return ax
