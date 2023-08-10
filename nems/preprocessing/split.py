@@ -159,7 +159,7 @@ class JackknifeIterator:
     
     def get_fitted_jackknifes(self, model, **kwargs):
         """Returns a list of fitted models with the given model base."""
-        jackknifed = [model.fit(jackknife, **kwargs) for jackknife in self]
+        jackknifed = [model.fit(dataset['input'], dataset['target'], **kwargs) for dataset in self]
         self.fit_list = jackknifed
         return jackknifed
     
