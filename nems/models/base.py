@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
-from nems.visualization import plot_model, plot_model_outputs, plot_model_list, plot_generator_model
+from nems.visualization import plot_model, plot_model_outputs, plot_model_list
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -817,85 +817,9 @@ class Model:
               in input.
         
         """
-        def base_predict(input, return_full_data=False, **eval_kwargs):
-            return self.evaluate(input, return_full_data=return_full_data, **eval_kwargs)
+        return self.evaluate(input, return_full_data=return_full_data, **eval_kwargs)
         
-        def generator_predict(input, return_full_data=False, **eval_kwargs):
-            input_result = input
-            while isinstance(input_result, types.GeneratorType):
-                input_gen = input_result
-                input_result = next(input_result)
-            val_list = []
-            val_list.append(input_result)
-
-            try:
-                for index in input_gen:
-                    if isinstance(input_result, tuple):
-                        input_result, _ = input_result 
-                    eval_result = self.evaluate(input_result, return_full_data=return_full_data, **eval_kwargs)
-                    val_list.append(eval_result)
-                    input_result = next(input_gen)
-            except StopIteration:
-                pass
-            return val_list
-            
-        
-        predict_type = 'base'
-        predict_functions = {}
-        if isinstance(input, types.GeneratorType):
-            predict_type = 'generator'
-        predict_functions['base'] = base_predict
-        predict_functions['generator'] = generator_predict
-
-        return predict_functions[predict_type](input, return_full_data=False, **eval_kwargs)
-    
-    def fit(self, input, target=None, target_name=None, prediction_name=None,
-            backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
-        """ 
-        Fit function wrapper to process various types of fits, such as fitting from
-        a generator function 
-        
-        Parameters
-        ----------
-        See more at: base_fit(self, input, ...), 
-                     fit_from_generator(self, input, ...)
-
-        Returns
-        -------
-        Model or List of Model()
-        """
-        def base_fit(input_val, target_val):
-            return self.base_fit(input=input_val, target=target_val, target_name=target_name, 
-            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
-            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
-            **eval_kwargs)
-        
-        def iterator_fit(input_val, target_val):
-            return self.iterator_fit(iterator=input, target_name=target_name, 
-            prediction_name=prediction_name, backend=backend, fitter_options=fitter_options,
-            backend_options=backend_options, verbose=verbose, in_place=in_place, freeze_layers=freeze_layers, 
-            **eval_kwargs)
-    
-        fit_functions = {}
-        fit_functions['base'] = base_fit
-        fit_functions['iter'] = iterator_fit
-        fit_type = 'base'
-
-        if input.__iter__() is input:
-            fit_type = 'iter'
-        
-        return fit_functions[fit_type](input, target)
-            
-    def iterator_fit(self, iterator, **fit_options):
-        ''' Returns list of fitted models from iterator. See, Model.base_fit(input, ...)'''
-        if iterator.inverse is 'both':
-            fit_list = [self.copy().base_fit(dataset['input'], target=dataset['target'], **fit_options) for x, (dataset,_) in zip(range(iterator.samples), iterator)]
-        else:
-            fit_list = [self.copy().base_fit(dataset['input'], target=dataset['target'], **fit_options) for x, dataset in zip(range(iterator.samples), iterator)]
-        return fit_list
-
-    def base_fit(self, input, target, target_name=None, prediction_name=None,
+    def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
@@ -1399,44 +1323,9 @@ class Model:
         """Alias for `nems.visualization.model.plot_model`.
         
         By default, the result of each `Layer.evaluate` will be shown.
-        
         """
-        def base_plot(self, input, target, **kwargs):
-            return plot_model(self, input, target, **kwargs)
+        return plot_model(self, input, target, **kwargs)
         
-        def generator_plot(self, input, target, **kwargs):
-            plot_list = []
-            input_gen = input
-            target_gen = target
-            input_value = next(input_gen)
-            target_value = None
-            
-            # If given target & output gen, find bottom gen and send
-            # Or if not, assume tuple input/target and send
-            if target is not None and isinstance(target, types.GeneratorType):
-                target_gen = target_value
-                target_value = next(target_gen)
-                while isinstance(input_value, types.GeneratorType):
-                    input_gen = input_value
-                    input_value = next(input_value)
-                    target_gen = target_value
-                    target_value = next(target_gen)
-            else:
-                while isinstance(input_value, types.GeneratorType):
-                    input_gen = input_value
-                    input_value = next(input_value)
-            return plot_generator_model(self, input_gen, target_gen, init_input=input_value, init_target=target_value, **kwargs)
-        
-        plot_functions = {}
-        plot_functions['base'] = base_plot
-        plot_functions['generator'] = generator_plot
-        plot_type = 'base'
-
-        if isinstance(input, types.GeneratorType):
-            plot_type = 'generator'
-
-        return plot_functions[plot_type](self, input, target, **kwargs)
-    
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
     def summary(self):
         """Prints long-form model description (alias for `print(Model)`)."""
@@ -1727,7 +1616,7 @@ class Model_List:
 
         
     """
-    def __init__(self, model=None, model_list=None, samples=5):
+    def __init__(self, model_list=None, model=None, samples=5):
         """
         Create a Model_List object using an existing list, or by
         creating it's own list via sample_from_priors and a provided model
@@ -1794,24 +1683,6 @@ class Model_List:
             verbose, in_place, freeze_layers, **eval_kwargs)
             if self.best_fit == None or self.best_fit.results.final_error < fit_list[id].results.final_error:
                 self.best_fit = fit_list[id]
-        self.fit_list = fit_list
-        return fit_list
-    
-    def fit_from_generator(self, input=None, target=None, samples=5, *, input_gen=None, target_gen=None, **fit_options):
-        """
-        Performs a fit_from_generator on our set of models 
-
-        parameters
-        ----------
-        See Model.fit_from_generator(self, input, ...)
-
-        Returns
-        -------
-        Model list
-        """
-        fit_list = self.model_list
-        for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit_from_generator(input, target, samples, input_gen=input_gen, target_gen=target_gen, **fit_options)
         self.fit_list = fit_list
         return fit_list
 
