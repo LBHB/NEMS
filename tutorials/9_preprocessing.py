@@ -129,7 +129,7 @@ print(len(predictions))
 # Calling next will return a single sub-array of our data from our jackknife masks
 jackknife_iterator.reset_iter()
 jackknife_single = next(jackknife_iterator)
-model.fit(jackknife_single)
+model.fit(jackknife_single['input'], jackknife_single['target'])
 
 # The object returned on each iteration is actually a Dataset object which can used like below:
 print(type(jackknife_single))
