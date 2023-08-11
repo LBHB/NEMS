@@ -5,7 +5,6 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
-from nems.visualization.model import plot_list
 from nems.metrics import correlation
 
 ## This indicates that our code is interactive, allowing a matplotlib
@@ -136,6 +135,7 @@ print(f'FIR coefficients: {fitted_cnn.layers[1].coefficients}')
 # Now we can predict some new data
 pred_ln = fitted_ln.predict(spectrogram_test)
 pred_cnn = fitted_cnn.predict(spectrogram_test)
+
 pred_cc_ln = correlation(pred_ln, response_test)
 pred_cc_cnn = correlation(pred_cnn, response_test)
 
@@ -143,7 +143,7 @@ results_cnn = np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]
 
 
 # A quick plot of our models pre and post fitting
-plot_list([ln_model, cnn, fitted_ln, fitted_cnn], spectrogram_test, response_test)
+visualization.plot_predictions([pred_ln, pred_cnn], spectrogram_test, response_test)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

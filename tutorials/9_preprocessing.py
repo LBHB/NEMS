@@ -98,7 +98,7 @@ est_response, val_response = split_at_indices(
 #   Inverse: Indicate if you would like the inverse masks of given data
 ###########################
 
-############Basics###############
+############GETTING STARTED###############
 spectrogram, response = my_data_loader('path/to_data.csv')
 print(f'Our original dataset size is {spectrogram.shape}')
 model = Model()
@@ -125,7 +125,7 @@ print(len(predictions))
 
 
 
-############Advanced###############
+############ADVANCED###############
 # Calling next will return a single sub-array of our data from our jackknife masks
 jackknife_iterator.reset_iter()
 jackknife_single = next(jackknife_iterator)

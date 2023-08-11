@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from nems import Model
 from nems.layers import LevelShift, WeightChannels
-from nems.visualization.model import plot_basic
+from nems import visualization
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
@@ -156,7 +156,7 @@ pred_model = fitted_model.predict(spectrogram)
 
 # Viewing our model prediction, compared with the initial input given
 # This tool is in nems.visualization.model and creates a basic model using our prediction and target data
-plot_basic(pred_model, label='Pred', title='Model Prediction', target_value=spectrogram)
+visualization.plot_data(pred_model, label='Pred', title='Model Prediction', target_value=spectrogram)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

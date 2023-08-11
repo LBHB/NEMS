@@ -5,7 +5,6 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential
 from nems import visualization
-from nems.visualization.model import plot_list
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
@@ -92,7 +91,7 @@ fitted_model.name = "Rank2LNSTRF-PostFit"
 ###########################
 
 # A plot of our model before anything has been fit
-# NOTE: It will be very hard to see the blue line, try zooming in very close
+# NOTE: It may be very hard to see the blue line, try zooming in very close
 model.plot(spectrogram_fit, target = response_fit)
 
 visualization.plot_model(fitted_model, spectrogram_test, response_test)
@@ -118,7 +117,9 @@ print(f"""
 """)
 
 # evaluate model on test stimulus
-pred_test = fitted_model.predict(spectrogram_test)
+pred_fitted_model = fitted_model.predict(spectrogram_test)
+pred_model = model.predict(spectrogram_test)
+
 
 ###########################
 # Visualizing multiple models
@@ -128,7 +129,7 @@ pred_test = fitted_model.predict(spectrogram_test)
 ###########################
 
 # Here we just compare our unfitted model next to that same model after being fitted to data
-plot_list([model, fitted_model], input=spectrogram_test, target=response_test)
+visualization.plot_predictions([pred_model, pred_fitted_model], input=spectrogram_test, target=response_test)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

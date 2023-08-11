@@ -9,7 +9,7 @@ from nems.preprocessing import (
 from nems import Model
 from nems.layers import LevelShift, WeightChannels, StateGain
 from nems.metrics import correlation
-from nems.visualization.model import plot_list
+from nems import visualization
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
@@ -59,6 +59,7 @@ model_no_state.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     LevelShift(shape=(1,))
 )
+model_no_state.name = "Standard Model"
 # StateGain is the basis of a our model that needs to account for some state data
 # nems.layers.state contains several layer types that can account for state in different ways
 model_state = Model()
@@ -66,16 +67,17 @@ model_state.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     StateGain(shape=(2,1))
 )
+model_state.name = "State Model"
 
-model_no_state = model_no_state.fit(spectrogram, target=response,
+fit_model_no_state = model_no_state.fit(spectrogram, target=response,
                                     fitter_options=fitter_options)
-model_state = model_state.fit(spectrogram, target=response, state=state,
+fit_model_state = model_state.fit(spectrogram, target=response, state=state,
                                     fitter_options=fitter_options)
-pred_no_state = model_no_state.predict(input=spectrogram)
-pred_state = model_state.predict(input=spectrogram, state=state)
 
+pred_no_state = fit_model_no_state.predict(spectrogram)
+pred_state = fit_model_state.predict(spectrogram, state=state)
 
 # Here we can see the difference in our models performance between 
 # 1. A model with no state information attempting to fit to our data clearly shifted by some state
-# 2. A model that contains StateGain and can actually fit around data that has states
-plot_list([pred_no_state, pred_state], response)
+# 2. A model that contains StateGain and State data can actually fit around data that has states
+visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, coeff=True)
