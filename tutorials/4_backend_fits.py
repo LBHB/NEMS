@@ -11,19 +11,6 @@ from nems import visualization
 ## backend to show graphs. Uncomment if you don't see any graphs
 #plt.ion()
 
-########################################################
-# Setting Backend Parameters
-#
-# A significant part of creating accurate and optimized models
-# is picking parameters to be run through your model. There are
-# a lot of different paramenters, here we provide some examples
-# and recommendations
-#
-# Finding the right parameter is both time consuming and often
-# inconsistent, we have tools in place to help pick out good
-# starts for parameters
-########################################################
-
 ###########################
 # Setting up Demo Data instead of dummy data
 # 
@@ -45,7 +32,44 @@ response_fit = training_dict['response'][:,[cid]]
 spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
 
+############GETTING STARTED###############
+###########################
+# Simple Backend Parameters
+# Optimizing backend parameters is a complex and 
+# non-trivial part of creating an effecient and
+# performant model.
+#
+# Below we've provided a simple standard set of options
+# that will give you a rough idea of options to manipulate.
+# For more info, see the Advanced section
+###########################
+# Tensorflow options
+options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 10,
+                  'early_stopping_tolerance': 1e-3, 'validation_split': 0,
+                  'learning_rate': 5e-3, 'epochs': 2000}
 
+# Scipy options
+options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
+
+# NOTE: We also recommend exploring Tensorflow and Scipy's fitter options in their own documentation for
+# specific options
+
+
+
+
+############ADVANCED###############
+########################################################
+# Setting Backend Parameters
+#
+# A significant part of creating accurate and optimized models
+# is picking parameters to be run through your model. There are
+# a lot of different paramenters, here we provide some examples
+# and recommendations
+#
+# Finding the right parameter is both time consuming and often
+# inconsistent, we have tools in place to help pick out good
+# starts for parameters
+########################################################
 # Creating a basic Rank2LNSTRF model to test parameters on
 model = Model()
 model.add_layers(
@@ -114,7 +138,7 @@ sample_list = model.sample_from_priors(N)
 #   fit_models(): Fits group of models, using same inputs as normal fit
 #   plot_models(): Plots all models in group
 ###########################
-list_of_models = Model_List(model, samples=N)
+list_of_models = Model_List(model=model, samples=N)
 
 # Creating models from an existing list
 existing_list_of_models = Model_List(sample_list)

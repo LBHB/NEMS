@@ -5,26 +5,15 @@ import matplotlib.pyplot as plt
 
 from nems import Model
 from nems.layers import LevelShift, WeightChannels
+from nems.visualization.model import plot_basic
 
 ## This indicates that our code is interactive, allowing a matplotlib
 ## backend to show graphs. Uncomment if you don't see any graphs
 #plt.ion()
 
 # Fast-running toy fit options for demonstrations.
+# See tutorial 4. for more
 options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
-
-########################################################
-# Typical nems.Layers data structure:
-# layer_data_example(TIME, CHANNEL)
-#
-# (X Axis, 2D Numpy Array): TIME can be any representation relevent to your data
-# (Y Axis, 2D Numpy Array): CHANNEL is some seperation of data inputs ie... Neuron, Sepctral Channel, etc...
-#
-# Examples: 
-#   1. Spiking responses of neurons is set up as shape(TIME, NEURONS)
-#   2. Pupil Size is represented as shape(TIME, PUPIL_STATES)
-# See more at: https://temp.website.net/nems.Layers
-########################################################
 
 ###########################
 # A dummy representation of potential LBHB data
@@ -49,10 +38,45 @@ def my_data_loader(file_path):
     response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
     
     return spectrogram, response, TIME, CHANNELS
-
 # Create variables from our data import function
 spectrogram, response, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
 
+############GETTING STARTED###############
+###########################
+# Models
+# Models are at their core an object that can be built with a few simple steps
+# to start:
+#   1. Create a Model()
+#   2. Add layers to our model based on your needs
+# Using models is also fairly simple at it's core:
+#   1. Fit models using Model.fit()
+#   2. Predict models using Model.predict()
+# There is much more going on with models, but this should let you get started
+###########################
+model = Model()
+model.add_layers(
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
+)
+fitted_model = model.fit(input=spectrogram, target=response,
+                      fitter_options=options)
+
+
+
+
+############ADVANCED###############
+########################################################
+# Typical nems.Layers data structure:
+# layer_data_example(TIME, CHANNEL)
+#
+# (X Axis, 2D Numpy Array): TIME can be any representation relevent to your data
+# (Y Axis, 2D Numpy Array): CHANNEL is some seperation of data inputs ie... Neuron, Sepctral Channel, etc...
+#
+# Examples: 
+#   1. Spiking responses of neurons is set up as shape(TIME, NEURONS)
+#   2. Pupil Size is represented as shape(TIME, PUPIL_STATES)
+# See more at: https://temp.website.net/nems.Layers
+########################################################
 ###########################
 # Model can take in a (Usually) sequential set of layers
 #   WeightChannels: Computes linear weights of input channels
@@ -65,32 +89,8 @@ model.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
-
 # We can name our models, will show up as a title in plots
-model.name = "DummyData-SimpleLinearModel"
-
-###########################
-# Viewing the model and data
-#   Model.plot(): Takes input and many possible KWarg's to plot layer data and evaluation outputs
-#
-# Here we will plot our current data, and it's target before we actually fit the model.
-# You can see our model has done nothing to the blue line whose output is clearly false.
-# Our blue and orange lines should be similar or the same if our model is working.
-#
-# We can also view a lot of data directly from the model and it's layers, these can be
-# seen inside something like IPython, or printed out directly as well
-###########################
-
-# Plotting our model via .plot
-model.plot(spectrogram, target=response)
-
-# Viewing various data from our model and it's layers
-print(f"""
-    Model Layers:\n {model.layers}
-    layer shapes:\n {model.layers[0].shape}
-    layer priors:\n {model.layers[0].priors}
-    layer bounds:\n {model.layers[0].bounds}
-""")
+model.name = "SimpleLinModel-PreFit"
 
 ###########################
 # Fitting our data to the model and layers
@@ -107,15 +107,37 @@ print(f"""
 ###########################
 fitted_model = model.fit(input=spectrogram, target=response,
                       fitter_options=options)
-fitted_model.name += "-Fitted"
+model.name = "SimpleLinModel-PostFit"
 
+###########################
+# Viewing the model and data
+#   Model.plot(): Takes input and many possible KWarg's to plot layer data and evaluation outputs
+#
+# Here we will plot our current data, and it's target before we actually fit the model.
+# You can see our model has done nothing to the blue line whose output is clearly false.
+# Our blue and orange lines should be similar or the same if our model is working.
+#
+# We can also view a lot of data directly from the model and it's layers, these can be
+# seen inside something like IPython, or printed out directly as well
+###########################
+
+# Plotting our prefit model via .plot
+model.plot(spectrogram, target=response)
 # We are now viewing our data after it has fit the input to our target
 fitted_model.plot(spectrogram, target=response)
 
+# Viewing various data from our model and it's layers
 print(f"""
-    layer shapes:\n {fitted_model.layers[0].shape}
-    layer priors:\n {fitted_model.layers[0].priors}
-    layer bounds:\n {fitted_model.layers[0].bounds}
+    Model Layers:\n {model.layers}
+    layer shapes:\n {model.layers[0].shape}
+    layer priors:\n {model.layers[0].priors}
+    layer bounds:\n {model.layers[0].bounds}
+""")
+
+print(f"""
+    Fitted layer shapes:\n {fitted_model.layers[0].shape}
+    Fitted layer priors:\n {fitted_model.layers[0].priors}
+    Fitted layer bounds:\n {fitted_model.layers[0].bounds}
     pre-fit weighted layer values:\n {model.layers[0].coefficients}
     post-fit weighted layer values:\n {fitted_model.layers[0].coefficients}
 
@@ -133,12 +155,8 @@ print(f"""
 pred_model = fitted_model.predict(spectrogram)
 
 # Viewing our model prediction, compared with the initial input given
-f, ax = plt.subplots(2, 1, sharex='col')
-ax[0].imshow(spectrogram.T,aspect='auto', interpolation='none',origin='lower')
-ax[0].set_ylabel('Test stimulus')
-ax[1].plot(pred_model, label='predicted')
-ax[1].set_ylabel('Prediction')
-
+# This tool is in nems.visualization.model and creates a basic model using our prediction and target data
+plot_basic(pred_model, label='Pred', title='Model Prediction', target_value=spectrogram)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

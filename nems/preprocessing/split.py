@@ -1,5 +1,6 @@
 import numpy as np
 import types
+from nems.visualization.metrics import jackknife_est_error
 from nems.models.dataset import DataSet
 
 
@@ -68,17 +69,19 @@ class JackknifeIterator:
         Uses data and a single mask to return inverse subset of data
     
     """
-    def __init__(self, input, samples=5,*, axis=0, inverse=False, state=None, target=None, 
+    def __init__(self, input, samples=5,*, axis=0, inverse=False, shuffle=False, state=None, target=None, 
                  input_name=None, state_name=None, output_name=None, target_name=None,
                  prediction_name=None, dtype=None, **kwargs):
         """
         
 
         """
-        self.inverse = inverse
-        self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, **kwargs)
+        self.inverse         = inverse
+        self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, shuffle=shuffle, **kwargs)
+        self.fit_list        = None
         self.index           = 0
         self.samples         = samples
+        self.max_iter        = samples
         self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
                                output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
 
@@ -86,38 +89,81 @@ class JackknifeIterator:
         return self
 
     def __next__(self):
-        """ Returns jackknifed data with mask at current index, then iterates index  """
-        jackknife_data = DataSet(self.get_jackknife(self.dataset['input'], self.mask_list[self.index]), 
-                                 target=self.get_jackknife(self.dataset['target'], self.mask_list[self.index]),
-                                 state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[self.index]))
-        
-        if self.inverse is 'both':
-            jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[self.index]), 
-                                 target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[self.index]),
-                                 state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[self.index])))
-
-        self.index = (self.index + 1)%self.samples
-        return jackknife_data
+        """Returns jackknifed data with mask at current index, then iterates index."""
+        if self.index >= self.max_iter:
+            raise StopIteration
+        jackknifed_data = self.get_indexed_jackknife(index=self.index, inverse=self.inverse)
+        self.index += 1
+        return jackknifed_data
         
     def reset_iter(self):
-        """ Resets internal index to 0  """
+        """Resets internal index to 0 """
         self.index = 0
 
-    def create_jackknife_masks(self, data, n, axis=0, full_shuffle=False, full_list=False, **kwargs):
-        """ returns list of masks for jackknifes """
+    def set_samples(self, new_sample):
+        """Sets new sample amount to iterator"""
+        self.samples = new_sample
+
+    def create_jackknife_masks(self, data, n, axis=0, shuffle=False):
+        """Returns list of masks for jackknifes"""
         masks = np.arange(0, data.shape[axis])
-        if full_shuffle:
+        if shuffle:
             masks = np.random.permutation(masks)
         masks = np.array_split(masks, n)
         return masks
 
-    def get_jackknife(self, data, mask, axis=0, pad=False, **pad_kwargs):
+    def plot_estimate_error(self):
+        '''Wrapper for nems.visualization.metrics.jackknife_est_error(model_list, ...)'''
+        return jackknife_est_error(self.fit_list, self.samples)
+
+    def get_indexed_jackknife(self, index, inverse=None):
+        """Returns the jackknife at a given index, conditionally with inverse."""
+
+        jackknife_data = DataSet(self.get_jackknife(self.dataset['input'], self.mask_list[index]),
+                                 target=self.get_jackknife(self.dataset['target'], self.mask_list[index]),
+                                 state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[index]))
+        
+        if self.inverse is 'both':
+            jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[index]), 
+                                 target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[index]),
+                                 state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[index])))
+        return jackknife_data
+
+    def get_jackknife(self, data, mask, axis=0):
         """Get a jackknife replicate by deleting slices at `indices` along `axis`."""
         return np.delete(data, obj=mask, axis=axis) if data is not None else None
     
-    def get_inverse_jackknife(self, data, mask, axis=0, pad=False, **pad_kwargs):
-        '''Returns the inverse replicate of the given jackknife indices.'''
+    def get_inverse_jackknife(self, data, mask, axis=0):
+        """Returns the inverse replicate of the given jackknife indices."""
         return np.take(data, mask, axis=axis) if data is not None else None
+    
+    def get_predicted_jackknifes(self, model_set, **kwargs):
+        """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare"""
+        if not isinstance(model_set, list):
+            model_set = [model_set]
+        # Need inverse on iterator to get predictions from validation data
+        if not self.inverse:
+            reset_inverse = True
+            self.inverse = 'both'
+
+        self.reset_iter()
+        predicted = np.concatenate([(model.predict(inverse_set['input'], **kwargs)) for model, (_, inverse_set) in zip(model_set, self)])
+        self.reset_iter()
+        target = np.concatenate([(inverse_set['target']) for model, (_, inverse_set) in zip(model_set, self)])
+        dataset = {'prediction': predicted, 'target': target}
+
+        if reset_inverse:
+            self.inverse = False
+
+        return dataset
+    
+    def get_fitted_jackknifes(self, model, **kwargs):
+        """Returns a list of fitted models with the given model base."""
+        jackknifed = [model.fit(dataset['input'], dataset['target'], **kwargs) for dataset in self]
+        self.fit_list = jackknifed
+        return jackknifed
+    
+
     
 # TODO: Do we need this for anything?
 def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=None):

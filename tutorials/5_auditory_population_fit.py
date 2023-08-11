@@ -78,7 +78,7 @@ f, ax = plt.subplots(3, 1, sharex='col')
 ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
 ax[0].set_ylabel('Test stimulus')
 
-# When we have a large population of inputs/targets, it's a good idea to represent these as something other then graphs
+# When we have a large population of inputs/targets, it's a good idea to represent these as something other then 2D graphs
 ax[1].imshow(response_test.T, label='actual response', aspect='auto', interpolation='none', origin='lower')
 ax[1].set_ylabel('Test response')
 ax[2].imshow(pred_cnn.T, label='predicted', aspect='auto', interpolation='none', origin='lower')

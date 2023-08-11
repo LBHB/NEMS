@@ -19,11 +19,11 @@ from nems.metrics import correlation
 options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 
 # Dummy data loader. Refer to tutorial 1 for more info
-def my_data_loader(file_path):
+def my_data_loader(file_path=None):
     # Dummy function to demonstrate the data format.
     print(f'Loading data from {file_path}, but not really...')
     spectrogram = np.random.random(size=(1000, 18))
-    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
+    response = spectrogram[:,[1]] - spectrogram[:,[7]]*0.5 + np.random.randn(1000, 1)*1.0 + 0.5
 
     return spectrogram, response
 
@@ -108,19 +108,28 @@ model.add_layers(
 )
 
 # This creates an iterator that we can use to modify our data with 5 samples at axis 0
-jackknife_iterator = JackknifeIterator(spectrogram, 5, axis=0, target=response)
+jack_samples = 5
+jackknife_iterator = JackknifeIterator(spectrogram, target=response, samples=jack_samples, axis=0)
 
 # We can then fit this iterator directly and return a list of fitted model
 # This will fit range(0, samples) models with given masks before returning a list of fitted models
-model_fit_list = model.fit(jackknife_iterator)
+model_fit_list = jackknife_iterator.get_fitted_jackknifes(model)
+print(len(model_fit_list))
+
+# Predictions can be done across the entire list of fitted models, using our sets of masks as well
+prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
+predictions = prediction_set['prediction']
+targets = prediction_set['target']
+print(len(predictions))
 
 
 
 
 ############Advanced###############
 # Calling next will return a single sub-array of our data from our jackknife masks
+jackknife_iterator.reset_iter()
 jackknife_single = next(jackknife_iterator)
-model.fit(jackknife_single)
+model.fit(jackknife_single['input'], jackknife_single['target'])
 
 # The object returned on each iteration is actually a Dataset object which can used like below:
 print(type(jackknife_single))
@@ -144,7 +153,7 @@ print(f'Our index: {jackknife_iterator.index} \n Dataset size: {len(jackknife_da
 
 # Getting the inverse masks requires you to pass 'both' to our inverse attribute. Then when you iterate,
 # you will recieve a tuple that gives you base and inverse for each mask
-jackknife_iterator_both = JackknifeIterator(spectrogram, samples=5, axis=0, target=response, inverse='both')
+jackknife_iterator_both = JackknifeIterator(spectrogram, samples=jack_samples, axis=0, target=response, inverse='both')
 est, val = next(jackknife_iterator_both)
 
 # Now we can compare two different models predictions
@@ -152,6 +161,17 @@ print(f" Model 1 vs Model 2: {correlation(model_fit_list[0].predict(val['input']
 
 # We can also compare our models prediction to the target data
 print(f" Model 1 vs Validation 1: {correlation(model_fit_list[0].predict(val['input']), val['target'])}")
+
+# We can also choose to shuffle the groups of indicies so the removed data is less sequential
+shuffle_set = JackknifeIterator(spectrogram, samples=jack_samples, axis=0, target=response, inverse='both', shuffle=True)
+print(shuffle_set.mask_list[0])
+
+# Here we can plot some data from a fitted model set and predictions to see how our model is performing
+prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
+
+# The plot itself will use it's internal set of fitted models and samples amount to plot the data
+jackknife_iterator.plot_estimate_error()
+
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

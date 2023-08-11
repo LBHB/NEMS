@@ -280,7 +280,7 @@ class FiniteImpulseResponse(Layer):
 
             def call(self, inputs):
                 # This will add an extra dim if there is no output dimension.
-                input_width = tf.shape(inputs)[1]
+                input_width = inputs.shape[1] # tf.shape(inputs)[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
                 coefficients = broadcast_coefficients(self.coefficients)
@@ -345,6 +345,19 @@ class FiniteImpulseResponse(Layer):
                 batch_size = tf.keras.backend.shape(inputs)[0]
                 shape = [batch_size] + new_inputs_shape
                 return tf.broadcast_to(expand_inputs(inputs), shape)
+
+        elif new_inputs.ndim > fake_inputs.ndim:
+            #print(new_inputs_shape)
+            #print(input_shape)
+
+            @tf.function()
+            def broadcast_inputs(inputs):
+                # Convert None batch shape to int, add singleton output dim
+                # if needed. Then broadcast outputs.
+                batch_size = tf.keras.backend.shape(inputs)[0]
+                shape = [batch_size] + new_inputs_shape
+                return tf.broadcast_to(tf.expand_dims(inputs, axis=-1), shape)
+
         else:
             # Otherwise, don't need to do anything to inputs.
             @tf.function

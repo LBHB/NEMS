@@ -81,7 +81,7 @@ class LN_STRF(Model):
         if nl_kwargs is None: nl_kwargs = {}
         nonlinearity = nl_class(shape=(1,), **nl_kwargs)
         self.add_layers(nonlinearity)
-
+        self.out_range = [[-1], [3]]
 
     @classmethod
     def from_data(cls, input, filter_duration, sampling_rate=1000, **kwargs):
@@ -110,7 +110,7 @@ class LN_STRF(Model):
                            }
 
         strf = self.sample_from_priors()
-
+        log.info('Fit stage 1: w/o static output nonlinearity')
         strf.layers[-1].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         fitter_options=fitter_options, batch_size=None)
@@ -118,7 +118,43 @@ class LN_STRF(Model):
         log.info('Fit stage 2: with static output nonlinearity')
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         verbose=0, fitter_options=fitter_options2, batch_size=None)
+
+        ymin, ymax = Y.min(axis=tuple(range(Y.ndim - 1))), Y.max(axis=tuple(range(Y.ndim - 1)))
+        ydelta = (ymax-ymin) * 0.1
+        strf.out_range = [ymin-ydelta, ymax+ydelta]
+
         return strf
+
+    def get_strf(self, channels=None):
+        wc = self.layers[0].coefficients
+        fir = self.layers[1].coefficients
+        strf1 = wc @ fir.T
+
+        return strf1
+
+    def plot_strf(self, labels=None):
+        strf1 = self.get_strf()
+
+        channels_out = strf1.shape[-1]
+        f, ax = plt.subplots(1, 2, figsize=(4, 2))
+
+        mm = np.nanmax(abs(strf1))
+        if self.fs is not None:
+            extent = [0, strf1.shape[0] / self.fs, 0, strf1.shape[1]]
+        else:
+            extent = [0, strf1.shape[0], 0, strf1.shape[1]]
+        ax[0].imshow(strf1, aspect='auto', interpolation='none', origin='lower',
+                     cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+
+        if self.fs is not None:
+            ax[0].set_xlabel('Time lag (s)')
+        else:
+            ax[0].set_xlabel('Time lag (bins)')
+        ax[0].set_ylabel('Input channel')
+
+        ymin, ymax = self.out_range[0][0], self.out_range[1][0]
+        plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
+        plt.tight_layout()
 
     # TODO
     # @module('LNSTRF')
@@ -203,6 +239,7 @@ class LN_pop(Model):
         if nl_kwargs is None: nl_kwargs = {}
         nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
         self.add_layers(nonlinearity)
+        self.out_range = [[-1]*channels_out, [3]*channels_out]
 
     @classmethod
     def from_data(cls, input, output, filter_duration, sampling_rate=1000, **kwargs):
@@ -212,7 +249,7 @@ class LN_pop(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+    def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf'):
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -228,7 +265,7 @@ class LN_pop(Model):
         fitter_options2 = {'cost_function': cost_function,
                            'early_stopping_tolerance': 1e-4,
                            'validation_split': 0,
-                           'learning_rate': 5e-3, 'epochs': 8000
+                           'learning_rate': 1e-3, 'epochs': 8000
                            }
 
         strf = self.sample_from_priors()
@@ -240,27 +277,44 @@ class LN_pop(Model):
         log.info('Fit stage 2: with static output nonlinearity')
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         verbose=0, fitter_options=fitter_options2, batch_size=None)
+
+        ymin, ymax = Y.min(axis=tuple(range(Y.ndim - 1))), Y.max(axis=tuple(range(Y.ndim - 1)))
+        ydelta = (ymax-ymin) * 0.1
+        strf.out_range = [ymin-ydelta, ymax+ydelta]
+
         return strf
 
-    def plot_strfs(self, labels=None):
+    def get_strf(self, channels=None):
         wc = self.layers[0].coefficients
         fir = self.layers[1].coefficients
         wc2 = self.layers[2].coefficients
         filter_count = fir.shape[2]
-        channels_out = wc2.shape[1]
         strf1 = np.stack([wc[:, :, i] @ fir[:, :, i].T for i in range(filter_count)], axis=2)
         strf2 = np.tensordot(strf1, wc2, axes=(2, 0))
-        wc.shape, fir.shape, wc2.shape, strf1.shape, strf2.shape
+        if channels is not None:
+            strf2 = strf2[:, :, channels]
+        return strf2
+
+    def plot_strf(self, labels=None, channels=None):
+        strf2 = self.get_strf(channels=channels)
+
+        channels_out = strf2.shape[-1]
         f, ax = plt.subplots(channels_out, 2, figsize=(4,channels_out*2),
                              sharex='col')
         for c in range(channels_out):
             mm = np.max(np.abs(strf2[:,:,c]))
+            if self.fs is not None:
+                extent = [0, strf2.shape[0] / self.fs, 0, strf2.shape[1]]
+            else:
+                extent = [0, strf2.shape[0], 0, strf2.shape[1]]
             ax[c, 0].imshow(strf2[:, :, c], aspect='auto', cmap='bwr',
-                            origin='lower', interpolation='none',
+                            origin='lower', interpolation='none', extent=extent,
                             vmin=-mm, vmax=mm)
-            plot_nl(self.layers[-1], range=[-1,3], channel=c, ax=ax[c,1])
+            xmin, xmax = self.out_range[0][c], self.out_range[1][c]
+            plot_nl(self.layers[-1], range=[xmin, xmax], channel=c, ax=ax[c,1])
             if labels is not None:
                 ax[c,0].set_ylabel(labels[c])
+        ax[-1,0].set_xlabel('Time lag')
         plt.tight_layout()
 
     # TODO
@@ -354,9 +408,29 @@ class LN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    def fit_LBHB():
-        # TODO: 3-stage fit with freezing/unfreezing NL
-        pass
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+        fitter_options = {'cost_function': cost_function,  # 'nmse'
+                          'early_stopping_tolerance': 5e-3,
+                          'validation_split': 0,
+                          'learning_rate': 1e-2, 'epochs': 3000
+                          }
+        fitter_options2 = {'cost_function': cost_function,
+                           'early_stopping_tolerance': 5e-4,
+                           'validation_split': 0,
+                           'learning_rate': 1e-3, 'epochs': 8000
+                           }
+
+        model = self.sample_from_priors()
+
+        model.layers[-1].skip_nonlinearity()
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          fitter_options=fitter_options, batch_size=None)
+        model.layers[-1].unskip_nonlinearity()
+        log.info('Fit stage 2: with static output nonlinearity')
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          verbose=0, fitter_options=fitter_options2, batch_size=None)
+
+        return model
 
     # TODO
     # @module('CNNrecon')
@@ -424,7 +498,7 @@ class CNN_reconstruction(Model):
         if L2 > 0:
 
             wc2 = WeightChannels(shape=(L1, L2))
-            relu2 = RectifiedLinear(shape=(L2,), no_offset=False)
+            relu2 = RectifiedLinear(shape=(L2,), no_offset=False, no_shift=False)
             wc3 = WeightChannels(shape=(L2, out_channels))
 
             self.add_layers(wc1, fir1, relu1, wc2, relu2, wc3)
@@ -461,7 +535,7 @@ class CNN_reconstruction(Model):
                           'learning_rate': 1e-2, 'epochs': 3000
                           }
         fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 1e-4,
+                           'early_stopping_tolerance': 5e-4,
                            'validation_split': 0,
                            'learning_rate': 1e-3, 'epochs': 8000
                            }
