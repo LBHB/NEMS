@@ -7,6 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
+from nems.metrics import correlation
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -433,7 +434,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             title = 'input'
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         ax.set_xlim(subaxes[-1].get_xlim())
         ax.xaxis.set_visible(False)
 
@@ -465,12 +466,12 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = last_ax.get_xlim()[0]
                 y_pos = last_ax.get_ylim()[1]
-                last_ax.text(x_pos, y_pos, 'Target', va='top')
+                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
 
                 second_last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = second_last_ax.get_xlim()[0]
                 y_pos = second_last_ax.get_ylim()[1]
-                second_last_ax.text(x_pos, y_pos, 'Output', va='top')
+                second_last_ax.text(x_pos, y_pos, 'Output', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
 
 
                 return
@@ -734,23 +735,14 @@ def checkerboard(array):
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
 
-def plot_list(model_list, input, target=None, plot_comparitive=True, plot_full=False, find_best=False):
-    '''Allows you to plot a list of models or predictions together'''
-    if isinstance(model_list[0], np.ndarray):
-        return plot_pred_list(model_list, input)
-    else:
-        return plot_model_list(model_list, input, target, plot_comparitive, plot_full, find_best)
-
-def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, find_best=False):
-    '''
-
-    '''
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, find_best=False, state=None, coeff=True):
+    '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
 
     pred_list = []
     for model in model_list:
-        pred_list.append(model.predict(input))
+        pred_list.append(model.predict(input, state=state))
 
     if find_best:
         best_fit = None
@@ -758,22 +750,20 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
     if plot_comparitive:
         fig, ax = plt.subplots(samples+2, 1, sharex='col')
-        ax[0].imshow(input.T,aspect='auto', interpolation='none',origin='lower')
-        ax[0].set_ylabel('Test stimulus')
-        ax[1].plot(target, color='orange', label='actual response')
-        ax[1].set_ylabel('Test response')
+        plot_data(input.T, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
+        plot_data(target, label="actual response", title='Test Response', ax=ax[1])
 
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
-            model.name = f"Model_Fit-{fitidx}"
-
+            if model.name is "UnnamedModel":
+                model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
-            plot_basic(pred_list[fitidx], label='predicted', title=f'Fit {fitidx}', target_value=target, ax=ax[fitidx+2])
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], coeff=coeff)
 
         # Plotting some comparisons with our test data and the best models
         if find_best:
-            plot_basic(pred_list[best_fit], label='best_fit', title='Best vs Target', target_value=target, ax=ax[samples+2])
+            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+2])
             ax[samples+2].legend()
         fig_list.append(fig)
 
@@ -781,20 +771,44 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
         for model in model_list:
             model_figure = model.plot(input, target=target)
             fig_list.append(model_figure)
-
     return fig_list
 
-def plot_pred_list(pred_list, target):
-    """Plots a list of predicted models"""
-    samples = len(pred_list)
-    fig_list = []
-    fig, ax = plt.subplots(samples, 1, sharex='col')
+def plot_predictions(predictions, input=None, target=None, coeff=False, show_titles=True):
+    '''Plots a comparable set of predictions with inputs/targets as given'''
+    if not isinstance(predictions, list):
+        predictions = [predictions]
+    plots = len(predictions)
+    if target.shape[1] > 1:
+        plots += 1
+    fig, ax = plt.subplots(plots+1, 1, sharex='col')
+    plot_data(input.T, label="Input", title="Input Data", ax=ax[0], imshow=True)
+    for predidx, data in enumerate(predictions):
+        if data.shape[1] > 3:
+            plot_data(data.T, label=f"Pred {predidx}", title=f"Pred {predidx}", ax=ax[predidx+1], coeff=coeff, show_titles=show_titles, imshow=True)
+        else:
+            plot_data(data, target=target, label=f"Pred {predidx}", title=f"Pred {predidx}", ax=ax[predidx+1], coeff=coeff, show_titles=show_titles)
+    if target.shape[1] > 1:
+        plot_data(target.T, label="Target", title="Target Data", ax=ax[-1], imshow=True)
+    return fig
 
-    for fitidx, data in enumerate(pred_list):
-            plot_basic(data, label='predicted', title=f'Pred {fitidx}', target_value=target, ax=ax[fitidx])
-    ax[0].legend()
-    fig_list.append(fig)
-    return fig_list
+def plot_data(data, title, label=None, target=None, ax=None, coeff=False, imshow=False, show_titles=True):
+    """Plotting most basic/important information of given data. Returns plotted ax"""
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+        ax.legend()
+    if coeff:
+        title += f" | Correlation: {correlation(data, target):.2f}"
+    if imshow:
+        ax.imshow(data, aspect='auto', interpolation='none')
+    else:
+        ax.plot(data, label=label)
+    if target is not None:
+        ax.plot(target, label='Target', color='orange', lw=1, zorder=-1)
+    if show_titles:
+        x_pos = ax.get_xlim()[0]
+        y_pos = ax.get_ylim()[1]
+        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+    return ax
 
 def plot_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
@@ -812,16 +826,3 @@ def plot_dstrf(dstrf):
     plt.tight_layout()
     return ax
 
-def plot_basic(data, label, title, target_value, ax=None):
-    """Plotting most basic/important information of given models. Returns plotted ax"""
-    if ax is None:
-        fig, ax = plt.subplots(1, 1)
-        ax.legend()
-    ax.plot(data, label=label)
-    x_pos = ax.get_xlim()[0]
-    y_pos = ax.get_ylim()[1]
-    ax.text(x_pos, y_pos, title, va='top')
-
-    if target_value is not None:
-        ax.plot(target_value, label='Target', color='orange', lw=1, zorder=-1)
-    return ax
