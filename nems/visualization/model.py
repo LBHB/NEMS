@@ -839,8 +839,8 @@ def plot_data(data, title, label=None, target=None, ax=None, correlation=False, 
         If true, appends correlation coeff onto prediction title
     show_titles: boolean
         If true, shows the titles of each prediction
-    display_ratio: float, 0->1
-        Reduces amount of data displayed by trimming the end of the plotted data  
+    display_reduction: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data  
     
     """
     indicies, remainder = preprocessing.split.indices_by_fraction(data, display_reduction)
@@ -881,3 +881,20 @@ def plot_dstrf(dstrf):
     plt.tight_layout()
     return ax
 
+def plot_dstrf_mean(dstrf):
+    """Plotting DSTRF information from dstrf of a model"""
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols, sharex='col')
+    ax=ax.flatten()[:dstrf_count]
+    for index, a in enumerate(ax):
+        # flip along time axis so that x axis is timelag
+        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
+        a.plot(mean_list)
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        if index > 0:
+            a.plot(prev_mean, color='red', lw=.5)
+        prev_mean = mean_list
+    plt.tight_layout()
+    return ax
