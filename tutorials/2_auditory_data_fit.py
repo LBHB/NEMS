@@ -95,7 +95,6 @@ fitted_model.name = "Rank2LNSTRF-PostFit"
 model.plot(spectrogram_fit, target = response_fit)
 
 visualization.plot_model(fitted_model, spectrogram_test, response_test)
-visualization.simple_strf(fitted_model)
 
 # Some other important information before fitting our model.
 # This time looking at how our FIR layer interacts before/after fits
@@ -122,14 +121,20 @@ pred_model = model.predict(spectrogram_test)
 
 
 ###########################
-# Visualizing multiple models
-# Using plot_model_list we can provide a list of models
-# and are returned a set of plotted models with given 
-# inputs/targets to compare between.
+# Visualizing groups of data
+# plot_predictions
+# Allows us to plot groups of predictions together and compare them
+#   predictions: A single, or list of, predictions to plot
+#   input: The given input to our predictions, if we wish to show it
+#   target: Our target value, if we want to seperately graph this alone
+#   correlation: If true, adds correlation coeffecients to our model titles
+#   show_titles: If true, will add titles to the top of each graph
+#
+# NOTE: If predictions are a dictionary, the keys will be titles for each prediction
 ###########################
 
-# Here we just compare our unfitted model next to that same model after being fitted to data
-visualization.plot_predictions([pred_model, pred_fitted_model], input=spectrogram_test, target=response_test)
+# For example, we can compare our original unfitted model next to our fitted models results
+visualization.plot_predictions({'non-fitted model':pred_model, 'fitted model':pred_fitted_model}, input=spectrogram_test, target=response_test)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
