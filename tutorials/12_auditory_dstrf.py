@@ -77,13 +77,17 @@ visualization.plot_dstrf(ln_dstrf)
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.plot_dstrf(cnn_dstrf)
 
-#Temp
+# Temp
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.model.plot_dstrf_mean(cnn_dstrf)
 
+# Also Temp
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.model.plot_absmax_dstrf(cnn_dstrf)
 
+# Also Also Temp
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.model.plot_dstrf_main(cnn_dstrf)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
