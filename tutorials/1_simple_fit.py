@@ -154,9 +154,10 @@ print(f"""
 ###########################
 pred_model = fitted_model.predict(spectrogram)
 
-# Viewing our model prediction, compared with the initial input given
-# This tool is in nems.visualization.model and creates a basic model using our prediction and target data
-visualization.plot_data(pred_model, label='Pred', title='Model Prediction', target_value=spectrogram)
+# plot_data lets us quickly make a plot of data on a graph.
+# This is mostly used internally, but here we can print our
+# models predictions and compare it to its target 
+visualization.plot_data(pred_model, label='Pred', title='Model Prediction', target=response)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
