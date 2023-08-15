@@ -914,3 +914,23 @@ def plot_absmax_dstrf(dstrf):
     plt.legend(loc="upper left")
     plt.tight_layout()
     return ax
+
+def plot_dstrf_main(dstrf):
+    dstrf_count = dstrf.shape[1]
+    absmax = np.max(np.abs(dstrf))
+    fig, ax = plt.subplots(dstrf_count,3, gridspec_kw={'width_ratios':[1,1,.5]})
+    for index in range(dstrf_count):
+        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
+        absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
+        heatmap = np.fliplr(dstrf[0,index,:,:])
+
+        ax[index][0].plot(mean_list)
+        ax[index][0].text(ax[index][0].get_xlim()[0]*.90, ax[index][0].get_ylim()[1]*1.1, f"D {index}", 
+                          va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        ax[index][1].plot(absmax_list, label=f'D{index}')
+        ax[index][2].imshow(heatmap, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+    plt.tight_layout(w_pad=0, h_pad=0)
+    return ax
+
+        
