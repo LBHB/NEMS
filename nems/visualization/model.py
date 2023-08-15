@@ -886,7 +886,7 @@ def plot_dstrf_mean(dstrf):
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
     cols = int(np.ceil(dstrf_count/rows))
-    f,ax=plt.subplots(rows,cols, sharex='col')
+    f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
     ax=ax.flatten()[:dstrf_count]
     for index, a in enumerate(ax):
         # flip along time axis so that x axis is timelag
@@ -896,5 +896,19 @@ def plot_dstrf_mean(dstrf):
         if index > 0:
             a.plot(prev_mean, color='red', lw=.5)
         prev_mean = mean_list
+    plt.tight_layout()
+    return ax
+
+def plot_absmax_dstrf(dstrf):
+    """Plotting DSTRF information from dstrf of a model"""
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(1,1)
+    for index in range(dstrf_count):
+
+        absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
+        ax.plot(absmax_list)
+        
     plt.tight_layout()
     return ax
