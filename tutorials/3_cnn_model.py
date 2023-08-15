@@ -17,8 +17,6 @@ options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
                   'early_stopping_tolerance': 1e-3, 'validation_split': 0,
                   'learning_rate': 5e-3, 'epochs': 2000}
-
-
 ###########################
 # Setting up Demo Data instead of dummy data
 # 
@@ -40,6 +38,28 @@ response_fit = training_dict['response'][:,[cid]]
 spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
 
+############GETTING STARTED###############
+###########################
+# CNN's
+# Creating CNN is just the same as building any other model
+# so far, but with a few more complex layers.
+#
+# Here we have an example CNN, which we can later fit to our
+# data and predict as we have before
+###########################
+cnn = Model()
+cnn.add_layers(
+    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
+    FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
+    RectifiedLinear(shape=(3,)), # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)), # Another set of weights to apply
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
+)
+
+
+
+
+############ADVANCED###############
 ###########################
 # Creating CNN models in NEMS
 # 
@@ -51,16 +71,16 @@ response_test = test_dict['response'][:,[cid]]
 #       - FiniteImpulseResponse: Convolve our linear filters onto inputs with 3 filters
 #       - RectifiedLinear: Apply ReLU activation to inputs, along 3 channels
 ###########################
-# TODO: replace "cnn_simple" with "ln" or "ln_model"
-cnn_simple = Model()
-cnn_simple.add_layers(
+
+# Heres a simpler linear model to compare the difference
+ln_model = Model()
+ln_model.add_layers(
     WeightChannels(shape=(18, 3)),  # 18 spectral channels->1 composite channels
     FiniteImpulseResponse(shape=(10, 3)),  # 15 taps, 1 spectral channels
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False)           # static nonlinearity, 1 output
 )
-cnn_simple.name = f"{cellid}-Rank3LNSTRF-3Layer"
+ln_model.name = f"{cellid}-Rank3LNSTRF-3Layer-PreFit"
 
-# A similar model, with a few more layers this time.
 cnn = Model()
 cnn.add_layers(
     WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
@@ -69,7 +89,7 @@ cnn.add_layers(
     WeightChannels(shape=(3, 1)), # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
-cnn.name = f"{cellid}-Rank3LNSTRF-5Layer"
+cnn.name = f"{cellid}-Rank3LNSTRF-5Layer-PreFit"
 
 
 ###########################
@@ -80,62 +100,50 @@ cnn.name = f"{cellid}-Rank3LNSTRF-5Layer"
 #
 #   sample_from_priors(): Randomizes model parameters & fitter options
 ###########################
-cnn_simple = cnn_simple.sample_from_priors()
+ln_model = ln_model.sample_from_priors()
 cnn = cnn.sample_from_priors()
 
 # Plotting and comparing our 2 CNN's before anything any fitting
 cnn.plot(spectrogram_test, target=response_test)
 
 # We can specifiy some plotting parameters by providing figure_kwargs to our plot
-cnn_simple.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
+ln_model.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
 
 
 # We can also see the additional dimension added to our FIR layer,
 # compared to how our simpler model is set up
-print(f'FIR coefficient shape: {cnn_simple.layers[1].coefficients.shape}')
+print(f'FIR coefficient shape: {ln_model.layers[1].coefficients.shape}')
 print(f'FIR coefficient shape: {cnn.layers[1].coefficients.shape}')
 
 # Fit our model to some real data provided by Demo
 # We use 'tf' backend to improve training speed.
 # See the next tutorial for more info
-fitted_cnn_simple = cnn_simple.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
-fitted_cnn_simple.name += "-Fitted"
+fitted_ln = ln_model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
+fitted_ln.name = f"{cellid}-Rank3LNSTRF-3Layer-PostFit"
 
 # We can also compare how each model predicts the same information, given more or less layers
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
-fitted_cnn.name += "-Fitted"
+fitted_cnn.name = f"{cellid}-Rank3LNSTRF-5Layer-PostFit"
 
 # Plotting our CNN's again after fits
-fitted_cnn_simple.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
+fitted_ln.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
 fitted_cnn.plot(spectrogram_test, target=response_test)
 
 # Our FIR Coefficients after we've fit the model
 print(f'FIR coefficients: {fitted_cnn.layers[1].coefficients}')
 
 # Now we can predict some new data
-pred_ln = fitted_cnn_simple.predict(spectrogram_test)
+pred_ln = fitted_ln.predict(spectrogram_test)
 pred_cnn = fitted_cnn.predict(spectrogram_test)
+
 pred_cc_ln = correlation(pred_ln, response_test)
 pred_cc_cnn = correlation(pred_cnn, response_test)
 
 results_cnn = np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]
 
 
-# A quick print out of our prediction, stimulus, and response data for our 5-layer model
-f, ax = plt.subplots(3, 1, sharex='col')
-ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
-ax[0].set_ylabel('Test stimulus')
-ax[1].plot(response_test, label='actual response')
-ax[1].plot(pred_cnn_simple, label='predicted')
-ax[1].set_ylabel('Test response')
-ax[1].set_title(f"LN correlation={pred_cc_ln:.3f}")
-ax[1].legend()
-ax[2].plot(response_test, label='actual response')
-ax[2].plot(pred_cnn, label='predicted')
-ax[2].set_ylabel('Prediction')
-ax[2].set_title(f"CNN correlation={pred_cc_cnn:.3f}")
-ax[2].legend()
-plt.tight_layout()
+# A quick plot of our models pre and post fitting
+visualization.plot_predictions({'ln model':pred_ln, 'cnn model':pred_cnn}, spectrogram_test, response_test, correlation=True)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

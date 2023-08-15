@@ -74,14 +74,8 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 
 # A quick print out of our prediction, stimulus, and response data
 # Again all the information here is basically unreadable at the moment
-f, ax = plt.subplots(3, 1, sharex='col')
-ax[0].imshow(spectrogram_test.T,aspect='auto', interpolation='none',origin='lower')
-ax[0].set_ylabel('Test stimulus')
+visualization.plot_predictions(pred_cnn, spectrogram_test, response_test)
 
-# When we have a large population of inputs/targets, it's a good idea to represent these as something other then graphs
-ax[1].imshow(response_test.T, label='actual response', aspect='auto', interpolation='none', origin='lower')
-ax[1].set_ylabel('Test response')
-ax[2].imshow(pred_cnn.T, label='predicted', aspect='auto', interpolation='none', origin='lower')
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

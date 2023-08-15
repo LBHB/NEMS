@@ -7,6 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
+from nems import metrics
+from nems import preprocessing
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -433,7 +435,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             title = 'input'
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         ax.set_xlim(subaxes[-1].get_xlim())
         ax.xaxis.set_visible(False)
 
@@ -465,12 +467,12 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = last_ax.get_xlim()[0]
                 y_pos = last_ax.get_ylim()[1]
-                last_ax.text(x_pos, y_pos, 'Target', va='top')
+                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
 
                 second_last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = second_last_ax.get_xlim()[0]
                 y_pos = second_last_ax.get_ylim()[1]
-                second_last_ax.text(x_pos, y_pos, 'Output', va='top')
+                second_last_ax.text(x_pos, y_pos, 'Output', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
 
 
                 return
@@ -734,98 +736,139 @@ def checkerboard(array):
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
 
-def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False):
-    '''
-
-    '''
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
+                    find_best=False, state=None, correlation=True, display_reduction=.5):
+    '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
-    best_fit = None
+
+    pred_list = []
+    for model in model_list:
+        pred_list.append(model.predict(input, state=state))
+
+    if find_best:
+        best_fit = None
+        samples += 1
+
     if plot_comparitive:
-        fig, ax = plt.subplots(samples+3, 1, sharex='col')
-        ax[0].imshow(input.T,aspect='auto', interpolation='none',origin='lower')
-        ax[0].set_ylabel('Test stimulus')
-        ax[1].plot(target, color='orange', label='actual response')
-        ax[1].set_ylabel('Test response')
+        fig, ax = plt.subplots(samples+2, 1, sharex='col')
+        plot_data(input.T, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
+        plot_data(target, label="actual response", title='Test Response', ax=ax[1])
 
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
-            model.name = f"Model_Fit-{fitidx}"
-            pred_model = model.predict(input)
-
-            if best_fit is None or best_fit.results.final_error > model.results.final_error:
-                best_fit = model
-
-            ax[fitidx+2].plot(pred_model, label='predicted')
-            ax[fitidx+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
-            ax[fitidx+2].set_ylabel(f'Fit {fitidx}')
+            if model.name is "UnnamedModel":
+                model.name = f"Model_Fit-{fitidx}"
+            if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
+                best_fit = fitidx
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_reduction=.5)
 
         # Plotting some comparisons with our test data and the best models
-        ax[samples+2].set_ylabel('Best vs Resp')
-        ax[samples+2].plot(best_fit.predict(input), label = 'Best Fit')
-        ax[samples+2].plot(target, label='Response', color='orange', lw=1, zorder=-1)
-
-        ax[samples+2].legend()
+        if find_best:
+            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+2])
+            ax[samples+2].legend()
         fig_list.append(fig)
 
     if plot_full:
         for model in model_list:
             model_figure = model.plot(input, target=target)
             fig_list.append(model_figure)
-
     return fig_list
 
-def plot_generator_model(model, input, target, init_input, init_target, plot_comparitive=True, plot_full=False):
+def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_reduction=.5):
     '''
+    Plots a single, or list of, predictions to view and compare.
 
-    '''
-    tuple_check = False
-    if isinstance(init_input, tuple):
-        input_value, target_value = init_input
-        tuple_check = True
-    else:
-        input_value = init_input
-        target_value = init_target
-    fig_list = []
+    Parameters
+    ----------
+    predictions: list, dict, np.ndarray
+        A single or set of predictions to compare. If dictionary, keys
+        are the titles of predictions
+    input: np.ndarray
+        Input used for predictions
+    target: np.ndarray
+        Target response we want from the prediction
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_reduction: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data
     
-    if plot_comparitive:
-        fig = plt.figure()
-        ax = []
-        ax.append(fig.add_subplot())
-        pred_model = model.predict(input_value)
-        title = f'Model 1'
-        plot_basic(pred_model, ax[0], title=title, label=f'{index}', target_value=target_value)
-        for index, enum_input in enumerate(input):
-            if tuple_check:
-                input_value, target_value = enum_input
-            else:
-                input_value = enum_input
-                if target_value is not None:
-                    target_value = next(target)
-            title = f'Model {index+1}'
-            pred_model = model.predict(input_value)
-            ax.append(fig.add_subplot())
-            plot_basic(pred_model, ax[index+1], title=title, label=f'{index+1}', target_value=target_value)
+    '''
+    if isinstance(predictions, dict):
+        keys = [key for key in predictions.keys()]
+    elif not isinstance(predictions, list):
+        predictions = [predictions]
+    plots = len(predictions)
 
-        n = len(fig.axes)
-        gs = matplotlib.gridspec.GridSpec(n+1, 1)
-        axes = fig.axes
-        for ax in fig.axes:
-            fig.delaxes(ax)
-        for ax, sgs in zip(axes, gs):
-            ax.set_subplotspec(sgs)   
-            fig.add_subplot(ax)
-        fig_list.append(fig)
+    if target is not None and target.shape[1] > 1:
+        plots += 1
 
-    if plot_full:
-        for input_value in input:
-            model_figure = model.plot(input, target=target)
-            fig_list.append(model_figure)
+    fig, ax = plt.subplots(plots+1, 1, sharex='col')
+    if input is not None:
+        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_reduction=display_reduction)
 
-    return fig_list
+    for predidx, key in enumerate(predictions):
+        data = predictions[key]
+        title = f"Pred {predidx}"
+        if keys:
+            title = keys[predidx]
+        if data.shape[1] > 3:
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], 
+                      correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
+        else:
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, 
+                      correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
+
+    if target is not None and target.shape[1] > 1:
+        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_reduction=display_reduction)
+    return fig
+
+def plot_data(data, title, label=None, target=None, ax=None, 
+              correlation=False, imshow=False, show_titles=True, display_reduction=.5):
+    """
+    Plotting most basic/important information of given data. Returns plotted ax
+    
+    Parameters
+    ----------
+    title: string
+        Title passed to text of ax
+    label: string
+        Label given to data plot
+    target: np.ndarray
+        Optional target data to plot with normal data
+    ax: Axes object you wish to plot onto
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_reduction: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data  
+    
+    """
+    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_reduction)
+    reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    if correlation:
+        title += f" | Correlation: {metrics.correlation(data, target):.2f}"
+    if imshow:
+        ax.imshow(reduced_data.T, aspect='auto', interpolation='none')
+    else:
+        ax.plot(reduced_data, label=label)
+    if target is not None:
+        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_reduction)
+        reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
+        ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
+    if show_titles:
+        x_pos = ax.get_xlim()[0]
+        y_pos = ax.get_ylim()[1]
+        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+    return ax
 
 def plot_dstrf(dstrf):
-    """ Plotting DSTRF information from dstrf of a model """
+    """Plotting DSTRF information from dstrf of a model"""
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
@@ -837,16 +880,37 @@ def plot_dstrf(dstrf):
         d = np.fliplr(dstrf[0,i,:,:])
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        
     plt.tight_layout()
     return ax
 
-def plot_basic(data, ax, label, title, target_value):
-    """ Plotting most basic/important information of given models. Returns plotted ax """
-    ax.plot(data, label=label)
-    x_pos = ax.get_xlim()[0]
-    y_pos = ax.get_ylim()[1]
-    ax.text(x_pos, y_pos, title, va='top')
+def plot_dstrf_mean(dstrf):
+    """Plotting DSTRF information from dstrf of a model"""
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
+    ax=ax.flatten()[:dstrf_count]
+    for index, a in enumerate(ax):
+        # flip along time axis so that x axis is timelag
+        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
+        a.plot(mean_list)
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        if index > 0:
+            a.plot(prev_mean, color='red', lw=.5)
+        prev_mean = mean_list
+    plt.tight_layout()
+    return ax
 
-    if target_value is not None:
-        ax.plot(target_value, label='Response', color='orange', lw=1, zorder=-1)
+def plot_absmax_dstrf(dstrf):
+    """Plotting DSTRF information from dstrf of a model"""
+    dstrf_count = dstrf.shape[1]
+    f,ax=plt.subplots(1,1)
+    for index in range(dstrf_count):
+        absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
+        ax.plot(absmax_list, label=f'D {index}')
+
+    plt.legend(loc="upper left")
+    plt.tight_layout()
     return ax

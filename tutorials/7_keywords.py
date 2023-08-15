@@ -26,8 +26,7 @@ keyword_lib.list
 # Lets you initialize your model with layers from the start
 ########################################################
 
-
-
+############GETTING STARTED###############
 ###########################
 # Models can be built in the same ways previously show, but instead 
 # of calling the class of layers, we can provide a keyword pattern
@@ -49,6 +48,10 @@ layers = [WeightChannels(shape=(18,1)), FIR(shape=(15,1)),
           DoubleExponential(shape=(1,))]
 traditional_model = Model(layers=layers)
 
+
+
+
+############ADVANCED###############
 ###########################
 # Building your own keywords
 # We will be covering the specifics of making own layers

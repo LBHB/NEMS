@@ -5,17 +5,27 @@ import numpy as np
 
 import nems
 from nems import Model
-from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential
+from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 
 # nems_db import module
-from nems_lbhb.projects.bignat.bnt_tools import do_bnt_fit, data_subset
 from nems.backends import get_backend
 from nems.models.dataset import DataSet
 
 # This indicates that our code is interactive, allowing a
 # matplotlib backend to show graphs
-plt.ion()
+#plt.ion()
+
+# Importing Demo Data
+nems.download_demo()
+training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
+
+cid=29 # Picking our cell to pull data from
+cellid = training_dict['cellid'][cid]
+spectrogram_fit = training_dict['spectrogram']
+response_fit = training_dict['response'][:,[cid]]
+spectrogram_test = test_dict['spectrogram']
+response_test = test_dict['response'][:,[cid]]
 
 ########################################################
 # Auditory DSTRF
@@ -27,120 +37,53 @@ plt.ion()
 #   - Visualize our individual layers and data
 ########################################################
 
-###########################
-# DSTRF Data Setup
-# To create a DSTRF we need to save our data from individual
-# layers. 
-# 
-###########################
-
 # TODO : use model from CNN fit tutorial, focus on comparison of
 #  dstrfs from LN and CNN
 
-dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-dstrf = fitted_cnn_simple.dstrf(spectrogram_test, D=15, reset_backend=True)
-
-absmax = np.max(np.abs(dstrf))
-dstrf_count = dstrf.shape[1]
-rows=int(np.ceil(dstrf_count/5))
-cols = int(np.ceil(dstrf_count/rows))
-f,ax=plt.subplots(rows,cols)
-ax=ax.flatten()[:dstrf_count]
-for i,a in enumerate(ax):
-    # flip along time axis so that x axis is timelag
-    d = np.fliplr(dstrf[0,i,:,:])
-    a.imshow(d, aspect='auto', interpolation='none',
-             cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-
-
-###########################
-# do_bnt_fit()
-# Creates a model based on given parameters and returns the fitted model and
-# datasets from individual layers
-#   - sitecount: 
-#   - keywordstrub: The layers to be run on our model
-#   - fitkw: Model fit keyword arguments
-###########################
-sitecount = 1
-keywordstub = "wc.19x1x3-fir.10x1x3-relu.3.s-wc.3"
-fitkw = 'lite.tf.mi1000.lr1e3.t3.lfse'
-modelspec, datasets = do_bnt_fit(sitecount, keywordstub, fitkw=fitkw, pc_count=3, save_results=False)
-
-###########################
-# data_subset()
-# Once we've gotten our model and base dataset for our DSTRF, we need
-# to seperate this into relevant information, by creating a subset
-#   - data: Our dataset given by earlier model fit
-#   - site-set: ???
-#   - output_name: ???
-###########################
-D=10
-self=modelspec
-backend='tf'
-verbose=1
-backend_options = {}
-
-stim, resp = data_subset(datasets, list(datasets.keys()), output_name='pca')
-
-###########################
-# Get first 10 ___ of our stimulus dataset, and nest this data
-# into another set of arrays
-###########################
-input = stim[0, :D, :]
-if False:
-    eval_kwargs = {'batch_size': 0}
-else:
-    input = input[np.newaxis,:,:]
-    eval_kwargs = {'batch_size': None}
-
-###########################
-# Wrap our new input into a DataSet class, allowing us to
-# broadcast as samples, and use as an input for our backend
-#   - as_broadcasted_samples(): 
-###########################
-data = DataSet(
-    input, target=None, target_name=None,
-    prediction_name=None, **eval_kwargs)
-
-if eval_kwargs.get('batch_size', 0) != 0:
-    # Broadcast prior to passing to Backend so that those details
-    # only have to be tracked once.
-    data = data.as_broadcasted_samples()
-
-_ = self.evaluate(input, use_existing_maps=False, **eval_kwargs)
-
-###########################
-# Tensorflow NEMS model
-# Create a model with our given backend, in this case 'tf'.
-# We use our modified data as the input, and provide needed
-# arguments as well.
-###########################
-backend_class = get_backend(name=backend)
-backend_obj = backend_class(
-    self, data, verbose=verbose, eval_kwargs=eval_kwargs,
-    **backend_options
+# Basic Linear Model
+ln = Model()
+ln.add_layers(
+    WeightChannels(shape=(18, 3)),  # 18 spectral channels->1 composite channels
+    FiniteImpulseResponse(shape=(10, 3)),  # 15 taps, 1 spectral channels
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False)           # static nonlinearity, 1 output
 )
+ln.name = f"LN_Model"
+
+# A None linear CNN model
+cnn = Model()
+cnn.add_layers(
+    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
+    FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
+    RectifiedLinear(shape=(3,)), # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)), # Another set of weights to apply
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
+)
+cnn.name = f"CNN_Model"
 
 ###########################
-# Organizing DSTRF for plotting & analysis
-# Creating a DSTRF from our input, model,
-# stimulus, and channels
+# DSTRF
+# 
+#
+#
 ###########################
-plt.close('all')
-t_indexes = [190, 210, 220, 230, 240, 250, 260]
-dstrf = np.zeros((len(t_indexes), input.shape[2], D))
 
-out_channel = 2
-for i,t in enumerate(t_indexes):
-    w = backend_obj.get_jacobian(stim[:1, (t-D):t, :], out_channel)
-    dstrf[i, :, :] = w[0, :, :].numpy().T
+# Fitting both our models to given fit data from our demo data import
+fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
+fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 
-# Plot and show
-f,ax = plt.subplots(2, len(t_indexes))
-vmax = np.max(np.abs(dstrf))
-for i,t in enumerate(t_indexes):
-    ax[0,i].imshow(stim[0, (t-D):t, :].T)
-    ax[1,i].imshow(dstrf[i, :, :], vmin=-vmax, vmax=vmax)
+ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
+visualization.plot_dstrf(ln_dstrf)
+
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.plot_dstrf(cnn_dstrf)
+
+#Temp
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.model.plot_dstrf_mean(cnn_dstrf)
+
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.model.plot_absmax_dstrf(cnn_dstrf)
+
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
