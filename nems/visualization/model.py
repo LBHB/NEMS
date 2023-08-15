@@ -906,10 +906,11 @@ def plot_dstrf_mean(dstrf):
 def plot_absmax_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
     dstrf_count = dstrf.shape[1]
+    color = matplotlib.cm.get_cmap("Reds", dstrf_count+4)
     f,ax=plt.subplots(1,1)
     for index in range(dstrf_count):
         absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
-        ax.plot(absmax_list, label=f'D {index}')
+        ax.plot(absmax_list, color=color(dstrf_count - index), label=f'D {index}')
 
     plt.legend(loc="upper left")
     plt.tight_layout()
