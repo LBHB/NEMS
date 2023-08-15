@@ -7,7 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
-from nems.metrics import correlation
+from nems import metrics
+from nems import preprocessing
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -773,37 +774,89 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
             fig_list.append(model_figure)
     return fig_list
 
-def plot_predictions(predictions, input=None, target=None, coeff=False, show_titles=True):
-    '''Plots a comparable set of predictions with inputs/targets as given'''
-    if not isinstance(predictions, list):
+def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_reduction=.5):
+    '''
+    Plots a single, or list of, predictions to view and compare.
+
+    Parameters
+    ----------
+    predictions: list, dict, np.ndarray
+        A single or set of predictions to compare. If dictionary, keys
+        are the titles of predictions
+    input: np.ndarray
+        Input used for predictions
+    target: np.ndarray
+        Target response we want from the prediction
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_reduction: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data
+    
+    '''
+    if isinstance(predictions, dict):
+        keys = [key for key in predictions.keys()]
+    elif not isinstance(predictions, list):
         predictions = [predictions]
     plots = len(predictions)
-    if target.shape[1] > 1:
+
+    if target is not None and target.shape[1] > 1:
         plots += 1
+
     fig, ax = plt.subplots(plots+1, 1, sharex='col')
-    plot_data(input.T, label="Input", title="Input Data", ax=ax[0], imshow=True)
-    for predidx, data in enumerate(predictions):
+    if input is not None:
+        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_reduction=display_reduction)
+
+    for predidx, key in enumerate(predictions):
+        data = predictions[key]
+        title = f"Pred {predidx}"
+        if keys:
+            title = keys[predidx]
         if data.shape[1] > 3:
-            plot_data(data.T, label=f"Pred {predidx}", title=f"Pred {predidx}", ax=ax[predidx+1], coeff=coeff, show_titles=show_titles, imshow=True)
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
         else:
-            plot_data(data, target=target, label=f"Pred {predidx}", title=f"Pred {predidx}", ax=ax[predidx+1], coeff=coeff, show_titles=show_titles)
-    if target.shape[1] > 1:
-        plot_data(target.T, label="Target", title="Target Data", ax=ax[-1], imshow=True)
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
+
+    if target is not None and target.shape[1] > 1:
+        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_reduction=display_reduction)
     return fig
 
-def plot_data(data, title, label=None, target=None, ax=None, coeff=False, imshow=False, show_titles=True):
-    """Plotting most basic/important information of given data. Returns plotted ax"""
+def plot_data(data, title, label=None, target=None, ax=None, correlation=False, imshow=False, show_titles=True, display_reduction=.5):
+    """
+    Plotting most basic/important information of given data. Returns plotted ax
+    
+    Parameters
+    ----------
+    title: string
+        Title passed to text of ax
+    label: string
+        Label given to data plot
+    target: np.ndarray
+        Optional target data to plot with normal data
+    ax: Axes object you wish to plot onto
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of the plotted data  
+    
+    """
+    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_reduction)
+    reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
-        ax.legend()
-    if coeff:
-        title += f" | Correlation: {correlation(data, target):.2f}"
+    if correlation:
+        title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
-        ax.imshow(data, aspect='auto', interpolation='none')
+        ax.imshow(reduced_data.T, aspect='auto', interpolation='none')
     else:
-        ax.plot(data, label=label)
+        ax.plot(reduced_data, label=label)
     if target is not None:
-        ax.plot(target, label='Target', color='orange', lw=1, zorder=-1)
+        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_reduction)
+        reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
+        ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
@@ -823,6 +876,8 @@ def plot_dstrf(dstrf):
         d = np.fliplr(dstrf[0,i,:,:])
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        
     plt.tight_layout()
     return ax
 
