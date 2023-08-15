@@ -143,7 +143,7 @@ results_cnn = np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]
 
 
 # A quick plot of our models pre and post fitting
-visualization.plot_predictions([pred_ln, pred_cnn], spectrogram_test, response_test)
+visualization.plot_predictions({'ln model':pred_ln, 'cnn model':pred_cnn}, spectrogram_test, response_test, correlation=True)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
