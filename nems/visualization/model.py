@@ -736,7 +736,8 @@ def checkerboard(array):
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
 
-def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, find_best=False, state=None, coeff=True):
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
+                    find_best=False, state=None, correlation=True, display_reduction=.5):
     '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
@@ -760,7 +761,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
                 model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
-            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], coeff=coeff)
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_reduction=.5)
 
         # Plotting some comparisons with our test data and the best models
         if find_best:
@@ -814,15 +815,18 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
         if keys:
             title = keys[predidx]
         if data.shape[1] > 3:
-            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], 
+                      correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
         else:
-            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, 
+                      correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
 
     if target is not None and target.shape[1] > 1:
         plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_reduction=display_reduction)
     return fig
 
-def plot_data(data, title, label=None, target=None, ax=None, correlation=False, imshow=False, show_titles=True, display_reduction=.5):
+def plot_data(data, title, label=None, target=None, ax=None, 
+              correlation=False, imshow=False, show_titles=True, display_reduction=.5):
     """
     Plotting most basic/important information of given data. Returns plotted ax
     
