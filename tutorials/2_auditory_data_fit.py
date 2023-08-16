@@ -26,7 +26,6 @@ options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 #      large datasets.
 #  Other datasets are accessible using load_demo, these can be specified
 #   as a parameter: load_demo(test_dataset)
-# TODO: URL? Or is this a doc string? See more at: nems.download_demo
 ###########################
 nems.download_demo()
 training_dict, test_dict = nems.load_demo()
@@ -69,7 +68,6 @@ visualization.plot_model(fitted_model, spectrogram_test, response_test)
 #   FiniteImpulseResponse: Convolve linear filter(s) with inputs
 #       - Can specifiy "Time-Bins", "Rank/Input-Channels", "Filters", etc...
 #   DoubleExponential: Sets inputs as a exponential function to the power of some constant
-# See more at: nems.layers
 ###########################
 model2 = Model()
 model2.add_layers(
@@ -140,8 +138,7 @@ pred_model2 = model2.predict(spectrogram_test)
 pred_fitted_model2  = fitted_model2.predict(spectrogram_test)
 visualization.plot_predictions({model2.name: pred_model2,
                                 fitted_model2.name: pred_fitted_model2},
-                               input=spectrogram_test, target=response_test)
-# TODO : display prediction correlation for different predictions
+                               input=spectrogram_test, target=response_test, correlation=True)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
