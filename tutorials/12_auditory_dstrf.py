@@ -27,17 +27,6 @@ response_fit = training_dict['response'][:,[cid]]
 spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
 
-########################################################
-# Auditory DSTRF
-# Creating locally linear data to evaluate an strf model
-# 
-#   - Create a model and fit it for strf data
-#   - Save and provide a dataset containing layer data
-#   - Get the jacobian output of our datasets
-#   - Visualize our individual layers and data
-########################################################
-
-# TODO : use model from CNN fit tutorial, focus on comparison of
 #  dstrfs from LN and CNN
 
 # Basic Linear Model
@@ -60,6 +49,16 @@ cnn.add_layers(
 )
 cnn.name = f"CNN_Model"
 
+############GETTING STARTED###############
+########################################################
+# Auditory DSTRF
+# Creating locally linear data to evaluate an strf model
+# 
+#   - Create a model and fit it for strf data
+#   - Save and provide a dataset containing layer data
+#   - Get the jacobian output of our datasets
+#   - Visualize our individual layers and data
+########################################################
 ###########################
 # DSTRF
 # DSTRF is the process of creating locally
@@ -89,6 +88,10 @@ fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
 visualization.plot_dstrf(ln_dstrf)
 
+
+
+
+############ADVANCED###############
 ###########################
 # Visualizing DSTRF's(In progress)
 # By viewing and comparing our model at each step
@@ -121,7 +124,7 @@ visualization.plot_dstrf(cnn_dstrf)
 # Temp: A way of plotting line graphs by creating an array of means via each dimension
 # and plotting at each step
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.model.plot_dstrf_mean(cnn_dstrf)
+visualization.model.plot_mean_dstrf(cnn_dstrf)
 
 # Also Temp: Same as above, but with absolute max values instead of mean
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
