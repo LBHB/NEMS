@@ -856,6 +856,8 @@ def plot_data(data, title, label=None, target=None, ax=None,
     if ax is None:
         fig, ax = plt.subplots(1, 1)
         fig.tight_layout()
+        ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
         ax.margins(0,.05)
     data = np.array(data)
     set_plot_options(ax, {'legend': True})
@@ -870,8 +872,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
     ax.autoscale()
-    ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
