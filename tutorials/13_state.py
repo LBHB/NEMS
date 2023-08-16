@@ -80,4 +80,4 @@ pred_state = fit_model_state.predict(spectrogram, state=state)
 # Here we can see the difference in our models performance between 
 # 1. A model with no state information attempting to fit to our data clearly shifted by some state
 # 2. A model that contains StateGain and State data can actually fit around data that has states
-visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, correlation=True)
+visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, correlation=True, display_reduction=1)
