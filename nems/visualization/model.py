@@ -871,6 +871,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
         ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
     return ax
 
+# TODO: Iterate through dictionaries for larger inputs
 def plot_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
     dstrf = dstrf['input']
@@ -891,7 +892,7 @@ def plot_dstrf(dstrf):
     return ax
 
 def plot_shift_dstrf(dstrf):
-    """Plotting DSTRF information from dstrf of a model"""
+    """Plots graph that compares mean value of dstrf step with respect to the previous one"""
     dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
@@ -915,13 +916,12 @@ def plot_shift_dstrf(dstrf):
         ax[0][index].text(ax[0][index].get_xlim()[0], ax[0][index].get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
                 va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         prev_mean = mean_list
-        
     plt.subplots_adjust(wspace=1, hspace=0)
     plt.tight_layout()
     return ax
 
-def plot_dstrf_mean(dstrf):
-    """Plotting DSTRF information from dstrf of a model"""
+def plot_mean_dstrf(dstrf):
+    """Plots mean value of dimensions in each step"""
     dstrf = dstrf['input']
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
@@ -929,7 +929,6 @@ def plot_dstrf_mean(dstrf):
     f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
     ax=ax.flatten()[:dstrf_count]
     for index, a in enumerate(ax):
-        # flip along time axis so that x axis is timelag
         mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
         a.plot(mean_list)
         a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
@@ -940,7 +939,7 @@ def plot_dstrf_mean(dstrf):
     return ax
 
 def plot_absmax_dstrf(dstrf):
-    """Plotting DSTRF information from dstrf of a model"""
+    """Plots the absolute max of each dimension for every step"""
     dstrf = dstrf['input']
     dstrf_count = dstrf.shape[1]
     color = matplotlib.cm.get_cmap("Reds", dstrf_count+4)
@@ -948,7 +947,6 @@ def plot_absmax_dstrf(dstrf):
     for index in range(dstrf_count):
         absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
         ax.plot(absmax_list, color=color(dstrf_count+4 - index), label=f'D {index}')
-
     plt.legend(loc="upper left")
     plt.tight_layout()
     return ax
