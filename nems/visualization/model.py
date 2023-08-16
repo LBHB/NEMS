@@ -855,6 +855,10 @@ def plot_data(data, title, label=None, target=None, ax=None,
     reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
+        fig.tight_layout()
+        ax.margins(0,.05)
+    data = np.array(data)
+    set_plot_options(ax, {'legend': True})
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
@@ -865,6 +869,9 @@ def plot_data(data, title, label=None, target=None, ax=None,
         indicies, remainder = preprocessing.split.indices_by_fraction(target, display_reduction)
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
+    ax.autoscale()
+    ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
