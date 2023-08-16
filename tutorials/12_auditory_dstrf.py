@@ -90,7 +90,6 @@ ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
 visualization.plot_dstrf(ln_dstrf)
 
 ###########################
-
 # Visualizing DSTRF's(In progress)
 # By viewing and comparing our model at each step
 # we can see how things change, currently we have 
