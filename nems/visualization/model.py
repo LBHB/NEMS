@@ -885,6 +885,35 @@ def plot_dstrf(dstrf):
     plt.tight_layout()
     return ax
 
+def plot_shift_dstrf(dstrf):
+    """Plotting DSTRF information from dstrf of a model"""
+    absmax = np.max(np.abs(dstrf))
+    dstrf_count = dstrf.shape[1]
+    f,ax=plt.subplots(2,dstrf_count, figsize=(9,5))
+    for index in range(dstrf_count):
+        ax[0][index].set_ylim(-absmax/20,absmax/20)
+        dstrf_set = dstrf[0,index,:,:]
+        mean_list = np.array([np.mean(j) for j in dstrf_set])
+        if index > 0:
+            shift = f"{np.mean(mean_list-prev_mean)*10000:.2f}"
+            ax[0][index].plot(np.subtract(mean_list, prev_mean))
+            ax[0][index].plot(prev_mean-prev_mean, color='red', lw=.5)
+            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
+                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+        else:
+            shift = 'N/A'
+            ax[0][index].plot(mean_list)
+            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
+                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+            prev_mean = mean_list
+        ax[0][index].text(ax[0][index].get_xlim()[0], ax[0][index].get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
+                va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        prev_mean = mean_list
+        
+    plt.subplots_adjust(wspace=1, hspace=0)
+    plt.tight_layout()
+    return ax
+
 def plot_dstrf_mean(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
     dstrf_count = dstrf.shape[1]
@@ -910,28 +939,9 @@ def plot_absmax_dstrf(dstrf):
     f,ax=plt.subplots(1,1)
     for index in range(dstrf_count):
         absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
-        ax.plot(absmax_list, color=color(dstrf_count - index), label=f'D {index}')
+        ax.plot(absmax_list, color=color(dstrf_count+4 - index), label=f'D {index}')
 
     plt.legend(loc="upper left")
     plt.tight_layout()
     return ax
 
-def plot_dstrf_main(dstrf):
-    dstrf_count = dstrf.shape[1]
-    absmax = np.max(np.abs(dstrf))
-    fig, ax = plt.subplots(dstrf_count,3, gridspec_kw={'width_ratios':[1,1,.5]})
-    for index in range(dstrf_count):
-        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
-        absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
-        heatmap = np.fliplr(dstrf[0,index,:,:])
-
-        ax[index][0].plot(mean_list)
-        ax[index][0].text(ax[index][0].get_xlim()[0]*.90, ax[index][0].get_ylim()[1]*1.1, f"D {index}", 
-                          va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
-        ax[index][1].plot(absmax_list, label=f'D{index}')
-        ax[index][2].imshow(heatmap, aspect='auto', interpolation='none',
-                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-    plt.tight_layout(w_pad=0, h_pad=0)
-    return ax
-
-        
