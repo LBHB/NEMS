@@ -873,6 +873,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
 
 def plot_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
+    dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
@@ -891,6 +892,7 @@ def plot_dstrf(dstrf):
 
 def plot_shift_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
+    dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     f,ax=plt.subplots(2,dstrf_count, figsize=(9,5))
@@ -920,6 +922,7 @@ def plot_shift_dstrf(dstrf):
 
 def plot_dstrf_mean(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
+    dstrf = dstrf['input']
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
     cols = int(np.ceil(dstrf_count/rows))
@@ -938,6 +941,7 @@ def plot_dstrf_mean(dstrf):
 
 def plot_absmax_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
+    dstrf = dstrf['input']
     dstrf_count = dstrf.shape[1]
     color = matplotlib.cm.get_cmap("Reds", dstrf_count+4)
     f,ax=plt.subplots(1,1)
