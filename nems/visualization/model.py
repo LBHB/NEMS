@@ -896,27 +896,25 @@ def plot_shift_dstrf(dstrf):
     dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
-    f,ax=plt.subplots(2,dstrf_count, figsize=(9,5))
-    for index in range(dstrf_count):
-        ax[0][index].set_ylim(-absmax/20,absmax/20)
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
+    ax=ax.flatten()[:dstrf_count]
+    x = np.arange(dstrf.shape[2])+.5
+    for index, a in enumerate(ax):
         dstrf_set = dstrf[0,index,:,:]
         mean_list = np.array([np.mean(j) for j in dstrf_set])
         if index > 0:
             shift = f"{np.mean(mean_list-prev_mean)*10000:.2f}"
-            ax[0][index].plot(np.subtract(mean_list, prev_mean))
-            ax[0][index].plot(prev_mean-prev_mean, color='red', lw=.5)
-            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
-                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+            a.stem(x, np.subtract(mean_list, prev_mean), markerfmt='none', basefmt='none')
+            a.plot(prev_mean-prev_mean, color='red', lw=.5)
         else:
             shift = 'N/A'
-            ax[0][index].plot(mean_list)
-            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
-                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+            a.plot(mean_list)
             prev_mean = mean_list
-        ax[0][index].text(ax[0][index].get_xlim()[0], ax[0][index].get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
+        a.text(a.get_xlim()[0], a.get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
                 va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         prev_mean = mean_list
-    plt.subplots_adjust(wspace=1, hspace=0)
     plt.tight_layout()
     return ax
 
