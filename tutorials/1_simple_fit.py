@@ -48,7 +48,8 @@ spectrogram, response, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
 # to start:
 #   1. Create a Model()
 #   2. Add layers to our model based on your needs
-# Using models is also fairly simple at it's core:
+#
+# Using models is also fairly simple at its core:
 #   1. Fit models using Model.fit()
 #   2. Predict models using Model.predict()
 # There is much more going on with models, but this should let you get started
@@ -56,12 +57,20 @@ spectrogram, response, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
 model = Model()
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
-    LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
+    LevelShift(shape=(1,))  # WeightChannels will provide 1 input to shift
 )
+
+# fit model parameters using the input/target data
 fitted_model = model.fit(input=spectrogram, target=response,
-                      fitter_options=options)
+                         fitter_options=options)
 
+# generate a prediction from the fitted model
+prediction = fitted_model.predict(spectrogram)
 
+# plot_data from the vizualization library lets us quickly look at time
+# series like the response and prediction.
+# TODO make this prettier and better annotated (x axis, legend for resp vs. pred)
+visualization.plot_data(prediction, label='Pred', title='Model Prediction', target=response)
 
 
 ############ADVANCED###############
@@ -69,20 +78,24 @@ fitted_model = model.fit(input=spectrogram, target=response,
 # Typical nems.Layers data structure:
 # layer_data_example(TIME, CHANNEL)
 #
-# (X Axis, 2D Numpy Array): TIME can be any representation relevent to your data
-# (Y Axis, 2D Numpy Array): CHANNEL is some seperation of data inputs ie... Neuron, Sepctral Channel, etc...
+# TIME can be any representation relevant to your data
+# CHANNEL is some space representing one or more dimensions of inputs,
+#   e.g., neuron, spectral channel, etc...
 #
 # Examples: 
-#   1. Spiking responses of neurons is set up as shape(TIME, NEURONS)
-#   2. Pupil Size is represented as shape(TIME, PUPIL_STATES)
-# See more at: https://temp.website.net/nems.Layers
+#   1. Tutorial #2: Spiking responses of a single neuron is set up as shape(TIME, 1)
+#   2. Tutorial #5: Spiking responses of multiple neuron is set up as shape(TIME, NEURON)
+#   3. Tutorial #13: An additional state input is defined as (TIME, 1) and integrated with
+#      a sensory response
 ########################################################
+
+
 ###########################
 # Model can take in a (Usually) sequential set of layers
 #   WeightChannels: Computes linear weights of input channels
 #                   comparable to a Dense layer.
 #   LevelShift: Applies a scalar shift to all inputs
-# See more at: https://temp.website.net/nems_model
+# TODO: correct URL or delete See more at: https://temp.website.net/nems_model
 ###########################
 model = Model()
 model.add_layers(
@@ -103,11 +116,12 @@ model.name = "SimpleLinModel-PreFit"
 # For example: If we called our model again below, nothing will have changed. We need
 # to call fitted_model to see any changes. 
 #
+# TODO: correct URL or delete
 # See more at: https://temp.website.net/nems_model_fit
 ###########################
 fitted_model = model.fit(input=spectrogram, target=response,
                       fitter_options=options)
-model.name = "SimpleLinModel-PostFit"
+fitted_model.name = "SimpleLinModel-PostFit"
 
 ###########################
 # Viewing the model and data
@@ -140,24 +154,4 @@ print(f"""
     Fitted layer bounds:\n {fitted_model.layers[0].bounds}
     pre-fit weighted layer values:\n {model.layers[0].coefficients}
     post-fit weighted layer values:\n {fitted_model.layers[0].coefficients}
-
 """)
- 
-###########################
-# Sets the model to predict data provided after fitting the model
-#   Backend(Not seen here): Can be specified to decide an Optimizer, default = scipy.optimize.minimize()
-#       - Other options exist such as tf for tensorflow
-#   Spectrogram: The data we will performing a prediction with
-# Again, we need to save our predicted model if we wish to use or view it
-# See more at: https://temp.website.net/nems_model_predict and
-# See more at: https://temp.website.net/nems_backends
-###########################
-pred_model = fitted_model.predict(spectrogram)
-
-# plot_data lets us quickly make a plot of data on a graph.
-# This is mostly used internally, but here we can print our
-# models predictions and compare it to its target 
-visualization.plot_data(pred_model, label='Pred', title='Model Prediction', target=response)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

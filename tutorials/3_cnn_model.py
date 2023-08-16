@@ -13,10 +13,9 @@ from nems.metrics import correlation
 
 # Basic options to quickly fit our models for tf backend
 # NOTE: This will be explored in the next tutorial
-options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
-                  'early_stopping_tolerance': 1e-3, 'validation_split': 0,
-                  'learning_rate': 5e-3, 'epochs': 2000}
+           'early_stopping_tolerance': 1e-3, 'validation_split': 0,
+           'learning_rate': 5e-3, 'epochs': 2000}
 ###########################
 # Setting up Demo Data instead of dummy data
 # 
@@ -40,23 +39,21 @@ response_test = test_dict['response'][:,[cid]]
 
 ############GETTING STARTED###############
 ###########################
-# CNN's
-# Creating CNN is just the same as building any other model
-# so far, but with a few more complex layers.
+# Example small convolutional neural network (CNN)
+# Creating a CNN is just the same as building any other model
+# so far, but with a few more layers.
 #
 # Here we have an example CNN, which we can later fit to our
 # data and predict as we have before
 ###########################
-cnn = Model()
+cnn = Model(name=f"{cellid}-Rank3LNSTRF-5Layer-PreFit")
 cnn.add_layers(
     WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
     FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
-    RectifiedLinear(shape=(3,)), # Takes FIR 3 output filter and applies ReLU function
-    WeightChannels(shape=(3, 1)), # Another set of weights to apply
+    RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)),  # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
-
-
 
 
 ############ADVANCED###############
@@ -72,25 +69,15 @@ cnn.add_layers(
 #       - RectifiedLinear: Apply ReLU activation to inputs, along 3 channels
 ###########################
 
-# Heres a simpler linear model to compare the difference
-ln_model = Model()
+# Use cnn defined above
+
+# Create a simpler rank-3 LN model for reference
+ln_model = Model(name=f"{cellid}-Rank3LNSTRF-3Layer-PreFit")
 ln_model.add_layers(
-    WeightChannels(shape=(18, 3)),  # 18 spectral channels->1 composite channels
+    WeightChannels(shape=(18, 3)),  # 18 spectral channels->3 composite channels
     FiniteImpulseResponse(shape=(10, 3)),  # 15 taps, 1 spectral channels
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False)           # static nonlinearity, 1 output
 )
-ln_model.name = f"{cellid}-Rank3LNSTRF-3Layer-PreFit"
-
-cnn = Model()
-cnn.add_layers(
-    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
-    FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
-    RectifiedLinear(shape=(3,)), # Takes FIR 3 output filter and applies ReLU function
-    WeightChannels(shape=(3, 1)), # Another set of weights to apply
-    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
-)
-cnn.name = f"{cellid}-Rank3LNSTRF-5Layer-PreFit"
-
 
 ###########################
 # Initializing our model parameters

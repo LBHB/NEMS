@@ -494,7 +494,7 @@ class CNN_reconstruction(Model):
 
         wc1 = WeightChannels(shape=(channels, 1, L1))
         fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
-        relu1 = RectifiedLinear(shape=(L1,), no_offset=False)
+        relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
         if L2 > 0:
 
             wc2 = WeightChannels(shape=(L1, L2))
