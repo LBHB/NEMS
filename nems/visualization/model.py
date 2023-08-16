@@ -796,12 +796,15 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
         Reduces amount of data displayed by trimming the end of plotted data
     
     '''
+    is_dict = False
+    keys = None
     if isinstance(predictions, dict):
         keys = [key for key in predictions.keys()]
+        is_dict = True
     elif not isinstance(predictions, list):
         predictions = [predictions]
-    plots = len(predictions)
 
+    plots = len(predictions)
     if target is not None and target.shape[1] > 1:
         plots += 1
 
@@ -809,8 +812,9 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
     if input is not None:
         plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_reduction=display_reduction)
 
-    for predidx, key in enumerate(predictions):
-        data = predictions[key]
+    for predidx, data in enumerate(predictions):
+        if is_dict:
+            data = predictions[data]
         title = f"Pred {predidx}"
         if keys:
             title = keys[predidx]
