@@ -62,10 +62,25 @@ cnn.name = f"CNN_Model"
 
 ###########################
 # DSTRF
+# DSTRF is the process of creating locally
+# linear representations of a model. By mapping 
+# out sections of our model we can try and view how 
+# layers are changing during predictions
 # 
-#
-#
+# dstrf
+#   Stim: Stimulus to predict our model onto
+#   D: The memory of DSTRF (In time bins)
+#   out_channels: Output channels to use when generating DSTF
+#   t_indexes: Time samples
+#   backend: Set the backend used, currently support 'tf'
+#   reset_backend: Forces new initialization of backend
+#   
 ###########################
+
+# When creating a DSTRF, we are taking a non-linear set of data
+# and finding linear representation for parts of that data. If a
+# Linear model is used, you will see that our DSTRF values will not
+# change
 
 # Fitting both our models to given fit data from our demo data import
 fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
@@ -74,16 +89,48 @@ fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
 visualization.plot_dstrf(ln_dstrf)
 
+###########################
+# Visualizing DSTRF's(In progress)
+# By viewing and comparing our model at each step
+# we can see how things change, currently we have 
+# 
+# plot_dstrf
+# Provide a dstrf and a list of heatmaps will be plotted out
+#
+# plot_dstrf_mean
+# This will take the mean average values of our dstrf at each
+# step and plot the current step, and previous step of values
+#
+# plot_dstrf_absmax(Temp)
+# From step 0 to max, plots the absolute max value for each
+# dimension of data on each step. These steps are shifted up
+# to compare how max values change with each step
+#
+# plot_shift_dstrf(Temp)
+# Uses the mean as with plot_dstrf_mean, but with respect to the
+# previous step. This allows you to see how much each dimension
+# has shifted in each step. Also provides heatmaps to help see
+# how this affects the models values
+#
+###########################
+
+# Traditional heatmap of our multidimensional set of data
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.plot_dstrf(cnn_dstrf)
 
-#Temp
+# Temp: A way of plotting line graphs by creating an array of means via each dimension
+# and plotting at each step
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.model.plot_dstrf_mean(cnn_dstrf)
 
+# Also Temp: Same as above, but with absolute max values instead of mean
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.model.plot_absmax_dstrf(cnn_dstrf)
 
+# Also Also temp: Using mean array but plotted with respect the previous step
+# to show the "shift" of each dimension at each step
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.model.plot_shift_dstrf(cnn_dstrf)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
