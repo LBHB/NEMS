@@ -877,6 +877,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
         ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        ax.legend()
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
@@ -918,12 +919,15 @@ def plot_shift_dstrf(dstrf):
             a.plot(prev_mean-prev_mean, color='red', lw=.5)
         else:
             shift = 'N/A'
-            a.plot(mean_list)
+            a.plot(mean_list, label='mean')
+            a.plot(mean_list-mean_list, label='target', color='red', lw=.5)
             prev_mean = mean_list
-        a.text(a.get_xlim()[0], a.get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D:{index} shift: {shift}", 
                 va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         prev_mean = mean_list
-    plt.tight_layout()
+    f.legend(handles=[ax[0]], **_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+    f.legend(loc="upper left")
+    f.tight_layout()
     return ax
 
 def plot_mean_dstrf(dstrf):
