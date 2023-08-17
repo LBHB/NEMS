@@ -737,7 +737,7 @@ def checkerboard(array):
     return indices
 
 def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
-                    find_best=False, state=None, correlation=True, display_reduction=.5):
+                    find_best=False, state=None, correlation=True, display_ratio=.5):
     '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
@@ -761,7 +761,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
                 model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
-            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_reduction=.5)
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_ratio=.5)
 
         # Plotting some comparisons with our test data and the best models
         if find_best:
@@ -775,7 +775,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
             fig_list.append(model_figure)
     return fig_list
 
-def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_reduction=.5):
+def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_ratio=.5):
     '''
     Plots a single, or list of, predictions to view and compare.
 
@@ -792,8 +792,9 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
         If true, appends correlation coeff onto prediction title
     show_titles: boolean
         If true, shows the titles of each prediction
-    display_reduction: float, 0->1
-        Reduces amount of data displayed by trimming the end of plotted data
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
     
     '''
     is_dict = False
@@ -810,7 +811,7 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
 
     fig, ax = plt.subplots(plots+1, 1, sharex='col')
     if input is not None:
-        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_reduction=display_reduction)
+        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_ratio=display_ratio)
 
     for predidx, data in enumerate(predictions):
         if is_dict:
@@ -820,17 +821,17 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
             title = keys[predidx]
         if data.shape[1] > 3:
             plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], 
-                      correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
+                      correlation=correlation, show_titles=show_titles, imshow=True, display_ratio=display_ratio)
         else:
             plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, 
-                      correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
+                      correlation=correlation, show_titles=show_titles, display_ratio=display_ratio)
 
     if target is not None and target.shape[1] > 1:
-        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_reduction=display_reduction)
+        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_ratio=display_ratio)
     return fig
 
 def plot_data(data, title, label=None, target=None, ax=None, 
-              correlation=False, imshow=False, show_titles=True, display_reduction=.5):
+              correlation=False, imshow=False, show_titles=True, display_ratio=.5):
     """
     Plotting most basic/important information of given data. Returns plotted ax
     
@@ -847,11 +848,12 @@ def plot_data(data, title, label=None, target=None, ax=None,
         If true, appends correlation coeff onto prediction title
     show_titles: boolean
         If true, shows the titles of each prediction
-    display_reduction: float, 0->1
-        Reduces amount of data displayed by trimming the end of plotted data  
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
     
     """
-    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_reduction)
+    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_ratio)
     reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
@@ -868,7 +870,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
     else:
         ax.plot(reduced_data, label=label)
     if target is not None:
-        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_reduction)
+        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_ratio)
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
     ax.autoscale()
