@@ -88,6 +88,15 @@ fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
 visualization.plot_dstrf(ln_dstrf)
 
+# In this example we can see how different options may provide changes
+# and how we can interact with that data
+print(f"DSTRF Shape: {ln_dstrf['input'].shape}")
+# The number of output channels from layers we're keeping track of
+print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
+# Time indexes are to decide when we look into the model and save that information
+print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
+# Output data is the actual output of a given layer at a time interval
+print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
 
 
 
@@ -134,6 +143,10 @@ visualization.model.plot_absmax_dstrf(cnn_dstrf)
 # to show the "shift" of each dimension at each step
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 visualization.model.plot_shift_dstrf(cnn_dstrf)
+
+# Also Also Also temp: Bar plotting of data points with comparison via previous plots
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+visualization.model.plot_bar_dstrf(cnn_dstrf)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
