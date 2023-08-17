@@ -876,7 +876,7 @@ def plot_data(data, title, label=None, target=None, ax=None,
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
-        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.2, rounding_size=.1', alpha=.7, facecolor='white'))
         ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     return ax
 
@@ -919,8 +919,8 @@ def plot_shift_dstrf(dstrf):
             a.plot(prev_mean-prev_mean, color='red', lw=.5)
         else:
             shift = 'N/A'
-            a.plot(mean_list, label='mean')
-            a.plot(mean_list-mean_list, label='target', color='red', lw=.5)
+            a.plot(mean_list, label='Mean')
+            a.plot(mean_list-mean_list, label='Previous', color='red', lw=.5)
             prev_mean = mean_list
         a.text(a.get_xlim()[0], a.get_ylim()[1], f"D:{index} shift: {shift}", 
                 va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
@@ -943,11 +943,10 @@ def plot_mean_dstrf(dstrf):
         if index == 0:
             a.plot(mean_list, label='Mean')
             # Used for legend
-            a.plot(mean_list, label='target', color='red', lw=0.5)
+            a.plot(mean_list, label='Previous', color='red', lw=0.5)
             a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         else:
             a.plot(mean_list)
-            # Used for legend
             a.plot(prev_list, color='red', lw=.5)
             a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         prev_list = mean_list
@@ -970,3 +969,28 @@ def plot_absmax_dstrf(dstrf):
     f.tight_layout()
     return ax
 
+def plot_bar_dstrf(dstrf):
+    """Plots all data within bar plots, shows previous plot for comparison"""
+    dstrf = dstrf['input']
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
+    ax=ax.flatten()[:dstrf_count]
+    for index, a in enumerate(ax):
+        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
+        if index == 0:
+            a.bar(np.arange(dstrf.shape[2]), mean_list, label='Mean')
+            # Used for legend
+            a.bar(np.arange(dstrf.shape[2]), mean_list, label='Previous', color='red', width=0.5, zorder=0)
+            a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        else:
+            a.bar(np.arange(dstrf.shape[2]), mean_list)
+            a.bar(np.arange(dstrf.shape[2]), prev_list, color='red', width=.25)
+            a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        prev_list = mean_list
+
+    f.legend(handles=[ax[0]], **_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+    f.legend(loc="upper left")
+    f.tight_layout()
+    return ax
