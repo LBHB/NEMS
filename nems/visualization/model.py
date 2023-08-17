@@ -940,12 +940,21 @@ def plot_mean_dstrf(dstrf):
     ax=ax.flatten()[:dstrf_count]
     for index, a in enumerate(ax):
         mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
-        a.plot(mean_list)
-        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
-        if index > 0:
-            a.plot(prev_mean, color='red', lw=.5)
-        prev_mean = mean_list
-    plt.tight_layout()
+        if index == 0:
+            a.plot(mean_list, label='Mean')
+            # Used for legend
+            a.plot(mean_list, label='target', color='red', lw=0.5)
+            a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        else:
+            a.plot(mean_list)
+            # Used for legend
+            a.plot(prev_list, color='red', lw=.5)
+            a.text(a.get_xlim()[0], a.get_ylim()[1], f"D{index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        prev_list = mean_list
+
+    f.legend(handles=[ax[0]], **_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+    f.legend(loc="upper left")
+    f.tight_layout()
     return ax
 
 def plot_absmax_dstrf(dstrf):
@@ -957,7 +966,7 @@ def plot_absmax_dstrf(dstrf):
     for index in range(dstrf_count):
         absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
         ax.plot(absmax_list, color=color(dstrf_count+4 - index), label=f'D {index}')
-    plt.legend(loc="upper left")
-    plt.tight_layout()
+    f.legend(loc="upper left")
+    f.tight_layout()
     return ax
 
