@@ -885,7 +885,6 @@ def plot_data(data, title, label=None, target=None, ax=None,
 # TODO: Iterate through dictionaries for larger inputs
 def plot_dstrf(dstrf):
     """Plotting DSTRF information from dstrf of a model"""
-    dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
