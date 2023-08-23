@@ -7,6 +7,7 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
+from nems.tools.dstrf import compute_dpcs
 
 # nems_db import module
 from nems.backends import get_backend
@@ -86,7 +87,8 @@ fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 
 ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
-visualization.plot_dstrf(ln_dstrf)
+# Note that this linear data does not show any changes between time steps
+visualization.plot_dstrf(ln_dstrf['input'])
 
 # In this example we can see how different options may provide changes
 # and how we can interact with that data
@@ -97,56 +99,55 @@ print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
 print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
 # Output data is the actual output of a given layer at a time interval
 print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 
 
 
 ############ADVANCED###############
 ###########################
-# Visualizing DSTRF's(In progress)
-# By viewing and comparing our model at each step
-# we can see how things change, currently we have 
+# Principle Components Analysis
+# Creating a DSTRF can help us create locally
+# linear sets of data at points in time,
+# but the resulting data can often be of high
+# dimensionality and hard to interpret.
+#
+# Using Principle Components we can reduce dimensionality,
+# allowing us to better interpret our DSTRF's
+#
+# nems.tools.dstf.compute_dpcs(dstrf, ...)
+#   dsrf: Given DSTRF to gather PC's from
+#   pc_count: The number of principle components to find
+#   norm_mag: If true, returns normalize variances
+#   snr_threshold: A given Signal-Noise_Ratio to filter noisy data
+#
+#   Returns: (pca, pc_mag, projections)
+###########################
+pca = compute_dpcs(cnn_dstrf)
+
+# If given multiple inputs; pca['input_key']['pcs'].shape would be equivalent
+print(pca['pcs'].shape)
+print(pca['pc_mag'])
+print(pca['projection'])
+
+
+###########################
+# Visualizing DSTRF's
+# By viewing a heatmap of our DSTRF, we can view our data
+# at each time step, allowing us to start to intepret new
+# information.
 # 
 # plot_dstrf
 # Provide a dstrf and a list of heatmaps will be plotted out
 #
-# plot_dstrf_mean
-# This will take the mean average values of our dstrf at each
-# step and plot the current step, and previous step of values
-#
-# plot_dstrf_absmax(Temp)
-# From step 0 to max, plots the absolute max value for each
-# dimension of data on each step. These steps are shifted up
-# to compare how max values change with each step
-#
-# plot_shift_dstrf(Temp)
-# Uses the mean as with plot_dstrf_mean, but with respect to the
-# previous step. This allows you to see how much each dimension
-# has shifted in each step. Also provides heatmaps to help see
-# how this affects the models values
-#
 ###########################
 
-# Traditional heatmap of our multidimensional set of data
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.plot_dstrf(cnn_dstrf)
+# Traditional heatmap of our multidimensional set of data.
+# As you can see, this plot contains a lot of unneeded information
+visualization.plot_dstrf(cnn_dstrf['input'])
 
-# Temp: A way of plotting line graphs by creating an array of means via each dimension
-# and plotting at each step
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.model.plot_mean_dstrf(cnn_dstrf)
-
-# Also Temp: Same as above, but with absolute max values instead of mean
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.model.plot_absmax_dstrf(cnn_dstrf)
-
-# Also Also temp: Using mean array but plotted with respect the previous step
-# to show the "shift" of each dimension at each step
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.model.plot_shift_dstrf(cnn_dstrf)
-
-# Also Also Also temp: Bar plotting of data points with comparison via previous plots
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
-visualization.model.plot_bar_dstrf(cnn_dstrf)
+# Using our Principle Components, we have a much easier time
+# interpreting the same data
+visualization.plot_dstrf(pca['pcs'])
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()
