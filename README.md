@@ -160,57 +160,58 @@ IPython is an interative python shell, typically know for its use in jupyter not
 <br />
 
 # Examples
-Build a standard linear-nonlinear spectrotemporal receptive field (LN-STRF) model.
+Build a basic STRF model, then fit and predict that model to example data
 ```python
 import numpy as np
-import nems
+import matplotlib.pyplot as plt
+
 from nems import Model
-from nems.layers import FiniteImpulseResponse, DoubleExponential
-from nems.metrics import correlation
+from nems.layers import LevelShift, WeightChannels
 
-
-# Model layers can be added in sequential order as a list, individually, or via keywords
+# Models can be created using the method below to start, allowing you to
+# sequentially(usually) add layers to your model before fitting
 model = Model()
 model.add_layers(
-    FiniteImpulseResponse(shape=(15, 18)),  # 15 taps, 18 spectral channels
-    DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
+    WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
+    LevelShift(shape=(1,))  # WeightChannels will provide 1 input to shift
 )
 ```
-Or use the customizable keyword system for faster scripting and prototyping.
+Creating some basic data to use for our example, in the format of fake neural activity
 ```python
+def my_data_loader(file_path):
+    print(f'Loading data from {file_path}, but not really...')
 
-same_model = Model.from_keywords('fir.15x18-dexp.1')
-another_model = Model('fir.15x18-dexp.1')
+    # TIME = Representation of some x time to use in our layers
+    # CHANNELS = Representation of some y channels for # of inputs in our layers
+    TIME = 1000
+    CHANNELS = 18
+
+    # Creation of random 2D numpy array with X time representation and Y channel representations
+    spectrogram = np.random.randn(TIME, CHANNELS)
+
+    # Creating our target data to fit the model to. The first neuron channel - the
+    # values of the 5th neuron channel + some random values, all shifted by 0.5
+    response = spectrogram[:,[1]] - spectrogram[:,[5]]*0.1 + np.random.randn(1000, 1)*0.1 + 0.5
+    
+    return spectrogram, response, TIME, CHANNELS
+# Create variables from our data import function
+spectrogram, response, TIME, CHANNELS = my_data_loader('/path/to/my/data.csv')
+
+
 ```
 Fit the model to (fake) evoked neural activity (in this case, in response to a sound represented by a spectrogram).
 ```python
-
-spectrogram = np.random.rand(1000, 18)  # 1000 time bins, 18 channels
-response = np.stack(spectrogram[:, :5]) # 1 neural response, relative to the spectrogram
-
-fitted_model = model.fit(spectrogram, response)
+fitted_model = model.fit(input=spectrogram, target=response,
+                         fitter_options=options)
 ```
 Predict the response to a different stimulus.
 ```python
 test_spectrogram = np.random.rand(1000, 18)
-prediction = fitted_model.predict(test_spectrogram)
+pred_model = fitted_model.predict(test_spectrogram)
 ```
-Score the prediction
+Finally we can plot and view our fitted models prediction, compared to the target data we're expecting
 ```python
-print(correlation(prediction, response))
-# OR
-print(model.score(test_spectrogram, response, metric='correlation'))
-```
-Try the above examples with real data:
-```python
-# Download our dataset and pull the data as a tuple of training/testing
-nems.download_demo()
-training_dict, test_dict = nems.load_demo()
-
-# Each dictionary contains a 100 hz natural sound spectrogram and
-# the PSTH / firing rate of the recorded spiking response.
-spectrogram = training_dict['spectrogram']
-response = training_dict['response']
+fitted_model.plot(spectrogram, target=response)
 ```
 
 **Looking for more?**   
