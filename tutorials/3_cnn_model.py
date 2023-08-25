@@ -90,13 +90,6 @@ ln_model.add_layers(
 ln_model = ln_model.sample_from_priors()
 cnn = cnn.sample_from_priors()
 
-# Plotting and comparing our 2 CNN's before anything any fitting
-cnn.plot(spectrogram_test, target=response_test)
-
-# We can specifiy some plotting parameters by providing figure_kwargs to our plot
-ln_model.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
-
-
 # We can also see the additional dimension added to our FIR layer,
 # compared to how our simpler model is set up
 print(f'FIR coefficient shape: {ln_model.layers[1].coefficients.shape}')
