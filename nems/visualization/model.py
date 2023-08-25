@@ -842,8 +842,9 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
 
     return fig
 
-def plot_data(data, title, label=None, target=None, ax=None, 
-              correlation=False, imshow=False, show_titles=True, display_ratio=.5, **figure_kwargs):
+def plot_data(data, title='Data', label=None, target=None, ax=None, 
+              correlation=False, imshow=False, show_titles=True, display_ratio=.5,
+               xlabel="Bins", **figure_kwargs):
     """
     Plotting most basic/important information of given data. Returns plotted ax.
     Figure keyword arguments can be appended and will be used with set_plot_options().
@@ -864,6 +865,8 @@ def plot_data(data, title, label=None, target=None, ax=None,
     display_ratio: float, 0->1
         Reduces amount of data displayed by trimming the end of plotted data.
         Default 50% is 0.5
+    xlabel: string
+        X-Axis label, usually representing time in form of Time-Bins, ms, seconds etc...
     
     """
     indicies, remainder = preprocessing.split.indices_by_fraction(data, display_ratio)
@@ -875,8 +878,9 @@ def plot_data(data, title, label=None, target=None, ax=None,
         ax.margins(0,.05)
     data = np.array(data)
     if not figure_kwargs:
-        figure_kwargs = {'legend': True, 'show_x': True, 'xlabel': 'Time-Bins', 'ylabel': 'Frequency'}
+        figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
     # Update plot options with user-given options
+    figure_kwargs['xlabel'] = f'Time ({xlabel})'
     set_plot_options(ax, figure_kwargs)
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
@@ -906,13 +910,16 @@ def plot_dstrf(dstrf):
     rows=int(np.ceil(dstrf_count/5))
     cols = int(np.ceil(dstrf_count/rows))
     f,ax=plt.subplots(rows,cols)
+    f.supxlabel('Time(Bins)')
+    f.supylabel('Features')
+    f.suptitle('DSTRF Models')
     ax=ax.flatten()[:dstrf_count]
     for i,a in enumerate(ax):
         # flip along time axis so that x axis is timelag
         d = np.fliplr(dstrf[0,i,:,:])
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
         
     plt.tight_layout()
     return ax
