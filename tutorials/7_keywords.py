@@ -34,8 +34,6 @@ keyword_lib.list
 # '{layerKW}.{Shape}.{PositionalParam1}.{PositionalParam2}... etc....'
 #
 # These keywords can be passed as layers to add_layers or model directly as well
-#
-# See more at: https://temp.website.net/nems_scripts_keywords
 ###########################
 model = Model.from_keywords('wc.18x1', 'fir.15x1', 'dexp.1')
 model = Model.from_keywords('wc.18x1-fir.15x1-dexp.1')
@@ -112,7 +110,5 @@ test = Model.from_keywords('wcd.18x2.IHateInputs.ILoveOutputs')
 print(f"Our input name is {test.layers[0].input}, and output is {test.layers[0].output}")
 
 # Specify layer options using keywords. The following are equivalent.
-# TODO: add a str vs Module check in add_layer instead of using
-#       a separate .from_keywords method?  ####Should be done -Isaac
 keyword_model.add_layers('wc.4x18.g')
 traditional_model.add_layers(WeightChannelsGaussian(shape=(4,18)))

@@ -17,7 +17,7 @@ options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_
            'early_stopping_tolerance': 1e-3, 'validation_split': 0,
            'learning_rate': 5e-3, 'epochs': 2000}
 ###########################
-# Setting up Demo Data instead of dummy data
+# Setting up Demo Data with specific cells
 # 
 # load_demo(): Provides our tuple of training/testing dictionaries
 #   This time we will be loading a different data set, and finding a 
@@ -46,7 +46,7 @@ response_test = test_dict['response'][:,[cid]]
 # Here we have an example CNN, which we can later fit to our
 # data and predict as we have before
 ###########################
-cnn = Model(name=f"{cellid}-Rank3LNSTRF-5Layer-PreFit")
+cnn = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
 cnn.add_layers(
     WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
     FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
@@ -69,10 +69,8 @@ cnn.add_layers(
 #       - RectifiedLinear: Apply ReLU activation to inputs, along 3 channels
 ###########################
 
-# Use cnn defined above
-
 # Create a simpler rank-3 LN model for reference
-ln_model = Model(name=f"{cellid}-Rank3LNSTRF-3Layer-PreFit")
+ln_model = Model(name=f"{cellid}-Rank3LNSTRF-3Layer")
 ln_model.add_layers(
     WeightChannels(shape=(18, 3)),  # 18 spectral channels->3 composite channels
     FiniteImpulseResponse(shape=(10, 3)),  # 15 taps, 1 spectral channels
@@ -95,35 +93,22 @@ cnn = cnn.sample_from_priors()
 print(f'FIR coefficient shape: {ln_model.layers[1].coefficients.shape}')
 print(f'FIR coefficient shape: {cnn.layers[1].coefficients.shape}')
 
-# Fit our model to some real data provided by Demo
+# Fit our models to some real data provided by Demo
 # We use 'tf' backend to improve training speed.
 # See the next tutorial for more info
 fitted_ln = ln_model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
-fitted_ln.name = f"{cellid}-Rank3LNSTRF-3Layer-PostFit"
-
-# We can also compare how each model predicts the same information, given more or less layers
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
-fitted_cnn.name = f"{cellid}-Rank3LNSTRF-5Layer-PostFit"
 
-# Plotting our CNN's again after fits
+# Plotting our Models after fits
 fitted_ln.plot(spectrogram_test, target=response_test, figure_kwargs={'facecolor': 'papayawhip'})
 fitted_cnn.plot(spectrogram_test, target=response_test)
-
-# Our FIR Coefficients after we've fit the model
-print(f'FIR coefficients: {fitted_cnn.layers[1].coefficients}')
 
 # Now we can predict some new data
 pred_ln = fitted_ln.predict(spectrogram_test)
 pred_cnn = fitted_cnn.predict(spectrogram_test)
 
-pred_cc_ln = correlation(pred_ln, response_test)
-pred_cc_cnn = correlation(pred_cnn, response_test)
-
-results_cnn = np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]
-
-
 # A quick plot of our models pre and post fitting
-visualization.plot_predictions({'ln model':pred_ln, 'cnn model':pred_cnn}, spectrogram_test, response_test, correlation=True)
+visualization.plot_predictions({'ln prediction':pred_ln, 'cnn prediction':pred_cnn}, spectrogram_test, response_test, correlation=True)
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

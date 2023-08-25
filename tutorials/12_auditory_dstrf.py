@@ -99,7 +99,7 @@ print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
 print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
 # Output data is the actual output of a given layer at a time interval
 print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, t_indexes=np.arange(15, spectrogram_fit.shape[0]) , reset_backend=True)
 
 
 
@@ -147,7 +147,7 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 
 # Using our Principle Components, we have a much easier time
 # interpreting the same data
-visualization.plot_dstrf(pca['pcs'])
+visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

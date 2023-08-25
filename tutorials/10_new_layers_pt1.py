@@ -13,12 +13,7 @@ from nems.layers.base import Layer, Phi, Parameter
 #plt.ion()
 fitter_options = {'options': {'maxiter': 50, 'ftol': 1e-10}}
 
-###########################
-# Set up our data
-#   input: Linear set of data with length 1000
-#   target: random non-linear decay dataset to represent decay
-#   y: Output of our input being thrown directly into our new layer
-###########################
+# Dummy Data
 input = np.arange(1000)[..., np.newaxis]
 target = -6*np.exp(-1/100*input) + np.random.rand(1000, 1)
 
@@ -86,12 +81,7 @@ The first output of our decay layer with no adjustments or fitting is: {decay.ev
 # Set up initial parameters
 decay.sample_from_priors(inplace=True)
 
-model = Model()
-model.add_layers(decay)
-# Equivalent with above
 model = Model('decay')
-# NOTE: `Model.from_keywords` will use a *new* instance of ExponentialDecay.
-model = Model().from_keywords('decay')
 
 fitted_model = model.fit(input=input, target=target, fitter_options=fitter_options)
 

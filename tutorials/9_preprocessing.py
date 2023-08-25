@@ -172,6 +172,5 @@ prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
 # The plot itself will use it's internal set of fitted models and samples amount to plot the data
 jackknife_iterator.plot_estimate_error()
 
-
 ## Uncomment if you don't have an interactive backend installed
 #plt.show()

@@ -13,21 +13,7 @@ from nems import visualization
 # Basic options to quickly fit our models
 options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 
-###########################
-# Setting up Demo Data instead of dummy data
-# 
-# load_demo(): Provides a tuple of training/testing dictionaries, each
-#   containing:
-#   spectrogram: cochleagram of a natural sound stimulus, sampled at
-#      18 log-spaced spectral channels and 100 s^-1 in time
-#   response: the PSTH / time-varying spike rate of the recorded neuron,
-#      also sampled at 100 s^-1 and aligned with the spectrogram in time.
-#   cellid: string identifier or recorded neuron (useful for subsequent
-#      large datasets.
-#  Other datasets are accessible using load_demo, these can be specified
-#   as a parameter: load_demo(test_dataset)
-###########################
-nems.download_demo()
+# Setting up Demo Data 
 training_dict, test_dict = nems.load_demo()
 
 spectrogram_fit = training_dict['spectrogram']
@@ -42,18 +28,18 @@ response_test = test_dict['response']
 # We first use a very simple model to demonstrate fitting.
 #
 ###########################
-model = Model()
+model = Model(name="Rank1LNSTRF")
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # 18 spectral channels->1 composite channels
+    FiniteImpulseResponse(shape=(15, 1)),  # 15 taps, 1 spectral channel
+    DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
 )
-model.name = "Rank1LNSTRF"
 
 # fit the model. Warning: This can take time!
 fitted_model = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 
 # display model fit parameters and prediction of test data
 visualization.plot_model(fitted_model, spectrogram_test, response_test)
-
 
 ############ADVANCED###############
 ###########################
@@ -67,17 +53,15 @@ visualization.plot_model(fitted_model, spectrogram_test, response_test)
 #       - Can specifiy "Time-Bins", "Rank/Input-Channels", "Filters", etc...
 #   DoubleExponential: Sets inputs as a exponential function to the power of some constant
 ###########################
-model2 = Model()
+model2 = Model(name="Rank2LNSTRF")
 model2.add_layers(
     WeightChannels(shape=(18, 2)),  # 18 spectral channels->2 composite channels
     FiniteImpulseResponse(shape=(15, 2)),  # 15 taps, 2 spectral channels
     DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
 )
-model2.name = "Rank2LNSTRF-PreFit"
 
 # Optimize model parameters with fit data
 fitted_model2 = model2.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
-fitted_model2.name = "Rank2LNSTRF"
 
 ###########################
 # Built- in visualization
@@ -113,10 +97,6 @@ print(f"""
     Fitted FIR coefficients:\n {fitted_model2.layers[1].coefficients}
 """)
 
-# evaluate model on test stimulus
-pred_model = fitted_model.predict(spectrogram_test)
-
-
 ###########################
 # Visualizing groups of data
 # plot_predictions
@@ -132,6 +112,7 @@ pred_model = fitted_model.predict(spectrogram_test)
 
 # For example, we can compare our original unfitted model next to our fitted models results
 pred_model2 = model2.predict(spectrogram_test)
+pred_model = fitted_model.predict(spectrogram_test)
 pred_fitted_model2  = fitted_model2.predict(spectrogram_test)
 visualization.plot_predictions({model2.name: pred_model2,
                                 fitted_model.name: pred_model,
