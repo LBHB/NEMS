@@ -1695,7 +1695,7 @@ class Model_List:
         self.pred_list = pred_list
         return pred_list    
 
-    def plot(self, input, target, plot_comparitive=True, plot_full=False):
+    def plot(self, input, target, plot_comparitive=True, plot_full=False, correlation=False):
         """
         Wrapper function for plot_model_list
 
@@ -1710,7 +1710,7 @@ class Model_List:
         -------
         Figure
         """
-        return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full)
+        return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full, correlation=correlation)
     
 
     def score(self, input, target, metric='correlation', metric_kwargs=None,
