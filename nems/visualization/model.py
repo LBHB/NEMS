@@ -670,7 +670,7 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
 
 
 def input_heatmap(input, ax=None, extent=None, title='Input',
-                  xlabel='Time (bins)', ylabel='Channel', add_colorbar=True):
+                  xunits='Time(bins)', ylabel='Channel', add_colorbar=True):
     """Plot heatmap of `input` with channels increasing from bottom to top.
     
     Parameters
@@ -694,7 +694,7 @@ def input_heatmap(input, ax=None, extent=None, title='Input',
                    origin='lower', extent=extent)
     if add_colorbar:
         plt.colorbar(im, ax=ax, label='Intensity')
-    ax.set_xlabel(xlabel)
+    ax.set_xlabel(xunits)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
@@ -738,7 +738,7 @@ def checkerboard(array):
     return indices
 
 def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
-                    find_best=False, state=None, correlation=True, display_ratio=.5, **figure_kwargs):
+                    find_best=False, state=None, correlation=False, display_ratio=.5, **figure_kwargs):
     '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
@@ -832,7 +832,7 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
 
     # Adds some labeling to bottom of figure and legend at top of predictions
     if not figure_kwargs:
-        set_plot_options(ax[-1], {'legend': False, 'xlabel': 'Time-Bins', 'show_x': True})
+        set_plot_options(ax[-1], {'legend': False, 'xlabel': 'Time(Bins)', 'show_x': True})
         set_plot_options(ax[1], {'legend': True})
         ax[1].legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     else:
@@ -845,7 +845,7 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
 
 def plot_data(data, title='Data', label=None, target=None, ax=None, 
               correlation=False, imshow=False, show_titles=True, display_ratio=.5,
-               xlabel="Bins", **figure_kwargs):
+               xunits="Bins", **figure_kwargs):
     """
     Plotting most basic/important information of given data. Returns plotted ax.
     Figure keyword arguments can be appended and will be used with set_plot_options().
@@ -881,7 +881,7 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
     if not figure_kwargs:
         figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
     # Update plot options with user-given options
-    figure_kwargs['xlabel'] = f'Time ({xlabel})'
+    figure_kwargs['xlabel'] = f'Time ({xunits})'
     set_plot_options(ax, figure_kwargs)
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
@@ -904,16 +904,16 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
-def plot_dstrf(dstrf):
+def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     """Plotting DSTRF information from dstrf of a model"""
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
     cols = int(np.ceil(dstrf_count/rows))
     f,ax=plt.subplots(rows,cols)
-    f.supxlabel('Time(Bins)')
+    f.supxlabel(f'Time({xunits})')
     f.supylabel('Features')
-    f.suptitle('DSTRF Models')
+    f.suptitle(title)
     ax=ax.flatten()[:dstrf_count]
     for i,a in enumerate(ax):
         # flip along time axis so that x axis is timelag
