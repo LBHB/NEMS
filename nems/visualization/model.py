@@ -737,7 +737,7 @@ def checkerboard(array):
     return indices
 
 def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
-                    find_best=False, state=None, correlation=True, display_ratio=.5):
+                    find_best=False, state=None, correlation=True, display_ratio=.5, **figure_kwargs):
     '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
@@ -751,9 +751,8 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
         samples += 1
 
     if plot_comparitive:
-        fig, ax = plt.subplots(samples+2, 1, sharex='col')
-        plot_data(input.T, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
-        plot_data(target, label="actual response", title='Test Response', ax=ax[1])
+        fig, ax = plt.subplots(samples+1, 1, sharex='col', sharey='row')
+        plot_data(input, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
 
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
@@ -761,13 +760,14 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
                 model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
-            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_ratio=.5)
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+1], correlation=correlation, display_ratio=display_ratio, legend=False, **figure_kwargs)
 
         # Plotting some comparisons with our test data and the best models
         if find_best:
-            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+2])
-            ax[samples+2].legend()
+            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+1])
+            ax[samples+1].legend()
         fig_list.append(fig)
+        ax[1].legend(loc='upper right')
 
     if plot_full:
         for model in model_list:
@@ -777,7 +777,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
 def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_ratio=.5, **figure_kwargs):
     '''
-    Plots a single, or list of, predictions to view and compare.
+    Plots a single, or list of, prediction(s) to view and compare.
 
     Parameters
     ----------
