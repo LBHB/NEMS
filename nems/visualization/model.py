@@ -21,6 +21,7 @@ _DEFAULT_PLOT_OPTIONS = {
         'frameon': False, 'bbox_to_anchor': (1, 1), 'loc': 'upper left'
         },
     }
+_TEXT_BBOX = dict(boxstyle='round, pad=.25, rounding_size=.15', alpha=.7, facecolor='white')
 
 def set_plot_options(ax, layer_options, time_kwargs=None):
     """Adjust matplotlib axes object in-place according to `layer_options`.
@@ -398,7 +399,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 x_pos = pax.get_xlim()[0]
                 y_pos = pax.get_ylim()[1]
                 title = f'coefficients'
-                pax.text(x_pos, y_pos, title, va='top')
+                pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
 
             # Plot if non-linear
             elif 'nonlinearity' in str(type(layer)):
@@ -417,7 +418,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             y_pos = ax.get_ylim()[1]
             name = layer.name
             title = f'({model.get_layer_index(name)}) {name}'
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
@@ -435,7 +436,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             title = 'input'
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
         ax.set_xlim(subaxes[-1].get_xlim())
         ax.xaxis.set_visible(False)
 
@@ -467,12 +468,12 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = last_ax.get_xlim()[0]
                 y_pos = last_ax.get_ylim()[1]
-                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=_TEXT_BBOX)
 
                 second_last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = second_last_ax.get_xlim()[0]
                 y_pos = second_last_ax.get_ylim()[1]
-                second_last_ax.text(x_pos, y_pos, 'Output', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+                second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
 
 
                 return
@@ -897,7 +898,7 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
-        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.2, rounding_size=.1', alpha=.7, facecolor='white'))
+        ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
         if figure_kwargs.get('legend'):
             ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     return ax
@@ -919,7 +920,7 @@ def plot_dstrf(dstrf):
         d = np.fliplr(dstrf[0,i,:,:])
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-        a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=_TEXT_BBOX)
         
     plt.tight_layout()
     return ax
