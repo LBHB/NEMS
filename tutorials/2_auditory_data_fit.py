@@ -38,9 +38,6 @@ model.add_layers(
 # fit the model. Warning: This can take time!
 fitted_model = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 
-# display model fit parameters and prediction of test data
-visualization.plot_model(fitted_model, spectrogram_test, response_test)
-
 ############ADVANCED###############
 ###########################
 # Creating a Higher Ranked Non-linear STRF Model
@@ -63,19 +60,7 @@ model2.add_layers(
 # Optimize model parameters with fit data
 fitted_model2 = model2.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 
-###########################
-# Built- in visualization
-# We have created several utilities for plotting and
-# visualization of NEMS objects
-#
-#   plot_model: Creates a variety of graphs and plots for a given model and layers
-#   simple_strf: Gets FIR and WeightChannels from Model
-###########################
-
-# A plot of our model before anything has been fit
-# NOTE: It may be very hard to see the blue line, try zooming in very close
-model2.plot(spectrogram_test, target = response_test)
-
+fitted_model.plot(spectrogram_test, target = response_test)
 fitted_model2.plot(spectrogram_test, target = response_test)
 
 # Some other important information before fitting our model.
