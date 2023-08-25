@@ -45,8 +45,6 @@ response_test = test_dict['response']
 model = Model()
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # 18 spectral channels->1 composite channels
-    FiniteImpulseResponse(shape=(15, 1)),  # 15 taps, 1 spectral channels
-    DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
 )
 model.name = "Rank1LNSTRF"
 
@@ -78,7 +76,7 @@ model2.add_layers(
 model2.name = "Rank2LNSTRF-PreFit"
 
 # Optimize model parameters with fit data
-fitted_model2 = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
+fitted_model2 = model2.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 fitted_model2.name = "Rank2LNSTRF"
 
 ###########################
@@ -116,8 +114,7 @@ print(f"""
 """)
 
 # evaluate model on test stimulus
-pred_fitted_model = fitted_model.predict(spectrogram_test)
-pred_model = model.predict(spectrogram_test)
+pred_model = fitted_model.predict(spectrogram_test)
 
 
 ###########################
@@ -137,6 +134,7 @@ pred_model = model.predict(spectrogram_test)
 pred_model2 = model2.predict(spectrogram_test)
 pred_fitted_model2  = fitted_model2.predict(spectrogram_test)
 visualization.plot_predictions({model2.name: pred_model2,
+                                fitted_model.name: pred_model,
                                 fitted_model2.name: pred_fitted_model2},
                                input=spectrogram_test, target=response_test, correlation=True)
 
