@@ -13,10 +13,6 @@ from nems.tools.dstrf import compute_dpcs
 from nems.backends import get_backend
 from nems.models.dataset import DataSet
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-#plt.ion()
-
 # Importing Demo Data
 nems.download_demo()
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
@@ -148,6 +144,3 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 # Using our Principle Components, we have a much easier time
 # interpreting the same data
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

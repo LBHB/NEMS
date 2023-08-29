@@ -7,11 +7,7 @@ from nems import Model, Model_List
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
-# Setting up Demo Data
+# Setting up Demo Data with cells
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
 
 cid=29
@@ -153,6 +149,3 @@ list_of_models.plot(input=spectrogram_test, target=response_test, correlation=Tr
 best_fit = list_of_models.get_best_fit
 best_fit.name = f"Best Fit"
 best_fit.plot(spectrogram_test, target=response_test, correlation=True)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

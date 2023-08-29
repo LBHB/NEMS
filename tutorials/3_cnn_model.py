@@ -7,10 +7,6 @@ from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 from nems.metrics import correlation
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # Basic options to quickly fit our models for tf backend
 # NOTE: This will be explored in the next tutorial
 options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
@@ -18,11 +14,6 @@ options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_
            'learning_rate': 5e-3, 'epochs': 2000}
 ###########################
 # Setting up Demo Data with specific cells
-# 
-# load_demo(): Provides our tuple of training/testing dictionaries
-#   This time we will be loading a different data set, and finding a 
-#   specific cell that contains data worth testing
-#
 #   "TAR010c_data.npz": The data parameter to load our different dataset
 #   [:, [cid]]: Splitting the dataset to get a specific cells data
 #   ['cellid'][cid]: Get cellid at cid for labeling and formatting
@@ -90,8 +81,9 @@ cnn = cnn.sample_from_priors()
 
 # We can also see the additional dimension added to our FIR layer,
 # compared to how our simpler model is set up
-print(f'FIR coefficient shape: {ln_model.layers[1].coefficients.shape}')
-print(f'FIR coefficient shape: {cnn.layers[1].coefficients.shape}')
+print(f'''FIR coefficient shape: {ln_model.layers[1].coefficients.shape}\n
+      FIR coefficient shape: {cnn.layers[1].coefficients.shape}
+''')
 
 # Fit our models to some real data provided by Demo
 # We use 'tf' backend to improve training speed.
@@ -109,6 +101,3 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 
 # A quick plot of our models pre and post fitting
 visualization.plot_predictions({'ln prediction':pred_ln, 'cnn prediction':pred_cnn}, spectrogram_test, response_test, correlation=True)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

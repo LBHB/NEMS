@@ -6,14 +6,18 @@ from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # Basic options to quickly fit our models
 options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 
-# Setting up Demo Data 
+###########################
+# Setting up Demo Data instead of dummy data
+# 
+# load_demo(): Provides our tuple of training/testing dictionaries
+#   Each dictionary contains a 100 hz natural sound spectrogram and
+#   the PSTH / firing rate of the recorded spiking response.
+#   - Several datasets exist for load_demo, these can be specified
+#   as a parameter: load_demo(test_dataset)
+###########################
 training_dict, test_dict = nems.load_demo()
 
 spectrogram_fit = training_dict['spectrogram']
@@ -60,26 +64,15 @@ model2.add_layers(
 # Optimize model parameters with fit data
 fitted_model2 = model2.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 
-fitted_model.plot(spectrogram_test, target = response_test)
-fitted_model2.plot(spectrogram_test, target = response_test)
+fitted_model.plot(spectrogram_test, target=response_test)
+fitted_model2.plot(spectrogram_test, target=response_test)
 
-# Some other important information before fitting our model.
-# This time looking at how our FIR layer interacts before/after fits
+# Small comparison of model2's first layer coefficients pre vs. post fit.
+# model.layers and model.layers[x].(coefficients/prior/bounds) will provide
+# useful information regarding the given model.
 print(f"""
-    Rank2LNSTRF Layers:\n {model2.layers}
-    FIR shape:\n {model2.layers[1].shape}
-    FIR priors:\n {model2.layers[1].priors}
-    FIR bounds:\n {model2.layers[1].bounds}
-    FIR coefficients:\n {model2.layers[1].coefficients}
-""")
-
-# Seeing our FIR inputs after our fit has been applied
-print(f"""
-    Fitted Rank2LNSTRF Layers:\n {fitted_model2.layers}
-    Fitted FIR shape:\n {fitted_model2.layers[1].shape}
-    Fitted FIR priors:\n {fitted_model2.layers[1].priors}
-    Fitted FIR bounds:\n {fitted_model2.layers[1].bounds}
-    Fitted FIR coefficients:\n {fitted_model2.layers[1].coefficients}
+    FIR coefficients:\n {model2.layers[0].coefficients}
+    Fitted FIR coefficients:\n {fitted_model2.layers[0].coefficients}
 """)
 
 ###########################
@@ -96,13 +89,8 @@ print(f"""
 ###########################
 
 # For example, we can compare our original unfitted model next to our fitted models results
-pred_model2 = model2.predict(spectrogram_test)
 pred_model = fitted_model.predict(spectrogram_test)
-pred_fitted_model2  = fitted_model2.predict(spectrogram_test)
-visualization.plot_predictions({model2.name: pred_model2,
-                                fitted_model.name: pred_model,
-                                fitted_model2.name: pred_fitted_model2},
+pred_model2  = fitted_model2.predict(spectrogram_test)
+visualization.plot_predictions({fitted_model.name: pred_model,
+                                fitted_model2.name: pred_model2},
                                input=spectrogram_test, target=response_test, correlation=True)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

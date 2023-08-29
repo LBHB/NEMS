@@ -6,10 +6,6 @@ from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential, RectifiedLinear
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # More specific options for our model here. You will 
 # need TensorFlow installed, see readme install instructions. 
 # We also recommend having a GPU set up for these fits
@@ -60,6 +56,3 @@ visualization.plot_model(fitted_cnn, spectrogram_test, response_test)
 # Again all the information here is basically unreadable at the moment
 pred_cnn = fitted_cnn.predict(spectrogram_test)
 visualization.plot_predictions(pred_cnn, spectrogram_test, response_test)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

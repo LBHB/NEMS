@@ -11,10 +11,6 @@ from nems import visualization
 # Fast-running toy fit options for demonstrations.
 options = {'options': {'maxiter': 2, 'ftol': 1e-2}}
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-#plt.ion()
-
 # Dummy data
 def my_complicated_data_loader(file_path):
     TIME = 100
@@ -116,7 +112,3 @@ prediction = model.predict(input)
 
 # plots our fitted model, and graphs of raw data before model fitting
 fitted_model.plot(input=input, target=resp, figure_kwargs={'figsize': (12,8)})
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()
-

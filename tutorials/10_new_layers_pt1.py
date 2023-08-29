@@ -8,9 +8,6 @@ from nems.distributions import Normal, HalfNormal
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-#plt.ion()
 fitter_options = {'options': {'maxiter': 50, 'ftol': 1e-10}}
 
 # Dummy Data
@@ -88,6 +85,3 @@ fitted_model = model.fit(input=input, target=target, fitter_options=fitter_optio
 predicted_model = model.predict(input=target)
 
 fitted_model.plot(input=input, target=target)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

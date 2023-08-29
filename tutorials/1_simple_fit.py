@@ -7,9 +7,9 @@ from nems import Model
 from nems.layers import LevelShift, WeightChannels
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
+# NOTE For all tutorials:
+# If you are having trouble viewing graphs, add plt.ion() or plt.show() to script e.g.
+plt.ion()
 
 # Fast-running toy fit options for demonstrations.
 # See tutorial 4. for more
@@ -131,19 +131,3 @@ visualization.plot_data(prediction, label='Prediction', title='Model Prediction'
 
 # We are now viewing our data after it has fit the input to our target
 fitted_model.plot(spectrogram, target=response)
-
-# Viewing various data from our model and it's layers
-print(f"""
-    Model Layers:\n {model.layers}
-    layer shapes:\n {model.layers[0].shape}
-    layer priors:\n {model.layers[0].priors}
-    layer bounds:\n {model.layers[0].bounds}
-""")
-
-print(f"""
-    Fitted layer shapes:\n {fitted_model.layers[0].shape}
-    Fitted layer priors:\n {fitted_model.layers[0].priors}
-    Fitted layer bounds:\n {fitted_model.layers[0].bounds}
-    pre-fit weighted layer values:\n {model.layers[0].coefficients}
-    post-fit weighted layer values:\n {fitted_model.layers[0].coefficients}
-""")
