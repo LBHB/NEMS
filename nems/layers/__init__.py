@@ -8,9 +8,9 @@ Ex: `from nems.modules import WeightChannels, FIR, DoubleExponential`
 from .nonlinearity import LevelShift, DoubleExponential, RectifiedLinear, ReLU
 from .filter import FiniteImpulseResponse, FIR, STRF
 from .weight_channels import WeightChannels, WeightChannelsMulti, WeightChannelsGaussian, WeightChannelsMultiGaussian
-from .state import StateGain, StateDexp
+from .state import StateGain, StateDexp, StateHinge
 from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
-from .algebra import SwapDims
+from .algebra import SwapDims, ConcatSignals
 
 from .base import Layer, Phi, Parameter

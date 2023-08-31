@@ -11,7 +11,7 @@ from nems.distributions import Normal, HalfNormal
 class ShortTermPlasticity(Layer):
 
     def __init__(self, quick_eval=False, fs=100.0, crosstalk=0, dep_only=False,
-                 chunksize=5, **kwargs):
+                 chunksize=5, x0=None, reset_signal=None, **kwargs):
         """TODO: docs
 
         TODO: additional context.
@@ -49,6 +49,8 @@ class ShortTermPlasticity(Layer):
         self.crosstalk = crosstalk
         self.dep_only = dep_only
         self.chunksize = chunksize
+        self.x0 = x0
+        self.reset_signal = reset_signal
         super().__init__(**kwargs)
 
 

@@ -1,4 +1,5 @@
 import scipy.optimize
+import numpy as np
 
 from .cost import get_cost
 from ..base import Backend, FitResults
@@ -149,7 +150,24 @@ class _FitWrapper:
                     f" error is: {cost:.8f}...")
         self.iteration += 1
 
+    # From main branch
     def compute_cost(self):
+        """Compute cost given current Model parameters."""
+        # Retrieve outputs and targets from `data` as lists of arrays.
+        prediction = self.data.prediction
+        target_list = list(self.data.targets.values())
+        if (len(target_list) > 1) or not (isinstance(prediction, np.ndarray)):
+            raise NotImplementedError(
+                "SciPy backend not yet compatible with multiple predictions"
+                " or targets."
+                )
+        else:
+            target = target_list[0]
+
+        return self.fn(prediction, target)
+
+    # alter version introduced in small_fixes. Unclear if it matters
+    def compute_cost_small_fixes(self):
         """Compute cost given current Model parameters."""
         prediction_list, target_list = self._get_arrays()
         if (len(prediction_list) == 1) and (len(target_list) == 1):
@@ -186,6 +204,7 @@ class _FitWrapper:
             targets = list(target.values())
 
         return predictions, targets
+
 
     def get_fit_result(self, data, **fitter_options):
         """Process one optimization epoch."""

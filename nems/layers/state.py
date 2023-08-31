@@ -320,3 +320,173 @@ class StateDexp(Layer):
                 return state_d + state_g * input
 
         return SDexpTF(self, **kwargs)
+
+    
+class StateHinge(Layer):
+    
+    state_arg = 'state'  # see Layer docs for details
+    def __init__(self, match_sign=False, **kwargs):
+        """Docs TODO.
+        
+        Offset / gain state effect with a hinge. Ie, locally linear in two parts. 
+        
+        Parameters
+        ----------
+        shape : 2-tuple of int.
+            (size of last dimension of state, size of last dimension of input)
+        match_sign : if True, force sign of gain/offset to be same on both sides of hinge point
+        
+        Examples
+        --------
+        TODO
+        
+        """
+        require_shape(self, kwargs, minimum_ndim=2)
+        self.match_sign = match_sign
+        
+        super().__init__(**kwargs)
+
+    def initial_parameters(self):
+        """Docs TODO
+        
+        Layer parameters
+        ----------------
+        gain1, gain2 : TODO
+            prior:
+            bounds:
+        offset1, offset2 : TODO
+            prior:
+            bounds:
+        x0 : TODO
+        
+        """
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+
+        gain_mean = zero.copy()
+        gain_mean[0,:] = 1  # Why - gain for first dim is hard-coded, assuming that first state channel is a constant
+        gain_sd = one/20
+        gain_prior = Normal(gain_mean, gain_sd)
+        gain1 = Parameter('gain1', shape=self.shape, prior=gain_prior)
+        gain_prior2 = Normal(gain_mean, gain_sd)
+        gain2 = Parameter('gain2', shape=self.shape, prior=gain_prior2)
+
+        offset_mean = zero
+        offset_sd = one
+        offset1_prior = Normal(offset_mean, offset_sd)
+        offset1 = Parameter('offset1', shape=self.shape, prior=offset1_prior)
+        offset2_prior = Normal(offset_mean, offset_sd)
+        offset2 = Parameter('offset2', shape=self.shape, prior=offset2_prior)
+        
+        x0_mean = zero
+        x0_sd = one
+        x0_prior = Normal(x0_mean, x0_sd)
+        x0 = Parameter('x0', shape=self.shape, prior=x0_prior)
+        
+        return Phi(gain1, gain2, offset1, offset2, x0)
+
+    def get_parameter_values(self, *parameter_keys, as_dict=False):
+        
+        d = super().get_parameter_values(*parameter_keys, as_dict=True)
+        if parameter_keys == ():
+            parameter_keys = self.parameters.keys()
+        
+        if self.match_sign:
+            if 'gain2' in parameter_keys:
+                s1 = np.sign(d['gain1'])
+                d['gain2'] = np.abs(d['gain2']) * s1
+            if 'offset2' in parameter_keys:
+                s1 = np.sign(d['offset1'])
+                d['offset2'] = np.abs(d['offset2']) * s1
+        
+        if as_dict:
+            return d
+        else:
+            return tuple([d[k] for k in parameter_keys])
+
+    def evaluate(self, input, state, return_intermediates=False):
+        """Multiply and shift input(s) by weighted sums of state channels.
+        
+        Parameters
+        ----------
+        input : ndarray
+            T x N x ... matrix. Data to be modulated by state, typically the output of a previous
+            Layer.
+        state : ndarray
+            T x S matrix. State data to modulate input with.
+        return_intermediates : bool
+            if True, returns (out, d, g) tuple instead of just out
+        """
+
+        gain1, gain2, offset1, offset2, x0 = self.get_parameter_values()
+        
+        #if self.match_sign:
+        #    s1 = np.sign(gain1)
+        #    gain2 = np.abs(gain2) * s1
+        #    s1 = np.sign(offset1)
+        #    offset2 = np.abs(offset2) * s1
+        
+        # gain applied point-wise to each state channel, split above and below x0
+        s_ = state[..., np.newaxis]-x0[np.newaxis, ...]
+        sp = s_ * (s_>0)
+        sn = s_ * (s_<0)
+        
+        g = (np.tensordot(sn, gain1, (1, 0)) + np.tensordot(sp, gain2, (1, 0)))[:,0,:]
+        d = (np.tensordot(sn, offset1, (1, 0)) + np.tensordot(sp, offset2, (1, 0)))[:,0,:]
+        out = g * input + d
+        
+        if return_intermediates:
+            return out, d, g
+        else:
+            return out
+            
+    @layer('statehinge')
+    def from_keyword(keyword):
+        """Construct StateHinge from keyword.
+        
+        Keyword options
+        ---------------
+        {digit}x{digit} : specifies shape, (n state channels, n stim channels)
+            n stim channels can also be 1, in which case the same weighted
+            channel will be broadcast to all stim channels (if there is more
+            than 1).
+        'm' : match sign of gain and offset on both sides of hinge point.
+        
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        # TODO: other options from old NEMS?
+        options = keyword.split('.')
+        opts = {}
+        
+        for op in options:
+            if op == 'm':
+                opts['matched_sign']=True
+            else:
+                shape = pop_shape(options)
+
+        return StateHinge(shape=shape, **opts)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class StateGainTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors, with state second.
+                # TODO: Use tensor names to not require this arbitrary order.
+                input = inputs[0]
+                state = inputs[1]
+
+                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                with_offset = with_gain + tf.matmul(state, self.offset)
+                
+                return with_offset
+
+        return StateGainTF(self, **kwargs)
+
+

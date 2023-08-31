@@ -4,13 +4,15 @@ import itertools
 import warnings
 
 import numpy as np
+import logging
+log = logging.getLogger(__name__)
 
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model
 from nems.tools.arrays import one_or_more_nan
-from .dataset import DataSet
+from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
 del nems.layers
@@ -118,7 +120,7 @@ class Model:
 
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
-
+        self.dstrf_backend = None  # backend for model with output NL removed
     @property
     def layers(self):
         """Get all Model Layers. Supports integer or string indexing."""
@@ -242,7 +244,7 @@ class Model:
                  as_dataset=False, use_existing_maps=False, batch_size=0,
                  permute_batches=False, debug_nans=False):
         """Transform input(s) by invoking `Layer.evaluate` for each Layer.
-
+        TODO: add generator support (input = keras generator)
         Evaluation encapsulates three steps:
             1) Package data and metadata in a single structured container.
             2) Loop over `Model.layers`, invoking `Layer._evaluate` to
@@ -365,7 +367,7 @@ class Model:
                                 )
             data = self.get_layer_data(data_generator, n, n)[-1]['data']
 
-        else:
+        elif data.data_format=='array':
             # Data should be formatted as (S, T, ..., N), where S is the number
             # of samples/trials.
 
@@ -745,8 +747,9 @@ class Model:
         return self.evaluate(input, return_full_data=return_full_data,
                              **eval_kwargs)
 
-    def fit(self, input, target, target_name=None, backend='scipy',
-            fitter_options=None, backend_options=None, **eval_kwargs):
+    def fit(self, input, target, target_name=None, prediction_name=None,
+            backend='scipy', fitter_options=None, backend_options=None,
+            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -772,6 +775,10 @@ class Model:
             Would need to also specify a mapping of output -> target.
         target_name : str; optional.
             Key to assign to target, if target is an ndarray.
+        prediction_name : str; optional.
+            TODO support dict for multiple predictions to multiple targets.
+            Name of model output to compare to target. If not specified,
+            the last Layer output will be used.
         backend : str; default='scipy'.
             Determines how the Model will be fit.
             If 'scipy' : Use `scipy.optimize.minimize(method='L-BFGS-B')`.
@@ -801,39 +808,131 @@ class Model:
 
         # Initialize DataSet
         data = DataSet(
-            input, target=target, target_name=target_name, **eval_kwargs
+            input, target=target, target_name=target_name,
+            prediction_name=prediction_name, **eval_kwargs
             )
+        if data.data_format == 'array':
+            tdata = data
+            tinput = input
+        else:
+            tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
+                            prediction_name=prediction_name, **eval_kwargs)
+            tinput = input[0][0]
         if eval_kwargs.get('batch_size', 0) != 0:
             # Broadcast prior to passing to Backend so that those details
             # only have to be tracked once.
             data = data.as_broadcasted_samples()
+
         # Evaluate once prior to fetching backend, to ensure all DataMaps are
         # up to date and include outputs.
-        _ = self.evaluate(
-            input, use_existing_maps=False, **eval_kwargs
-            )
+        _ = self.evaluate(tinput, use_existing_maps=False, **eval_kwargs)
 
         # Update parameters of a copy, not the original model.
-        new_model = self.copy()
-        # Get Backend sublass.
-        backend_class = get_backend(name=backend)
-        # Build backend model.
-        backend_obj = backend_class(
-            new_model, data, eval_kwargs=eval_kwargs,
-            **backend_options
-            )
+        if in_place:
+            new_model = self
+        else:
+            new_model = self.copy()
+
+        # Initialize Backend subclass if not running in place on the same backend
+        # note that for TF models, frozen parameters have to be labeled as such before the
+        # backend is initialized. Is this actually true???
+        if ~in_place | (new_model.backend is None):
+            backend_class = get_backend(name=backend)
+            # Build backend model.
+            backend_obj = backend_class(
+                new_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
+                **backend_options
+                )
+            new_model.backend = backend_obj
+        else:
+            log.info('Using in-place backend')
         # Fit backend, save results.
-        fit_results = backend_obj._fit(
-            data, eval_kwargs=eval_kwargs, **fitter_options
+        fit_results = new_model.backend._fit(
+            data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options
             )
-        new_model.backend = backend_obj
         new_model.results = fit_results
 
         return new_model
 
 
+    def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
+              backend='tf', reset_backend=False, backend_options=None,
+              verbose=1, **eval_kwargs):
+        """
+        :param stim: input stimulus used to compute jacobian --> dSTRF
+        :param D: memory of dSTRF (in time bins)
+        :param out_channels: list of output channels to use to generate dSTRF
+        :param t_indexes: time samples to use
+        :param backend: str, currently has to be 'tf'
+        :param reset_backend: if True, force new initialization of backend
+        :param backend_options: pass-through options for backend initialization
+        :param verbose: future support for verbosity control
+        :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
+        :return:
+        """
+        if out_channels is None: out_channels=[0]
+        if t_indexes is None: t_indexes = np.arange(D,D*10,D)
+        if backend_options is None: backend_options = {}
+        if type(stim) is dict:
+            # input = stim.copy()
+            input = {k: stim[k][np.newaxis, :D, :] for k in stim.keys()}
+        else:
+            input = stim[np.newaxis, :D, :]
+
+        # Get Backend subclass if not running in place on the same backend
+        if reset_backend | (self.dstrf_backend is None):
+            # Initialize DataSet
+            eval_kwargs['batch_size'] = None
+            data = DataSet(input, target=None, **eval_kwargs)
+            data = data.as_broadcasted_samples()
+
+            if self.layers[-1].is_nonlinearity:
+                #ll = dstrf_model.layers.pop()
+                layers = list(self.layers.values())
+                log.info(f"Removing last layer for dstrf: {layers[-1].name}")
+                dstrf_model = Model(layers=layers[:-1], dtype=self.dtype)
+                #print(dstrf_model.layers.keys())
+            else:
+                dstrf_model = self.copy()
+
+            # Evaluate once prior to fetching backend, to ensure all DataMaps are
+            # up to date and include outputs.
+            _ = dstrf_model.evaluate(input, use_existing_maps=False, **eval_kwargs)
+
+            backend_class = get_backend(name=backend)
+            # Build backend model.
+            self.dstrf_backend = backend_class(
+                dstrf_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
+                **backend_options )
+
+        # TODO - clean up single vs. >1 input divergence. Always use dictionary for inputs, even if just one?
+        if type(input) is dict:
+            dstrf = {k: np.zeros((len(out_channels), len(t_indexes), v.shape[2], D)) for k, v in input.items()}
+        else:
+            dstrf = np.zeros((len(out_channels), len(t_indexes), input.shape[2], D))
+
+        for j, out_channel in enumerate(out_channels):
+            if ('cellids' in self.meta.keys()) & ('r_test' in self.meta.keys()):
+                log.info(f"{self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
+            else:
+                log.info(f'dSTRF for out channel {out_channel}')
+            for i, t in enumerate(t_indexes):
+                if type(input) is dict:
+                    s = [stim[k][np.newaxis, (t - D + 1):(t+1), :] for k in stim.keys()]
+                else:
+                    s = stim[np.newaxis, (t - D + 1):(t+1), :]
+                w = self.dstrf_backend.get_jacobian(s, out_channel)
+                if type(input) is dict:
+                    for n, k in enumerate(dstrf.keys()):
+                        dstrf[k][j, i, :, :] = w[n][0, :, :].numpy().T
+                else:
+                    dstrf[j, i, :, :] = w[0, :, :].numpy().T
+
+        return dstrf
+
+
     def score(self, input, target, metric='correlation', metric_kwargs=None,
-              **eval_kwargs):
+              prediction_name=None, **eval_kwargs):
         """Score model performance using post-fit metrics like correlation.
         
         This only supports metrics that expect a model output as a first
@@ -851,6 +950,10 @@ class Model:
             `get_metric(metric)`.
         metric_kwargs : dict; optional.
             Additional keyword arguments for `metric`.
+        prediction_name : str; optional.
+            TODO support dict for multiple predictions to multiple targets.
+            Name of model output to compare to target. If not specified,
+            the last Layer output will be used.
 
         Returns
         -------
@@ -862,7 +965,14 @@ class Model:
         """
 
         if metric_kwargs is None: metric_kwargs = {}
+        if prediction_name is None:
+            output = eval_kwargs.get('output_name', DataSet.default_output)
+            prediction_name = output
+
         prediction = self.predict(input, **eval_kwargs)
+        if isinstance(prediction, dict):
+            # TODO: Compare multiple predictions and targets
+            prediction = prediction[prediction_name]
         if isinstance(metric, str):
             metric = get_metric(metric)
 
@@ -1276,11 +1386,14 @@ class Model:
         state-dependent objects from other packages that cannot copy correctly.
         
         """
-        backend = self.backend
+        backend_save = self.backend
+        dstrf_backend_save = self.dstrf_backend
         self.backend = None
+        self.dstrf_backend = None
         copied_model = copy.deepcopy(self)
-        self.backend = backend
-    
+        self.backend = backend_save
+        self.dstrf_backend = dstrf_backend_save
+
         return copied_model
 
     def __eq__(self, other):

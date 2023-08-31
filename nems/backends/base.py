@@ -5,7 +5,7 @@ import numpy as np
 
 class Backend:
 
-    def __init__(self, nems_model, data, eval_kwargs=None, **backend_options):
+    def __init__(self, nems_model, data, verbose=1, eval_kwargs=None, **backend_options):
         """Interface between NEMS Models and optimization libraries.
 
         Each Backend must implement `_build`, `_fit`, and `predict` methods.
@@ -24,6 +24,7 @@ class Backend:
         
         """
         self.nems_model = nems_model
+        self.verbose = verbose
         if eval_kwargs is None: eval_kwargs = {}
         self.model = self._build(
             data, eval_kwargs=eval_kwargs, **backend_options

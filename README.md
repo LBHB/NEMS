@@ -4,6 +4,8 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 
 Note: this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
 
+Full documentation at: [https://nems.readthedocs.io/](https://nems.readthedocs.io/)
+
 # Examples
 Build a standard linear-nonlinear spectrotemporal receptive field (LN-STRF) model.
 ```
@@ -59,7 +61,7 @@ response = training_dict['response']
 
 
 # Installation instructions
-## Recommended: Intall from source.
+## Recommended: Install from source.
 NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
 
 1. Download source code

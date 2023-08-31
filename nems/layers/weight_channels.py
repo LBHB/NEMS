@@ -277,8 +277,8 @@ class WeightChannelsGaussian(WeightChannels):
 
         """
 
-        mean_bounds = (0, 1)
-        sd_bounds = (0, np.inf)
+        mean_bounds = (-0.1, 1.1)
+        sd_bounds = (0.05, np.inf)
 
         rank = self.shape[1]
         other_dims = self.shape[2:]
