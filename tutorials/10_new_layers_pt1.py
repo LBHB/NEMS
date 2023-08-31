@@ -8,9 +8,11 @@ from nems.distributions import Normal, HalfNormal
 from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-plt.ion()
+fitter_options = {'options': {'maxiter': 50, 'ftol': 1e-10}}
+
+# Dummy Data
+input = np.arange(1000)[..., np.newaxis]
+target = -6*np.exp(-1/100*input) + np.random.rand(1000, 1)
 
 ########################################################
 # Creating new layers
@@ -31,7 +33,6 @@ plt.ion()
 #       - @layer('name'): Decorator for setting up keyword layers
 #       - keyword: Refered by the decorator, could be used for a parser or other modifications
 #       - Returns an instance of our new layer
-# See more at: https://temp.website.net/nems_base_Layer
 ########################################################
 class ExponentialDecay(Layer):
 
@@ -67,66 +68,20 @@ class ExponentialDecay(Layer):
 # By default, `scale = 1` and `tau = 10*sqrt(2/pi)` (means of priors)
 decay = ExponentialDecay()
 
-# Now we can use our new Layer to:
-
-###########################
-# Set up our data
-#   input: Linear set of data with length 1000
-#   target: random non-linear decay dataset to represent decay
-#   y: Output of our input being thrown directly into our new layer
-###########################
-input = np.arange(1000)[..., np.newaxis]
-target = -6*np.exp(-1/100*input) + np.random.rand(1000, 1)
-y = decay.evaluate(input)
 
 # Here is a comparison of our values before we run any models
 print(f"""
 Our first inital input is: {input[0]}\n
 Our first target is: {target[0]}\n
-The first output of our decay layer with no adjustments or fitting is: {y[0]}""")
+The first output of our decay layer with no adjustments or fitting is: {decay.evaluate(input)[0]}""")
 
-###########################
-# Sample new parameter values
-# sample_from_priors: creates layer with new parameter values sampled from priors
-#   inplace: When true, update and adjust parameters inplace
-###########################
+# Set up initial parameters
 decay.sample_from_priors(inplace=True)
 
-###########################
-# Building models
-#   via list of layers
-#   direct model initialization
-#   from_keywords() list
-###########################
-model = Model()
-model.add_layers(decay)
 model = Model('decay')
-# NOTE: `Model.from_keywords` will use a *new* instance of ExponentialDecay.
-model = Model().from_keywords('decay')
 
-###########################
-# Fit our model to optimize parameters
-#   fitter_options: Same as other tutorials, used for demonstration
-###########################
-fitted_model = model.fit(
-    input=input, target=target,
-    # Set low iteration count to speed up fitting demonstration.
-    fitter_options={'options': {'maxiter': 50, 'ftol': 1e-10}}
-    )
+fitted_model = model.fit(input=input, target=target, fitter_options=fitter_options)
 
-###########################
-# Predict our model
-###########################
 predicted_model = model.predict(input=target)
 
-###########################
-# Plots results
-# This will show 2 simple graphs
-#   Our linear input graph
-#   Our randomized adjustment graph
-#   A second line on our second graph for the output of our decay model
-###########################
 fitted_model.plot(input=input, target=target)
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

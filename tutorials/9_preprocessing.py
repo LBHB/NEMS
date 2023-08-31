@@ -11,10 +11,6 @@ from nems import Model
 from nems.layers import LevelShift, WeightChannels
 from nems.metrics import correlation
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # Basic fitter options for testing
 options = {'options': {'maxiter': 50, 'ftol': 1e-4}}
 
@@ -171,7 +167,3 @@ prediction_set = jackknife_iterator.get_predicted_jackknifes(model_fit_list)
 
 # The plot itself will use it's internal set of fitted models and samples amount to plot the data
 jackknife_iterator.plot_estimate_error()
-
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

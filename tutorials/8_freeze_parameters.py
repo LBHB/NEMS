@@ -9,10 +9,6 @@ from nems.layers import WeightChannels, FIR, DoubleExponential
 input = np.random.rand(1000, 18)  # 18-channel spectrogram stimulus
 target = np.stack(input[:, :5])   # PSTH response of a single neuron
 
-# This indicates that our code is interactive, allowing a
-# matplotlib backend to show graphs
-#plt.ion()
-
 # Options parameters for demonstration, see more at: scipy.optimize.minimize
 initialization = {'options': {'ftol': 1e3, 'maxiter': 10}}
 model = Model()
@@ -98,6 +94,3 @@ model.plot(input, target)
 # Just freeze DoubleExponential's kappa parameter:
 model.layers['dexp'].freeze_parameters('kappa')
 print(f'\nParameters for final fit:\n{model.parameter_info}\n')
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()

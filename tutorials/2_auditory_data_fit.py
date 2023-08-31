@@ -6,29 +6,18 @@ from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # Basic options to quickly fit our models
 options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 
 ###########################
 # Setting up Demo Data instead of dummy data
 # 
-# load_demo(): Provides a tuple of training/testing dictionaries, each
-#   containing:
-#   spectrogram: cochleagram of a natural sound stimulus, sampled at
-#      18 log-spaced spectral channels and 100 s^-1 in time
-#   response: the PSTH / time-varying spike rate of the recorded neuron,
-#      also sampled at 100 s^-1 and aligned with the spectrogram in time.
-#   cellid: string identifier or recorded neuron (useful for subsequent
-#      large datasets.
-#  Other datasets are accessible using load_demo, these can be specified
+# load_demo(): Provides our tuple of training/testing dictionaries
+#   Each dictionary contains a 100 hz natural sound spectrogram and
+#   the PSTH / firing rate of the recorded spiking response.
+#   - Several datasets exist for load_demo, these can be specified
 #   as a parameter: load_demo(test_dataset)
-# TODO: URL? Or is this a doc string? See more at: nems.download_demo
 ###########################
-nems.download_demo()
 training_dict, test_dict = nems.load_demo()
 
 spectrogram_fit = training_dict['spectrogram']
@@ -43,20 +32,15 @@ response_test = test_dict['response']
 # We first use a very simple model to demonstrate fitting.
 #
 ###########################
-model = Model()
+model = Model(name="Rank1LNSTRF")
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # 18 spectral channels->1 composite channels
-    FiniteImpulseResponse(shape=(15, 1)),  # 15 taps, 1 spectral channels
+    FiniteImpulseResponse(shape=(15, 1)),  # 15 taps, 1 spectral channel
     DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
 )
-model.name = "Rank1LNSTRF"
 
 # fit the model. Warning: This can take time!
 fitted_model = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
-
-# display model fit parameters and prediction of test data
-visualization.plot_model(fitted_model, spectrogram_test, response_test)
-
 
 ############ADVANCED###############
 ###########################
@@ -69,58 +53,27 @@ visualization.plot_model(fitted_model, spectrogram_test, response_test)
 #   FiniteImpulseResponse: Convolve linear filter(s) with inputs
 #       - Can specifiy "Time-Bins", "Rank/Input-Channels", "Filters", etc...
 #   DoubleExponential: Sets inputs as a exponential function to the power of some constant
-# See more at: nems.layers
 ###########################
-model2 = Model()
+model2 = Model(name="Rank2LNSTRF")
 model2.add_layers(
     WeightChannels(shape=(18, 2)),  # 18 spectral channels->2 composite channels
     FiniteImpulseResponse(shape=(15, 2)),  # 15 taps, 2 spectral channels
     DoubleExponential(shape=(1,))           # static nonlinearity, 1 output
 )
-model2.name = "Rank2LNSTRF-PreFit"
 
 # Optimize model parameters with fit data
-fitted_model2 = model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
-fitted_model2.name = "Rank2LNSTRF"
+fitted_model2 = model2.fit(spectrogram_fit, response_fit, fitter_options=options, backend='scipy')
 
-###########################
-# Built- in visualization
-# We have created several utilities for plotting and
-# visualization of NEMS objects
-#
-#   plot_model: Creates a variety of graphs and plots for a given model and layers
-#   simple_strf: Gets FIR and WeightChannels from Model
-###########################
+fitted_model.plot(spectrogram_test, target=response_test)
+fitted_model2.plot(spectrogram_test, target=response_test)
 
-# A plot of our model before anything has been fit
-# NOTE: It may be very hard to see the blue line, try zooming in very close
-model2.plot(spectrogram_test, target = response_test)
-
-fitted_model2.plot(spectrogram_test, target = response_test)
-
-# Some other important information before fitting our model.
-# This time looking at how our FIR layer interacts before/after fits
+# Small comparison of model2's first layer coefficients pre vs. post fit.
+# model.layers and model.layers[x].(coefficients/prior/bounds) will provide
+# useful information regarding the given model.
 print(f"""
-    Rank2LNSTRF Layers:\n {model2.layers}
-    FIR shape:\n {model2.layers[1].shape}
-    FIR priors:\n {model2.layers[1].priors}
-    FIR bounds:\n {model2.layers[1].bounds}
-    FIR coefficients:\n {model2.layers[1].coefficients}
+    FIR coefficients:\n {model2.layers[0].coefficients}
+    Fitted FIR coefficients:\n {fitted_model2.layers[0].coefficients}
 """)
-
-# Seeing our FIR inputs after our fit has been applied
-print(f"""
-    Fitted Rank2LNSTRF Layers:\n {fitted_model2.layers}
-    Fitted FIR shape:\n {fitted_model2.layers[1].shape}
-    Fitted FIR priors:\n {fitted_model2.layers[1].priors}
-    Fitted FIR bounds:\n {fitted_model2.layers[1].bounds}
-    Fitted FIR coefficients:\n {fitted_model2.layers[1].coefficients}
-""")
-
-# evaluate model on test stimulus
-pred_fitted_model = fitted_model.predict(spectrogram_test)
-pred_model = model.predict(spectrogram_test)
-
 
 ###########################
 # Visualizing groups of data
@@ -136,12 +89,8 @@ pred_model = model.predict(spectrogram_test)
 ###########################
 
 # For example, we can compare our original unfitted model next to our fitted models results
-pred_model2 = model2.predict(spectrogram_test)
-pred_fitted_model2  = fitted_model2.predict(spectrogram_test)
-visualization.plot_predictions({model2.name: pred_model2,
-                                fitted_model2.name: pred_fitted_model2},
-                               input=spectrogram_test, target=response_test)
-# TODO : display prediction correlation for different predictions
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()
+pred_model = fitted_model.predict(spectrogram_test)
+pred_model2  = fitted_model2.predict(spectrogram_test)
+visualization.plot_predictions({fitted_model.name: pred_model,
+                                fitted_model2.name: pred_model2},
+                               input=spectrogram_test, target=response_test, correlation=True)

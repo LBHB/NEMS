@@ -7,39 +7,12 @@ from nems.tools.debug import debug_fitter, animated_debug
 from nems.visualization.fitter import parameter_pca_table
 
 
-########################################################
-# Downloading/Using demo data
-#
-# In this tutorial we will recommend you download and import our demo data.
-# !Change train, test, input, target lines to use your own data
-#
-# NEMS demo data contains one concatenated natural sound spectrogram and
-# firing rate response for one neuron from ferret primary auditory cortex,
-# both represented at 100 Hz.
-########################################################
-
-# NOTE: Uncomment the 2 lines below to download demo data if you have not before
-#from nems import download_demo
-#download_demo()
-
-
-###########################
-# load_demo()
-#   filebase: Lets you pull from a specific filebase, provides default
-#   tutorial_subset: if true, truncates the data in time to speed up example model fitting
-#
-# returns: Tuple (Training, Test) dictionaries containing spectrogram, response matrices
-###########################
 train, test = load_demo(tutorial_subset=True)  #First 5 sounds only
 input = train['spectrogram']  
 target = train['response']
 
 
-###########################
-# Rank-3 LN model, random conditions
-# Here we create a 3 layered model, in this case using from_keywords
-#   sample_from_priors(): creates model with new parameter values sampled from priors
-###########################
+# Creating a basic model from keywords and sample_from_priors
 model = Model.from_keywords('wc.18x3-fir.15x3-dexp.1').sample_from_priors()
 
 
@@ -70,7 +43,6 @@ fig, models = debug_fitter(
 #    vector associated with each of the M models in `models` as one
 #    observation, then computing principal components for the resulting
 #    M x N matrix.
-#
 ###########################
 fig, ax = plt.subplots(figsize=(8,3))
 parameter_pca_table(models, n=5, fontsize=16)

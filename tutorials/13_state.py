@@ -11,10 +11,6 @@ from nems.layers import LevelShift, WeightChannels, StateGain
 from nems.metrics import correlation
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
 # Basic fitter options for testing
 fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
 
@@ -27,7 +23,6 @@ fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
 # as an example that contains 0's and 1's depending on the current
 # "states" our inputs would be in. 
 ###########################
-# Dummy data containing state data
 def my_data_loader2(file_path=None):
     print(f'Loading data from {file_path}, but not really...')
     spectrogram = np.random.random(size=(1000, 18))
@@ -80,4 +75,4 @@ pred_state = fit_model_state.predict(spectrogram, state=state)
 # Here we can see the difference in our models performance between 
 # 1. A model with no state information attempting to fit to our data clearly shifted by some state
 # 2. A model that contains StateGain and State data can actually fit around data that has states
-visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, correlation=True, display_reduction=1)
+visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, correlation=True, display_ratio=1)

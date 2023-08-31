@@ -7,9 +7,9 @@ from nems import Model
 from nems.layers import LevelShift, WeightChannels
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
+# NOTE For all tutorials:
+# If you are having trouble viewing graphs, add plt.ion() or plt.show() to script e.g.
+plt.ion()
 
 # Fast-running toy fit options for demonstrations.
 # See tutorial 4. for more
@@ -67,10 +67,7 @@ fitted_model = model.fit(input=spectrogram, target=response,
 # generate a prediction from the fitted model
 prediction = fitted_model.predict(spectrogram)
 
-# plot_data from the vizualization library lets us quickly look at time
-# series like the response and prediction.
-# TODO make this prettier and better annotated (x axis, legend for resp vs. pred)
-visualization.plot_data(prediction, label='Pred', title='Model Prediction', target=response)
+
 
 
 ############ADVANCED###############
@@ -95,15 +92,12 @@ visualization.plot_data(prediction, label='Pred', title='Model Prediction', targ
 #   WeightChannels: Computes linear weights of input channels
 #                   comparable to a Dense layer.
 #   LevelShift: Applies a scalar shift to all inputs
-# TODO: correct URL or delete See more at: https://temp.website.net/nems_model
 ###########################
-model = Model()
+model = Model(name='SimpleLinModel')
 model.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     LevelShift(shape=(1,)) # WeightChannels will provide 1 input to shift
 )
-# We can name our models, will show up as a title in plots
-model.name = "SimpleLinModel-PreFit"
 
 ###########################
 # Fitting our data to the model and layers
@@ -115,13 +109,9 @@ model.name = "SimpleLinModel-PreFit"
 # with the fit or prediction. This copy is returned and needs to be saved to be used.
 # For example: If we called our model again below, nothing will have changed. We need
 # to call fitted_model to see any changes. 
-#
-# TODO: correct URL or delete
-# See more at: https://temp.website.net/nems_model_fit
 ###########################
 fitted_model = model.fit(input=spectrogram, target=response,
                       fitter_options=options)
-fitted_model.name = "SimpleLinModel-PostFit"
 
 ###########################
 # Viewing the model and data
@@ -135,23 +125,9 @@ fitted_model.name = "SimpleLinModel-PostFit"
 # seen inside something like IPython, or printed out directly as well
 ###########################
 
-# Plotting our prefit model via .plot
-model.plot(spectrogram, target=response)
+# plot_data from the vizualization library lets us quickly look at time
+# series like the response and prediction.
+visualization.plot_data(prediction, label='Prediction', title='Model Prediction', target=response)
+
 # We are now viewing our data after it has fit the input to our target
 fitted_model.plot(spectrogram, target=response)
-
-# Viewing various data from our model and it's layers
-print(f"""
-    Model Layers:\n {model.layers}
-    layer shapes:\n {model.layers[0].shape}
-    layer priors:\n {model.layers[0].priors}
-    layer bounds:\n {model.layers[0].bounds}
-""")
-
-print(f"""
-    Fitted layer shapes:\n {fitted_model.layers[0].shape}
-    Fitted layer priors:\n {fitted_model.layers[0].priors}
-    Fitted layer bounds:\n {fitted_model.layers[0].bounds}
-    pre-fit weighted layer values:\n {model.layers[0].coefficients}
-    post-fit weighted layer values:\n {fitted_model.layers[0].coefficients}
-""")

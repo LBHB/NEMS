@@ -21,6 +21,7 @@ _DEFAULT_PLOT_OPTIONS = {
         'frameon': False, 'bbox_to_anchor': (1, 1), 'loc': 'upper left'
         },
     }
+_TEXT_BBOX = dict(boxstyle='round, pad=.25, rounding_size=.15', alpha=.7, facecolor='white')
 
 def set_plot_options(ax, layer_options, time_kwargs=None):
     """Adjust matplotlib axes object in-place according to `layer_options`.
@@ -398,7 +399,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 x_pos = pax.get_xlim()[0]
                 y_pos = pax.get_ylim()[1]
                 title = f'coefficients'
-                pax.text(x_pos, y_pos, title, va='top')
+                pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
 
             # Plot if non-linear
             elif 'nonlinearity' in str(type(layer)):
@@ -417,7 +418,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             y_pos = ax.get_ylim()[1]
             name = layer.name
             title = f'({model.get_layer_index(name)}) {name}'
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
@@ -435,7 +436,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             title = 'input'
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
         ax.set_xlim(subaxes[-1].get_xlim())
         ax.xaxis.set_visible(False)
 
@@ -467,12 +468,12 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = last_ax.get_xlim()[0]
                 y_pos = last_ax.get_ylim()[1]
-                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=_TEXT_BBOX)
 
                 second_last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = second_last_ax.get_xlim()[0]
                 y_pos = second_last_ax.get_ylim()[1]
-                second_last_ax.text(x_pos, y_pos, 'Output', va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+                second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
 
 
                 return
@@ -669,7 +670,7 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
 
 
 def input_heatmap(input, ax=None, extent=None, title='Input',
-                  xlabel='Time (bins)', ylabel='Channel', add_colorbar=True):
+                  xunits='Time(bins)', ylabel='Channel', add_colorbar=True):
     """Plot heatmap of `input` with channels increasing from bottom to top.
     
     Parameters
@@ -693,7 +694,7 @@ def input_heatmap(input, ax=None, extent=None, title='Input',
                    origin='lower', extent=extent)
     if add_colorbar:
         plt.colorbar(im, ax=ax, label='Intensity')
-    ax.set_xlabel(xlabel)
+    ax.set_xlabel(xunits)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
@@ -737,7 +738,7 @@ def checkerboard(array):
     return indices
 
 def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
-                    find_best=False, state=None, correlation=True, display_reduction=.5):
+                    find_best=False, state=None, correlation=False, display_ratio=.5, **figure_kwargs):
     '''Main plot tool for ModelList()'''
     samples = len(model_list)
     fig_list = []
@@ -751,9 +752,8 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
         samples += 1
 
     if plot_comparitive:
-        fig, ax = plt.subplots(samples+2, 1, sharex='col')
-        plot_data(input.T, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
-        plot_data(target, label="actual response", title='Test Response', ax=ax[1])
+        fig, ax = plt.subplots(samples+1, 1, sharex='col', sharey='row')
+        plot_data(input, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
 
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
@@ -761,13 +761,14 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
                 model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
-            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+2], correlation=correlation, display_reduction=.5)
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+1], correlation=correlation, display_ratio=display_ratio, legend=False, **figure_kwargs)
 
         # Plotting some comparisons with our test data and the best models
         if find_best:
-            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+2])
-            ax[samples+2].legend()
+            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+1])
+            ax[samples+1].legend()
         fig_list.append(fig)
+        ax[1].legend(loc='upper right')
 
     if plot_full:
         for model in model_list:
@@ -775,9 +776,9 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
             fig_list.append(model_figure)
     return fig_list
 
-def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_reduction=.5):
+def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_ratio=.5, **figure_kwargs):
     '''
-    Plots a single, or list of, predictions to view and compare.
+    Plots a single, or list of, prediction(s) to view and compare.
 
     Parameters
     ----------
@@ -792,8 +793,9 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
         If true, appends correlation coeff onto prediction title
     show_titles: boolean
         If true, shows the titles of each prediction
-    display_reduction: float, 0->1
-        Reduces amount of data displayed by trimming the end of plotted data
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
     
     '''
     is_dict = False
@@ -808,9 +810,9 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
     if target is not None and target.shape[1] > 1:
         plots += 1
 
-    fig, ax = plt.subplots(plots+1, 1, sharex='col')
+    fig, ax = plt.subplots(plots+1, 1, sharex='col', sharey='row')
     if input is not None:
-        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_reduction=display_reduction)
+        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
 
     for predidx, data in enumerate(predictions):
         if is_dict:
@@ -820,19 +822,33 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
             title = keys[predidx]
         if data.shape[1] > 3:
             plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], 
-                      correlation=correlation, show_titles=show_titles, imshow=True, display_reduction=display_reduction)
+                      correlation=correlation, show_titles=show_titles, imshow=True, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
         else:
             plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, 
-                      correlation=correlation, show_titles=show_titles, display_reduction=display_reduction)
+                      correlation=correlation, show_titles=show_titles, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
 
     if target is not None and target.shape[1] > 1:
-        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_reduction=display_reduction)
+        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_ratio=display_ratio)
+
+    # Adds some labeling to bottom of figure and legend at top of predictions
+    if not figure_kwargs:
+        set_plot_options(ax[-1], {'legend': False, 'xlabel': 'Time(Bins)', 'show_x': True})
+        set_plot_options(ax[1], {'legend': True})
+        ax[1].legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+    else:
+        set_plot_options(ax[-1], figure_kwargs)
+        set_plot_options(ax[1], {'legend': True})
+        ax[1].legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+        
+
     return fig
 
-def plot_data(data, title, label=None, target=None, ax=None, 
-              correlation=False, imshow=False, show_titles=True, display_reduction=.5):
+def plot_data(data, title='Data', label=None, target=None, ax=None, 
+              correlation=False, imshow=False, show_titles=True, display_ratio=.5,
+               xunits="Bins", **figure_kwargs):
     """
-    Plotting most basic/important information of given data. Returns plotted ax
+    Plotting most basic/important information of given data. Returns plotted ax.
+    Figure keyword arguments can be appended and will be used with set_plot_options().
     
     Parameters
     ----------
@@ -847,14 +863,26 @@ def plot_data(data, title, label=None, target=None, ax=None,
         If true, appends correlation coeff onto prediction title
     show_titles: boolean
         If true, shows the titles of each prediction
-    display_reduction: float, 0->1
-        Reduces amount of data displayed by trimming the end of plotted data  
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
+    xlabel: string
+        X-Axis label, usually representing time in form of Time-Bins, ms, seconds etc...
     
     """
-    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_reduction)
+    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_ratio)
     reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
+        ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+        ax.margins(0,.05)
+    data = np.array(data)
+    if not figure_kwargs:
+        figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
+    # Update plot options with user-given options
+    figure_kwargs['xlabel'] = f'Time ({xunits})'
+    set_plot_options(ax, figure_kwargs)
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
@@ -862,92 +890,37 @@ def plot_data(data, title, label=None, target=None, ax=None,
     else:
         ax.plot(reduced_data, label=label)
     if target is not None:
-        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_reduction)
+        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_ratio)
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
+    ax.autoscale()
+
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
-        ax.text(x_pos, y_pos, title, va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+        if figure_kwargs.get('legend'):
+            ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
-def plot_dstrf(dstrf):
+def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     """Plotting DSTRF information from dstrf of a model"""
-    dstrf = dstrf['input']
     absmax = np.max(np.abs(dstrf))
     dstrf_count = dstrf.shape[1]
     rows=int(np.ceil(dstrf_count/5))
     cols = int(np.ceil(dstrf_count/rows))
     f,ax=plt.subplots(rows,cols)
+    f.supxlabel(f'Time({xunits})')
+    f.supylabel('Features')
+    f.suptitle(title)
     ax=ax.flatten()[:dstrf_count]
     for i,a in enumerate(ax):
         # flip along time axis so that x axis is timelag
         d = np.fliplr(dstrf[0,i,:,:])
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={i}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=_TEXT_BBOX)
         
     plt.tight_layout()
     return ax
-
-def plot_shift_dstrf(dstrf):
-    """Plots graph that compares mean value of dstrf step with respect to the previous one"""
-    dstrf = dstrf['input']
-    absmax = np.max(np.abs(dstrf))
-    dstrf_count = dstrf.shape[1]
-    f,ax=plt.subplots(2,dstrf_count, figsize=(9,5))
-    for index in range(dstrf_count):
-        ax[0][index].set_ylim(-absmax/20,absmax/20)
-        dstrf_set = dstrf[0,index,:,:]
-        mean_list = np.array([np.mean(j) for j in dstrf_set])
-        if index > 0:
-            shift = f"{np.mean(mean_list-prev_mean)*10000:.2f}"
-            ax[0][index].plot(np.subtract(mean_list, prev_mean))
-            ax[0][index].plot(prev_mean-prev_mean, color='red', lw=.5)
-            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
-                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-        else:
-            shift = 'N/A'
-            ax[0][index].plot(mean_list)
-            ax[1][index].imshow(np.fliplr(dstrf_set), aspect='auto', interpolation='none',
-                            cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-            prev_mean = mean_list
-        ax[0][index].text(ax[0][index].get_xlim()[0], ax[0][index].get_ylim()[1]*1.25, f"D:{index} shift: {shift}", 
-                va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
-        prev_mean = mean_list
-    plt.subplots_adjust(wspace=1, hspace=0)
-    plt.tight_layout()
-    return ax
-
-def plot_mean_dstrf(dstrf):
-    """Plots mean value of dimensions in each step"""
-    dstrf = dstrf['input']
-    dstrf_count = dstrf.shape[1]
-    rows=int(np.ceil(dstrf_count/5))
-    cols = int(np.ceil(dstrf_count/rows))
-    f,ax=plt.subplots(rows,cols, sharex='col', sharey='row')
-    ax=ax.flatten()[:dstrf_count]
-    for index, a in enumerate(ax):
-        mean_list = [np.mean(j) for j in dstrf[0, index, :, :]]
-        a.plot(mean_list)
-        a.text(a.get_xlim()[0], a.get_ylim()[1], f"D={index}", va='top', bbox=dict(boxstyle='round, pad=.1, rounding_size=.1', alpha=.7, facecolor='white'))
-        if index > 0:
-            a.plot(prev_mean, color='red', lw=.5)
-        prev_mean = mean_list
-    plt.tight_layout()
-    return ax
-
-def plot_absmax_dstrf(dstrf):
-    """Plots the absolute max of each dimension for every step"""
-    dstrf = dstrf['input']
-    dstrf_count = dstrf.shape[1]
-    color = matplotlib.cm.get_cmap("Reds", dstrf_count+4)
-    f,ax=plt.subplots(1,1)
-    for index in range(dstrf_count):
-        absmax_list = [np.max(np.abs(j))+index*.0040 for j in dstrf[0, index, :, :]]
-        ax.plot(absmax_list, color=color(dstrf_count+4 - index), label=f'D {index}')
-    plt.legend(loc="upper left")
-    plt.tight_layout()
-    return ax
-

@@ -7,25 +7,10 @@ from nems import Model, Model_List
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 
-## This indicates that our code is interactive, allowing a matplotlib
-## backend to show graphs. Uncomment if you don't see any graphs
-#plt.ion()
-
-###########################
-# Setting up Demo Data instead of dummy data
-# 
-# load_demo(): Provides our tuple of training/testing dictionaries
-#   This time we will be loading a different data set, and finding a 
-#   specific cell that contains data worth testing
-#
-#   "TAR010c_data.npz": The data parameter to load our different dataset
-#   [:, [cid]]: Splitting the dataset to get a specific cells data
-#   ['cellid'][cid]: Get cellid at cid for labeling and f+ormatting
-###########################
-nems.download_demo()
+# Setting up Demo Data with cells
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
 
-cid=29 # Picking our cell to pull data from
+cid=29
 cellid = training_dict['cellid'][cid]
 spectrogram_fit = training_dict['spectrogram']
 response_fit = training_dict['response'][:,[cid]]
@@ -43,6 +28,7 @@ response_test = test_dict['response'][:,[cid]]
 # that will give you a rough idea of options to manipulate.
 # For more info, see the Advanced section
 ###########################
+
 # Tensorflow options
 options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 10,
                   'early_stopping_tolerance': 1e-3, 'validation_split': 0,
@@ -70,7 +56,8 @@ options = {'options': {'maxiter': 100, 'ftol': 1e-4}}
 # inconsistent, we have tools in place to help pick out good
 # starts for parameters
 ########################################################
-# Creating a basic Rank2LNSTRF model to test parameters on
+
+# Creating a basic Rank3LNSTRF model to test parameters on
 model = Model()
 model.add_layers(
     WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
@@ -108,7 +95,7 @@ model.add_layers(
 ###########################
 backend = 'scipy'
 ## Uncomment if you have TensorFlow installed
-backend='tf'
+#backend='tf'
 if backend=='tf':
     options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 10,
                   'early_stopping_tolerance': 1e-3, 'validation_split': 0,
@@ -155,23 +142,10 @@ list_of_models.fit(spectrogram_fit, response_fit, backend=backend, fitter_option
 #
 # Here we're looping through our model list, comparing values to find the
 # best fitted model and showing a few graphs to see the differences.
-# !!! In practice, you will want to print the full model plots to compare models
 ###########################
-list_of_models.plot(input=spectrogram_test, target=response_test)
-
-## Something like this will be more useful in practice
-# list_of_models.plot_models(input=spectrogram_test, target=response_test, plot_comparitive=False, plot_full=True)
+list_of_models.plot(input=spectrogram_test, target=response_test, correlation=True)
 
 # Plotting the model of our best fit
 best_fit = list_of_models.get_best_fit
 best_fit.name = f"Best Fit"
-best_fit.plot(spectrogram_test, target=response_test)
-
-# Printing out error rates and correlation coeffecients of our models to see how they compare
-# Using .get_list we can retrieve the raw list of models
-for fitidx, cnn in enumerate(list_of_models.get_list):
-    pred_cnn = cnn.predict(spectrogram_test)
-    print(f"CNN fit {fitidx} final E={cnn.results.final_error:.3f} r test={np.corrcoef(pred_cnn[:, 0], response_test[:, 0])[0, 1]:.3f}")
-
-## Uncomment if you don't have an interactive backend installed
-#plt.show()
+best_fit.plot(spectrogram_test, target=response_test, correlation=True)
