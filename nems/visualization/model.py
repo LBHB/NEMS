@@ -7,7 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .tools import ax_remove_box, ax_bins_to_seconds
-
+from nems import metrics
+from nems import preprocessing
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -20,6 +21,7 @@ _DEFAULT_PLOT_OPTIONS = {
         'frameon': False, 'bbox_to_anchor': (1, 1), 'loc': 'upper left'
         },
     }
+_TEXT_BBOX = dict(boxstyle='round, pad=.25, rounding_size=.15', alpha=.7, facecolor='white')
 
 def set_plot_options(ax, layer_options, time_kwargs=None):
     """Adjust matplotlib axes object in-place according to `layer_options`.
@@ -337,6 +339,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     # (otherwise fill columns before rows).
     figure_kwargs = {} if figure_kwargs is None else figure_kwargs
     figure = plt.figure(**figure_kwargs)
+
     if select_layers is not None:
         layers = model.layers.__getitem__(select_layers)
         if not isinstance(layers, list):
@@ -344,60 +347,86 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     else:
         layers = model.layers[:n]
     layer_info = model.generate_layer_data(input, **eval_kwargs)
+
     if plot_input:
         n_rows = len(layers)+1
     else:
         n_rows = len(layers)
 
+    # Setting up our layout for plotting layers and parameters
     spec = figure.add_gridspec(n_rows, 3)
     subaxes = [figure.add_subplot(spec[n, 1:]) for n in range(n_rows)]
     parmaxes = [figure.add_subplot(spec[n+1, 0]) for n in range(n_rows-1)]
+    last_ax = subaxes[-1]
+    last_px = parmaxes[-1]
 
     iterator = enumerate(zip(layers, parmaxes, subaxes[1:], layer_info))
     previous_output = None
-    for i, (layer, pax, ax, info) in iterator:
 
-        k = list(layer.parameters.keys())
-        if layer.name=='fir':
-            if (i>0) & (layers[i-1].name=='wc'):
-                plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+    # Loop all our layers and plots to visualize our data
+    for index, (layer, pax, ax, info) in iterator:
+        parameters = list(layer.parameters.keys())
+
+        # Check our final outputs, if we have > 3 we will create a heatmap instead and ignore parmaxes to
+        # make room for our response
+        if ax == last_ax and target[0][0] > 9999:
+            #_____________
+            if isinstance(input, dict) or len(input.shape)>2:
+                pax.clear()
+                pax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
             else:
-                plot_strf(layer, ax=pax)
-        elif 'coefficients' in k:
-            if len(layer.coefficients.shape)==2:
-                pax.plot(layer.coefficients, lw=0.5)
-            else:
-                pax.imshow(layer.coefficients[:,0,:],
-                           aspect='auto', interpolation='none', origin='lower')
-            x_pos = pax.get_xlim()[0]
-            y_pos = pax.get_ylim()[1]
-            title = f'coefficients'
-            pax.text(x_pos, y_pos, title, va='top')
-        elif 'nonlinearity' in str(type(layer)):
-            plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+                if (index>0) & (layers[index-1].name=='wc'):
+                    plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+                else:
+                    plot_strf(layer, ax=pax)
+
+        # Normal layer->layer plotting
         else:
-            pax.set_visible(False)
+            # Plotting FIR layers
+            if layer.name=='fir':
+                if (index>0) & (layers[index-1].name=='wc'):
+                    plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+                else:
+                    plot_strf(layer, ax=pax)
+
+            # Plotting coefficients of specific layers
+            elif 'coefficients' in parameters:
+                if len(layer.coefficients.shape)==2:
+                    pax.plot(layer.coefficients, lw=0.5)
+                else:
+                    pax.imshow(layer.coefficients[:,0,:],
+                            aspect='auto', interpolation='none', origin='lower')
+                x_pos = pax.get_xlim()[0]
+                y_pos = pax.get_ylim()[1]
+                title = f'coefficients'
+                pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+
+            # Plot if non-linear
+            elif 'nonlinearity' in str(type(layer)):
+                plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+            else:
+                pax.set_visible(False)
 
         output = info['out']
-        lkw = layer.plot_kwargs
-        lkw['lw'] = '0.5'
+        plot_args = layer.plot_kwargs
+        plot_args['lw'] = '0.5'
         layer.plot_options['legend'] = False
-        layer.plot(output, ax=ax, **lkw)
+        layer.plot(output, ax=ax, **plot_args)
 
         if show_titles:
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
             name = layer.name
             title = f'({model.get_layer_index(name)}) {name}'
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
 
+    # Plot input info as well
     if plot_input:
-        # special case to plot input
         ax = subaxes[0]
-        if len(input.shape)>2:
+        if isinstance(input, dict) or len(input.shape)>2:
             pass
         elif (len(input.shape)>1) & (input.shape[1]>1):
             ax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
@@ -407,30 +436,50 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             title = 'input'
             x_pos = ax.get_xlim()[0]
             y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top')
+            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
         ax.set_xlim(subaxes[-1].get_xlim())
         ax.xaxis.set_visible(False)
 
     # Final x-axis of the final layer in each column is always visible
     # so that time is visually synchronized for all plots above.
-
-    last_ax = subaxes[-1]
     last_ax.xaxis.set_visible(True)
 
     # Add plot of target if given, on last axis of last subfig.
-    if target_name is not None:
-        target = input[target_name]
-    else:
-        target_name = 'Target'
     if target is not None:
+        if target_name is not None:
+            target = input[target_name]
+        else:
+            target_name = 'Target'
         if not isinstance(target, list):
             target = [target]
         if len(target)>3:
             target=np.concatenate(target, axis=1)
             last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
         else:
-            for i, y in enumerate(target):
-                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5)
+            # If our given targets is greater than 3, we want to replace graphs with heatmaps
+            if len(target[0][0]) > 3:
+                second_last_ax = subaxes[-2]
+                last_ax.clear()
+                second_last_ax.clear()
+
+                last_ax.imshow(target[0].T, aspect='auto', interpolation='none', origin='lower')
+                second_last_ax.imshow(output.T, aspect='auto', interpolation='none', origin='lower')
+
+                last_ax.set_xlim(subaxes[0].get_xlim())
+                x_pos = last_ax.get_xlim()[0]
+                y_pos = last_ax.get_ylim()[1]
+                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=_TEXT_BBOX)
+
+                second_last_ax.set_xlim(subaxes[0].get_xlim())
+                x_pos = second_last_ax.get_xlim()[0]
+                y_pos = second_last_ax.get_ylim()[1]
+                second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
+
+
+                return
+            else:
+                for i, y in enumerate(target):
+                    last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
             #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
         last_ax.autoscale()
         cc = np.corrcoef(target[0][:,0], output[:,0])[0,1]
@@ -442,7 +491,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
 
     return figure
 
-def plot_nl(layer, range, ax=None, fig=None):
+def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
 
     if ax is not None:
         fig = ax.figure
@@ -458,12 +507,15 @@ def plot_nl(layer, range, ax=None, fig=None):
     if outcount>1:
         x=np.broadcast_to(x[:,np.newaxis],[x.shape[0],outcount])
     y = layer.evaluate(x)
-    ax.plot(x, y, lw=0.5)
-    ax.set_xlabel('in')
-    ax.set_ylabel('out')
+    if channel is None:
+        ax.plot(x, y, lw=0.5)
+    else:
+        ax.plot(x, y[:,channel])
+    ax.set_xlabel('NL input')
+    ax.set_ylabel('NL output')
 
 
-def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
+def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=None):
     """Wrapper for `plot_strf`, gets FIR and WeightChannels from Model.
     
     Parameters
@@ -498,14 +550,15 @@ def simple_strf(model, fir_idx=1, wc_idx=0, ax=None, fig=None):
         fig, ax = plt.subplots()
 
     fir_layer, wc_layer = model.layers[fir_idx, wc_idx]
-    plot_strf(fir_layer, wc_layer, ax=ax)
+    plot_strf(fir_layer, wc_layer, ax=ax, fs=fs)
     ax.set_xlabel('Time lag')
     ax.set_ylabel('Freuqency channel')
-
+    if title is not None:
+        fig.suptitle(title)
     return fig
 
 
-def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
+def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
     """Generate a heatmap representing a Spectrotemporal Receptive Field (STRF).
     
     Parameters
@@ -562,9 +615,15 @@ def plot_strf(fir_layer, wc_layer=None, ax=None, fig=None):
             strf = wc @ fir.T
 
     mm = np.nanmax(abs(strf))
-    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
-              cmap='bwr', vmin=-mm, vmax=mm)
+    if fs is not None:
+        extent=[0, strf.shape[0]/fs, 0, strf.shape[1]]
+    else:
+        extent=[0, strf.shape[0], 0, strf.shape[1]]
 
+    ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
+              cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+    plt.tight_layout()
+    
     return fig
 
 
@@ -597,20 +656,21 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
             fig = plt.figure()
         ax = fig.subplots(1, 1)
 
-    all_outputs = [output[...,i] for i in range(output.shape[-1])]
-    if all_outputs[0].ndim > 2:
-        # TODO: Do something more useful here.
-        print("Too many dimensions to plot")
-        return fig
+    if(output.ndim > 0):
+        all_outputs = [output[...,i] for i in range(output.shape[-1])]
+        if all_outputs[0].ndim > 2:
+            # TODO: Do something more useful here.
+            print("Too many dimensions to plot")
+        else:
+            for output in all_outputs:
+                ax.plot(output, **plot_kwargs)
     else:
-        for output in all_outputs:
-            ax.plot(output, **plot_kwargs)
-
+        print("One of the outputs is a single integer and could not be plotted")
     return fig
 
 
 def input_heatmap(input, ax=None, extent=None, title='Input',
-                  xlabel='Time (bins)', ylabel='Channel', add_colorbar=True):
+                  xunits='Time(bins)', ylabel='Channel', add_colorbar=True):
     """Plot heatmap of `input` with channels increasing from bottom to top.
     
     Parameters
@@ -634,7 +694,7 @@ def input_heatmap(input, ax=None, extent=None, title='Input',
                    origin='lower', extent=extent)
     if add_colorbar:
         plt.colorbar(im, ax=ax, label='Intensity')
-    ax.set_xlabel(xlabel)
+    ax.set_xlabel(xunits)
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
@@ -676,3 +736,191 @@ def checkerboard(array):
     shape = array.shape
     indices = (np.indices(shape).sum(axis=0) % 2).astype(bool)
     return indices
+
+def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=False, 
+                    find_best=False, state=None, correlation=False, display_ratio=.5, **figure_kwargs):
+    '''Main plot tool for ModelList()'''
+    samples = len(model_list)
+    fig_list = []
+
+    pred_list = []
+    for model in model_list:
+        pred_list.append(model.predict(input, state=state))
+
+    if find_best:
+        best_fit = None
+        samples += 1
+
+    if plot_comparitive:
+        fig, ax = plt.subplots(samples+1, 1, sharex='col', sharey='row')
+        plot_data(input, label="Input", title='Test Stimulus', ax=ax[0], imshow=True)
+
+        # Loop through our list, compare models, plots data, and save best model
+        for fitidx, model in enumerate(model_list):
+            if model.name is "UnnamedModel":
+                model.name = f"Model_Fit-{fitidx}"
+            if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
+                best_fit = fitidx
+            plot_data(pred_list[fitidx], label='predicted', title=model.name, target=target, ax=ax[fitidx+1], correlation=correlation, display_ratio=display_ratio, legend=False, **figure_kwargs)
+
+        # Plotting some comparisons with our test data and the best models
+        if find_best:
+            plot_data(pred_list[best_fit], label='best_fit', title='Best vs Target', target=target, ax=ax[samples+1])
+            ax[samples+1].legend()
+        fig_list.append(fig)
+        ax[1].legend(loc='upper right')
+
+    if plot_full:
+        for model in model_list:
+            model_figure = model.plot(input, target=target)
+            fig_list.append(model_figure)
+    return fig_list
+
+def plot_predictions(predictions, input=None, target=None, correlation=False, show_titles=True, display_ratio=.5, **figure_kwargs):
+    '''
+    Plots a single, or list of, prediction(s) to view and compare.
+
+    Parameters
+    ----------
+    predictions: list, dict, np.ndarray
+        A single or set of predictions to compare. If dictionary, keys
+        are the titles of predictions
+    input: np.ndarray
+        Input used for predictions
+    target: np.ndarray
+        Target response we want from the prediction
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
+    
+    '''
+    is_dict = False
+    keys = None
+    if isinstance(predictions, dict):
+        keys = [key for key in predictions.keys()]
+        is_dict = True
+    elif not isinstance(predictions, list):
+        predictions = [predictions]
+
+    plots = len(predictions)
+    if target is not None and target.shape[1] > 1:
+        plots += 1
+
+    fig, ax = plt.subplots(plots+1, 1, sharex='col', sharey='row')
+    if input is not None:
+        plot_data(input, label="Input", title="Input Data", ax=ax[0], imshow=True, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
+
+    for predidx, data in enumerate(predictions):
+        if is_dict:
+            data = predictions[data]
+        title = f"Pred {predidx}"
+        if keys:
+            title = keys[predidx]
+        if data.shape[1] > 3:
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], 
+                      correlation=correlation, show_titles=show_titles, imshow=True, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
+        else:
+            plot_data(data, label=f"Pred {predidx}", title=title, ax=ax[predidx+1], target=target, 
+                      correlation=correlation, show_titles=show_titles, display_ratio=display_ratio, ylabel='Frequency', legend=False, **figure_kwargs)
+
+    if target is not None and target.shape[1] > 1:
+        plot_data(target, label="Target", title="Target Data", ax=ax[-1], imshow=True, display_ratio=display_ratio)
+
+    # Adds some labeling to bottom of figure and legend at top of predictions
+    if not figure_kwargs:
+        set_plot_options(ax[-1], {'legend': False, 'xlabel': 'Time(Bins)', 'show_x': True})
+        set_plot_options(ax[1], {'legend': True})
+        ax[1].legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+    else:
+        set_plot_options(ax[-1], figure_kwargs)
+        set_plot_options(ax[1], {'legend': True})
+        ax[1].legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+        
+
+    return fig
+
+def plot_data(data, title='Data', label=None, target=None, ax=None, 
+              correlation=False, imshow=False, show_titles=True, display_ratio=.5,
+               xunits="Bins", **figure_kwargs):
+    """
+    Plotting most basic/important information of given data. Returns plotted ax.
+    Figure keyword arguments can be appended and will be used with set_plot_options().
+    
+    Parameters
+    ----------
+    title: string
+        Title passed to text of ax
+    label: string
+        Label given to data plot
+    target: np.ndarray
+        Optional target data to plot with normal data
+    ax: Axes object you wish to plot onto
+    correlation: boolean
+        If true, appends correlation coeff onto prediction title
+    show_titles: boolean
+        If true, shows the titles of each prediction
+    display_ratio: float, 0->1
+        Reduces amount of data displayed by trimming the end of plotted data.
+        Default 50% is 0.5
+    xlabel: string
+        X-Axis label, usually representing time in form of Time-Bins, ms, seconds etc...
+    
+    """
+    indicies, remainder = preprocessing.split.indices_by_fraction(data, display_ratio)
+    reduced_data, _ = preprocessing.split.split_at_indices(data, indicies, remainder)
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+        ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+        ax.margins(0,.05)
+    data = np.array(data)
+    if not figure_kwargs:
+        figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
+    # Update plot options with user-given options
+    figure_kwargs['xlabel'] = f'Time ({xunits})'
+    set_plot_options(ax, figure_kwargs)
+    if correlation:
+        title += f" | Correlation: {metrics.correlation(data, target):.2f}"
+    if imshow:
+        ax.imshow(reduced_data.T, aspect='auto', interpolation='none')
+    else:
+        ax.plot(reduced_data, label=label)
+    if target is not None:
+        indicies, remainder = preprocessing.split.indices_by_fraction(target, display_ratio)
+        reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
+        ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
+    ax.autoscale()
+
+    if show_titles:
+        x_pos = ax.get_xlim()[0]
+        y_pos = ax.get_ylim()[1]
+        ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+        if figure_kwargs.get('legend'):
+            ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+    return ax
+
+# TODO: Iterate through dictionaries for larger inputs
+def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
+    """Plotting DSTRF information from dstrf of a model"""
+    absmax = np.max(np.abs(dstrf))
+    dstrf_count = dstrf.shape[1]
+    rows=int(np.ceil(dstrf_count/5))
+    cols = int(np.ceil(dstrf_count/rows))
+    f,ax=plt.subplots(rows,cols)
+    f.supxlabel(f'Time({xunits})')
+    f.supylabel('Features')
+    f.suptitle(title)
+    ax=ax.flatten()[:dstrf_count]
+    for i,a in enumerate(ax):
+        # flip along time axis so that x axis is timelag
+        d = np.fliplr(dstrf[0,i,:,:])
+        a.imshow(d, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+        a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=_TEXT_BBOX)
+        
+    plt.tight_layout()
+    return ax

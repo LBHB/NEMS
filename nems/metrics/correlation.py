@@ -27,9 +27,11 @@ def correlation(x, y):
         # TODO: Correlation may not be an appropriate tool for higher-D data?
         #       In which case change this to ValueError, but need to think about
         #       it some more first.
-        raise NotImplementedError(
-            "`nems.metrics.correlation` only supports 1D or 2D array inputs."
-        )
+        x = np.reshape(x, [-1, x.shape[-1]])
+        y = np.reshape(y, [-1, y.shape[-1]])
+        #raise NotImplementedError(
+        #    "`nems.metrics.correlation` only supports 1D or 2D array inputs."
+        #)
 
     if x.ndim == 1:
         x = x[...,np.newaxis]

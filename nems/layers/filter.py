@@ -11,7 +11,7 @@ from nems.tools.arrays import broadcast_axes
 
 class FiniteImpulseResponse(Layer):
 
-    def __init__(self, stride=1, **kwargs):
+    def __init__(self, stride=1, include_anticausal=False, **kwargs):
         """Convolve linear filter(s) with input.
 
         Parameters
@@ -56,6 +56,8 @@ class FiniteImpulseResponse(Layer):
         """
         require_shape(self, kwargs, minimum_ndim=2)
         self.stride = stride
+        self.include_anticausal = include_anticausal
+
         super().__init__(**kwargs)
 
 
@@ -109,7 +111,8 @@ class FiniteImpulseResponse(Layer):
         coefficients = self._reshape_coefficients()
         # Match number of outputs in input and coefficients by broadcasting.
         input, coefficients = self._broadcast(input, coefficients)
-        # Prepend zeros.
+
+        # Prepend zeros. (and append, if include_anticausal)
         padding = self._get_filter_padding(input, coefficients)
         input_with_padding = np.pad(input, padding)
 
@@ -179,10 +182,15 @@ class FiniteImpulseResponse(Layer):
 
     def _get_filter_padding(self, input, coefficients):
         """Get zeros of correct shape to prepend to input on time axis."""
-
         filter_length = coefficients.shape[0]
-        # Prepend 0s on time axis, no padding on other axes
-        padding = [[filter_length-1, 0]] + [[0, 0]]*(input.ndim-1)
+
+        if self.include_anticausal:
+            pre_length = int(np.floor(filter_length/2)) - 1
+            post_length = filter_length - pre_length - 1
+            padding = [[pre_length, post_length]] + [[0, 0]]*(input.ndim-1)
+        else:
+            # Prepend 0s on time axis, no padding on other axes
+            padding = [[filter_length-1, 0]] + [[0, 0]]*(input.ndim-1)
 
         return padding
 
@@ -272,7 +280,7 @@ class FiniteImpulseResponse(Layer):
 
             def call(self, inputs):
                 # This will add an extra dim if there is no output dimension.
-                input_width = tf.shape(inputs)[1]
+                input_width = inputs.shape[1] # tf.shape(inputs)[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
                 coefficients = broadcast_coefficients(self.coefficients)
@@ -337,6 +345,19 @@ class FiniteImpulseResponse(Layer):
                 batch_size = tf.keras.backend.shape(inputs)[0]
                 shape = [batch_size] + new_inputs_shape
                 return tf.broadcast_to(expand_inputs(inputs), shape)
+
+        elif new_inputs.ndim > fake_inputs.ndim:
+            #print(new_inputs_shape)
+            #print(input_shape)
+
+            @tf.function()
+            def broadcast_inputs(inputs):
+                # Convert None batch shape to int, add singleton output dim
+                # if needed. Then broadcast outputs.
+                batch_size = tf.keras.backend.shape(inputs)[0]
+                shape = [batch_size] + new_inputs_shape
+                return tf.broadcast_to(tf.expand_dims(inputs, axis=-1), shape)
+
         else:
             # Otherwise, don't need to do anything to inputs.
             @tf.function
@@ -384,9 +405,16 @@ class FiniteImpulseResponse(Layer):
                 new_coefs = tf.expand_dims(
                     tf.transpose(coefficients, [2, 0, 1]), -1
                     )
-                padded_input = tf.pad(
-                    inputs, [[0, 0], [filter_width-1, 0], [0, 0], [0, 0]]
+                if self.include_anticausal:
+                    pre_length = int(np.floor(filter_width / 2)) - 1
+                    post_length = filter_width - pre_length - 1
+                    padded_input = tf.pad(
+                        inputs, [[0, 0], [pre_length, post_length], [0, 0], [0, 0]]
                     )
+                else:
+                    padded_input = tf.pad(
+                        inputs, [[0, 0], [filter_width-1, 0], [0, 0], [0, 0]]
+                        )
                 # Reorder input to shape (n outputs, batch, time, rank)
                 x = tf.transpose(padded_input, [3, 0, 1, 2])
                 fn = lambda t: tf.cast(tf.nn.conv1d(  # TODO: don't like forcing dtype here
@@ -414,10 +442,17 @@ class FiniteImpulseResponse(Layer):
                 reshaped = tf.reshape(
                     transposed, [-1, input_width, rank*n_outputs]
                     )
-                # Prepend 0's on time axis as initial conditions for filter.
-                padded_input = tf.pad(
-                    reshaped, [[0, 0], [filter_width-1, 0], [0, 0]]
-                    )
+                if self.include_anticausal:
+                    pre_length = int(np.floor(filter_width / 2)) - 1
+                    post_length = filter_width - pre_length - 1
+                    padded_input = tf.pad(
+                        reshaped, [[0, 0], [pre_length, post_length], [0, 0]]
+                        )
+                else:
+                    # Prepend 0's on time axis as initial conditions for filter.
+                    padded_input = tf.pad(
+                        reshaped, [[0, 0], [filter_width-1, 0], [0, 0]]
+                        )
                 #print("reshaped shape:", reshaped.shape.as_list(), "padded shape:", padded_input.shape.as_list())
                 # Convolve filters with input slices in groups of size `rank`.
                 y = tf.nn.conv1d(

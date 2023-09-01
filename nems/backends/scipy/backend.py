@@ -14,7 +14,7 @@ class SciPyBackend(Backend):
         return self.nems_model
 
     def _fit(self, data, eval_kwargs=None, cost_function='nmse',
-             epochs=1, log_spacing=5, **fitter_options):
+             epochs=1, verbose=1, log_spacing=5, **fitter_options):
         """Fit a Model using `scipy.optimize.minimize`.
 
         Parameters

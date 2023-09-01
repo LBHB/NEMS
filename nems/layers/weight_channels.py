@@ -217,7 +217,13 @@ class WeightChannelsMulti(WeightChannels):
         """Multiply `input[...,i]` by `WeightChannels.coefficients[...,i]`."""
 
         try:
-            output = np.moveaxis(np.matmul(np.moveaxis(input, [0,1], [-2,-1]), 
+            # hack -- reshape spectral axis to allow using the same weights
+            # across multiple tiles, the input, reflecting different dimensions
+            # (eg, the stimulus into each ear)
+            if input.shape[-1] > self.coefficients.shape[0]:
+                input = np.swapaxes(np.reshape(input, [input.shape[0], -1, self.coefficients.shape[0]]), -2, -1)
+
+            output = np.moveaxis(np.matmul(np.moveaxis(input, [0,1], [-2,-1]),
                                            np.moveaxis(self.coefficients, [0,1], [-2,-1])),
                                  [-2,-1], [0, 1])
         except ValueError as e:
@@ -241,9 +247,16 @@ class WeightChannelsMulti(WeightChannels):
             def call(self, inputs):
                 # reshape inputs and coefficients so that mult can happen on last
                 # two dimensions. Broadcasting seems to work fine this way
+                if inputs.shape[-1] > self.coefficients.shape[0]:
+                    d = int(inputs.shape[-1]/self.coefficients.shape[0])
+                    inputs_ = tf.experimental.numpy.swapaxes(
+                        tf.reshape(tf.convert_to_tensor(inputs), [-1, inputs.shape[1], d, self.coefficients.shape[0]]), -2, -1)
+                else:
+                    inputs_ = inputs
+
                 out = tf.experimental.numpy.moveaxis(
                     tf.matmul(
-                        tf.experimental.numpy.moveaxis(inputs, [1, 2], [-2, -1]),
+                        tf.experimental.numpy.moveaxis(inputs_, [1, 2], [-2, -1]),
                         tf.experimental.numpy.moveaxis(self.coefficients, [0, 1], [-2, -1])
                         ),
                     [-2, -1], [1, 2]
