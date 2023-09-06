@@ -928,16 +928,39 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     return ax
 
 def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons", xunits='Bins'):
-    """Using PCA's and DSTRF's to plot PC adjustments over fit data
-    and see PC of overall DSTRF's. Returns base GridSpec"""
+    """
+    Using PCA's and DSTRF's to plot PC adjustments over fit data
+    and see PC of overall DSTRF's. Returns base GridSpec
+
+    pc_len and t_steps allow for optimized and excitatory PCA's,
+    modify these values to create faster dpca's or more relevant dpca's
+    
+    Parameters
+    ----------
+    model: Model
+        Fitted Model object to be used for DSTRF and predictions
+    input: np.ndarray
+        Input data to be used for prediction and DSTRF
+    D: Int
+        Size of DSTRF tape memory
+    t_steps: Int
+        How many input values to repeatedly skip over when creating a full dstrf
+    pc_len: Int
+        Length of the input you wish to fully process for full dstrf
+    title: String
+        Suptitle for the plot figure
+    xunits: String
+        Unit value name to append to x_label
+    
+    """
     if not pc_len:
         pc_len = len(input)/5
     pc_input = input[:pc_len]
     t_indexes = np.arange(D, len(pc_input), t_steps)
     pred_model = model.predict(pc_input)
-    full_dstrf = model.dstrf(pc_input, D, t_indexes=t_indexes)
+    full_dstrf = model.dstrf(pc_input, D, t_indexes=t_indexes, reset_backened=True)
     # For computing a PCA set of DSTRF heatmaps
-    short_dstrf = model.dstrf(input, D, reset_backened=True)
+    short_dstrf = model.dstrf(input, D)
 
     full_dpca = compute_dpcs(full_dstrf)
     short_dcpa = compute_dpcs(short_dstrf)
@@ -955,26 +978,33 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
     inp_gs = base_gs[0].subgridspec(1,1)
     inp_ax = fig.add_subplot(inp_gs[0,0])
     inp_ax.set_ylabel('Hz')
+    inp_ax.imshow(pc_input.T, aspect='auto', interpolation='none')
+    inp_ax.text(inp_ax.get_xlim()[0], inp_ax.get_ylim()[1], f"Input", va='top', bbox=_TEXT_BBOX)
 
     pred_gs = base_gs[1].subgridspec(1,1)
     pred_ax = fig.add_subplot(pred_gs[0,0])
     pred_ax.margins(0,.1)
+    pred_ax.plot(pred_model)
+    pred_ax.text(pred_ax.get_xlim()[0], pred_ax.get_ylim()[1], f"Prediction", va='top', bbox=_TEXT_BBOX)
 
     pca_gs = base_gs[2].subgridspec(1,1)
     pca_ax = fig.add_subplot(pca_gs[0,0])
     pca_ax.margins(0,.1)
-    pca_ax.set_xticks([])
+    [pca_ax.plot(full_dpca['projection'][0, :, i], label=f'DPCA {i}') for i in range(full_dpca['projection'].shape[2])]
+    pca_ax.text(pca_ax.get_xlim()[0], pca_ax.get_ylim()[1], f"DSTRF PC's", va='top', bbox=_TEXT_BBOX)
 
     dstrf_gs = base_gs[3].subgridspec(1, short_dcpa['pcs'].shape[1])
     dstrf_ax = fig.add_subplot(dstrf_gs[:, :])
     dstrf_ax.set_ylabel('Features')
 
-    inp_ax.imshow(pc_input.T, aspect='auto', interpolation='none')
-    pred_ax.plot(pred_model)
-    [pca_ax.plot(full_dpca['projection'][0, :, i]) for i in range(full_dpca['projection'].shape[2])]
     for idx, ax in enumerate(dstrf_gs.subplots()):
         data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
         ax.imshow(data, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+        ax.text(ax.get_xlim()[0], ax.get_ylim()[1], f"DPCA:{idx}", va='top', bbox=_TEXT_BBOX)
+        
+    pca_ax.set_xticks([])
+    pca_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+    pca_ax.legend(loc='upper right', bbox_to_anchor=(1.0,1.0))
     fig.tight_layout()
     return base_gs
