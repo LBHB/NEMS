@@ -5,10 +5,12 @@ import copy
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 from .tools import ax_remove_box, ax_bins_to_seconds
 from nems import metrics
 from nems import preprocessing
+from nems.tools.dstrf import compute_dpcs
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -924,3 +926,40 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
         
     plt.tight_layout()
     return ax
+
+def plot_dpca(model, input, xunits='Bins'):
+    """Using PCA's and DSTRF's to plot PC adjustments over fit data
+    and see PC of overall DSTRF's. Returns base GridSpec"""
+    pred_model = model.predict(input)
+    full_dstrf = model.dstrf(input, D=15, t_indexes=np.arange(15, input.shape[0]))
+    partial_dstrf = model.dstrf(input, D=15, reset_backened=True)
+
+    full_dpca = compute_dpcs(full_dstrf)
+    partial_dcpa = compute_dpcs(partial_dstrf)
+    absmax = np.max(np.abs(partial_dcpa['pcs']))
+
+
+    # Base gridspec to subspec our graphs below
+    fig = plt.figure()
+    base_gs = gridspec.GridSpec(1, 3, figure=fig)
+
+    # Input, PCA's, and DPCA graphs added to our base gridspec
+    inp_gs = base_gs[0].subgridspec(1,1)
+    inp_ax = fig.add_subplot(inp_gs[0,0])
+
+    pca_gs = base_gs[1].subgridspec(1,1)
+    pca_ax = fig.add_subplot(pca_gs[0,0])
+
+    dstrf_gs = base_gs[2].subgridspec(partial_dcpa['pcs'].shape[1], 1)
+    dstrf_ax = fig.add_subplot(dstrf_gs[:, :])
+
+    inp_ax.plot(pred_model)
+    pca_ax.plot(full_dpca['projection'][0])
+
+    for idx, ax in enumerate(dstrf_gs.subplots()):
+        data = np.fliplr(partial_dcpa['pcs'][0,idx,:,:])
+        ax.imshow(data, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
+
+    plt.tight_layout()
+    return base_gs
