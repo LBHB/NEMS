@@ -7,8 +7,6 @@ import logging
 
 from sklearn.decomposition import PCA
 
-from nems.layers import FiniteImpulseResponse
-
 log = logging.getLogger(__name__)
 
 def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
@@ -19,7 +17,7 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
     :param pc_count:  number of PCs to return for each output channel
     :return: pcs, pc_mag
     """
-    # Currently only works for one input
+    # Should work on multiple inputs with format pca['input_name']['pcs/pc_mag/projection']
     return_dict = {}
     for input_name, input_dstrf in dstrf.items():
         channel_count = input_dstrf.shape[0]
