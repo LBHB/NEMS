@@ -18,6 +18,7 @@ _DEFAULT_PLOT_OPTIONS = {
     'show_y': True, 'ylabel': None, 'ymax_scale': 1, 'ymin_scale': 1,
     'show_seconds': True,
     'legend': False,
+    'margins': (0,.1),
     # Right of axis by default, aligned to top
     'legend_kwargs': {
         'frameon': False, 'bbox_to_anchor': (1, 1), 'loc': 'upper left'
@@ -71,6 +72,10 @@ def set_plot_options(ax, layer_options, time_kwargs=None):
     if ops['legend']:
         ax.legend(**ops['legend_kwargs'])
     
+    # Set margins of ax
+    ax.margins(*ops['margins'])
+    print(*(ops['margins']))
+
     # Remove top and right segments of border around axes
     ax_remove_box(ax)
 
@@ -846,7 +851,7 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
     return fig
 
 def plot_data(data, title='Data', label=None, target=None, ax=None, 
-              correlation=False, imshow=False, show_titles=True, display_ratio=.5,
+              correlation=False, imshow=False, ds_imshow=False, show_titles=True, display_ratio=.5,
                xunits="Bins", **figure_kwargs):
     """
     Plotting most basic/important information of given data. Returns plotted ax.
@@ -889,6 +894,11 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
         ax.imshow(reduced_data.T, aspect='auto', interpolation='none')
+    # DSTRF based imshow settings
+    elif ds_imshow:
+        absmax = np.max(np.abs(data))
+        ax.imshow(reduced_data, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
     else:
         ax.plot(reduced_data, label=label)
     if target is not None:
@@ -959,13 +969,12 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
     t_indexes = np.arange(D, len(pc_input), t_steps)
     pred_model = model.predict(pc_input)
     full_dstrf = model.dstrf(pc_input, D, t_indexes=t_indexes, reset_backened=True)
+
     # For computing a PCA set of DSTRF heatmaps
     short_dstrf = model.dstrf(input, D)
 
     full_dpca = compute_dpcs(full_dstrf)
     short_dcpa = compute_dpcs(short_dstrf)
-    absmax = np.max(np.abs(short_dcpa['pcs']))
-
 
     # Base gridspec to subspec our graphs below
     fig = plt.figure()
@@ -975,36 +984,20 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
     fig.subplots_adjust(left=0,right=1,bottom=0,top=1)
 
     # Input, PCA's, and DPCA graphs added to our base gridspec
-    inp_gs = base_gs[0].subgridspec(1,1)
-    inp_ax = fig.add_subplot(inp_gs[0,0])
-    inp_ax.set_ylabel('Hz')
-    inp_ax.imshow(pc_input.T, aspect='auto', interpolation='none')
-    inp_ax.text(inp_ax.get_xlim()[0], inp_ax.get_ylim()[1], f"Input", va='top', bbox=_TEXT_BBOX)
+    gs = [base_gs[x].subgridspec(1,1) for x in range(base_gs.get_geometry()[0]-1)]
+    gs.append(base_gs[3].subgridspec(1, short_dcpa['pcs'].shape[1]))
+    gs_ax = [fig.add_subplot(y[0,0]) for y in gs]
+    gs_ax.append(fig.add_subplot(gs[3][:, :]))
 
-    pred_gs = base_gs[1].subgridspec(1,1)
-    pred_ax = fig.add_subplot(pred_gs[0,0])
-    pred_ax.margins(0,.1)
-    pred_ax.plot(pred_model)
-    pred_ax.text(pred_ax.get_xlim()[0], pred_ax.get_ylim()[1], f"Prediction", va='top', bbox=_TEXT_BBOX)
+    input_plot = plot_data(pc_input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
+    predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, .1)}, display_ratio=1.0)
+    dpca_plot = [plot_data(full_dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=gs_ax[2]) 
+                for i in range(full_dpca['projection'].shape[2])]
+    set_plot_options(gs_ax[2], {'legend':True, 'margins':(0,.1), 'show_x':False,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
 
-    pca_gs = base_gs[2].subgridspec(1,1)
-    pca_ax = fig.add_subplot(pca_gs[0,0])
-    pca_ax.margins(0,.1)
-    [pca_ax.plot(full_dpca['projection'][0, :, i], label=f'DPCA {i}') for i in range(full_dpca['projection'].shape[2])]
-    pca_ax.text(pca_ax.get_xlim()[0], pca_ax.get_ylim()[1], f"DSTRF PC's", va='top', bbox=_TEXT_BBOX)
-
-    dstrf_gs = base_gs[3].subgridspec(1, short_dcpa['pcs'].shape[1])
-    dstrf_ax = fig.add_subplot(dstrf_gs[:, :])
-    dstrf_ax.set_ylabel('Features')
-
-    for idx, ax in enumerate(dstrf_gs.subplots()):
+    for idx, ax in enumerate(gs[3].subplots()):
         data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
-        ax.imshow(data, aspect='auto', interpolation='none',
-                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-        ax.text(ax.get_xlim()[0], ax.get_ylim()[1], f"DPCA:{idx}", va='top', bbox=_TEXT_BBOX)
-        
-    pca_ax.set_xticks([])
-    pca_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-    pca_ax.legend(loc='upper right', bbox_to_anchor=(1.0,1.0))
+        plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False}, display_ratio=1.0)
+
     fig.tight_layout()
     return base_gs
