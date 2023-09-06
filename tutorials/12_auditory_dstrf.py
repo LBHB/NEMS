@@ -149,4 +149,4 @@ visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 # This plot computes a DSTRF based on every single existing 
 # timestep on the length of your input. This can take time...
-plot_dpca(fitted_cnn, spectrogram_fit, D=15, t_steps=20, pc_len=6000)
+visualization.plot_dpca(fitted_cnn, spectrogram_fit, D=15, t_steps=20, pc_len=6000)
