@@ -1,5 +1,3 @@
-# NOTE: Unfinished, provided comments are at best only partially correct and missing context  
-# TODO: Finish filling out data, confirm its correct, and make sure imports are working properly
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -7,6 +5,7 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
+from nems.visualization.model import plot_dpca
 from nems.tools.dstrf import compute_dpcs
 
 # nems_db import module
@@ -82,7 +81,7 @@ cnn.name = f"CNN_Model"
 fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 
-ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
+ln_dstrf = fitted_ln.dstrf(spectrogram_fit, D=5, reset_backend=True)
 # Note that this linear data does not show any changes between time steps
 visualization.plot_dstrf(ln_dstrf['input'])
 
@@ -95,7 +94,7 @@ print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
 print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
 # Output data is the actual output of a given layer at a time interval
 print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, t_indexes=np.arange(15, spectrogram_fit.shape[0]) , reset_backend=True)
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 
 
 
@@ -121,9 +120,9 @@ cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, t_indexes=np.arange(15, spec
 pca = compute_dpcs(cnn_dstrf)
 
 # If given multiple inputs; pca['input_key']['pcs'].shape would be equivalent
-print(pca['pcs'].shape)
-print(pca['pc_mag'])
-print(pca['projection'])
+print(f'Shape of our PCAs: {pca["pcs"].shape}')
+print(f'PC Mag: {pca["pc_mag"]}')
+print(f'PCA projection: {pca["projection"]}')
 
 
 ###########################
@@ -135,6 +134,9 @@ print(pca['projection'])
 # plot_dstrf
 # Provide a dstrf and a list of heatmaps will be plotted out
 #
+# plot_dpca
+# Directly creates a set of dstrf/pca graphs from the model 
+# and spectrogram data itself. 
 ###########################
 
 # Traditional heatmap of our multidimensional set of data.
@@ -144,3 +146,7 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 # Using our Principle Components, we have a much easier time
 # interpreting the same data
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
+
+# This plot computes a DSTRF based on every single existing 
+# timestep on the length of your input. This will take time...
+plot_dpca(fitted_cnn, spectrogram_test)
