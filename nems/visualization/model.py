@@ -927,39 +927,54 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     plt.tight_layout()
     return ax
 
-def plot_dpca(model, input, xunits='Bins'):
+def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons", xunits='Bins'):
     """Using PCA's and DSTRF's to plot PC adjustments over fit data
     and see PC of overall DSTRF's. Returns base GridSpec"""
-    pred_model = model.predict(input)
-    full_dstrf = model.dstrf(input, D=15, t_indexes=np.arange(15, input.shape[0]))
-    partial_dstrf = model.dstrf(input, D=15, reset_backened=True)
+    if not pc_len:
+        pc_len = len(input)/5
+    pc_input = input[:pc_len]
+    t_indexes = np.arange(D, len(pc_input), t_steps)
+    pred_model = model.predict(pc_input)
+    full_dstrf = model.dstrf(pc_input, D, t_indexes=t_indexes)
+    # For computing a PCA set of DSTRF heatmaps
+    short_dstrf = model.dstrf(input, D, reset_backened=True)
 
     full_dpca = compute_dpcs(full_dstrf)
-    partial_dcpa = compute_dpcs(partial_dstrf)
-    absmax = np.max(np.abs(partial_dcpa['pcs']))
+    short_dcpa = compute_dpcs(short_dstrf)
+    absmax = np.max(np.abs(short_dcpa['pcs']))
 
 
     # Base gridspec to subspec our graphs below
     fig = plt.figure()
-    base_gs = gridspec.GridSpec(1, 3, figure=fig)
+    base_gs = gridspec.GridSpec(4, 1, figure=fig)
+    fig.supxlabel(f'Time({xunits})')
+    fig.suptitle(title)
+    fig.subplots_adjust(left=0,right=1,bottom=0,top=1)
 
     # Input, PCA's, and DPCA graphs added to our base gridspec
     inp_gs = base_gs[0].subgridspec(1,1)
     inp_ax = fig.add_subplot(inp_gs[0,0])
+    inp_ax.set_ylabel('Hz')
 
-    pca_gs = base_gs[1].subgridspec(1,1)
+    pred_gs = base_gs[1].subgridspec(1,1)
+    pred_ax = fig.add_subplot(pred_gs[0,0])
+    pred_ax.margins(0,.1)
+
+    pca_gs = base_gs[2].subgridspec(1,1)
     pca_ax = fig.add_subplot(pca_gs[0,0])
+    pca_ax.margins(0,.1)
+    pca_ax.set_xticks([])
 
-    dstrf_gs = base_gs[2].subgridspec(partial_dcpa['pcs'].shape[1], 1)
+    dstrf_gs = base_gs[3].subgridspec(1, short_dcpa['pcs'].shape[1])
     dstrf_ax = fig.add_subplot(dstrf_gs[:, :])
+    dstrf_ax.set_ylabel('Features')
 
-    inp_ax.plot(pred_model)
-    pca_ax.plot(full_dpca['projection'][0])
-
+    inp_ax.imshow(pc_input.T, aspect='auto', interpolation='none')
+    pred_ax.plot(pred_model)
+    [pca_ax.plot(full_dpca['projection'][0, :, i]) for i in range(full_dpca['projection'].shape[2])]
     for idx, ax in enumerate(dstrf_gs.subplots()):
-        data = np.fliplr(partial_dcpa['pcs'][0,idx,:,:])
+        data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
         ax.imshow(data, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
-
-    plt.tight_layout()
+    fig.tight_layout()
     return base_gs
