@@ -94,7 +94,7 @@ print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
 print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
 # Output data is the actual output of a given layer at a time interval
 print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, reset_backend=True)
 
 
 
@@ -148,5 +148,5 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 # This plot computes a DSTRF based on every single existing 
-# timestep on the length of your input. This will take time...
-plot_dpca(fitted_cnn, spectrogram_test)
+# timestep on the length of your input. This can take time...
+plot_dpca(fitted_cnn, spectrogram_fit, D=15, t_steps=20, pc_len=6000)
