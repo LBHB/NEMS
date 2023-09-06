@@ -74,7 +74,6 @@ def set_plot_options(ax, layer_options, time_kwargs=None):
     
     # Set margins of ax
     ax.margins(*ops['margins'])
-    print(*(ops['margins']))
 
     # Remove top and right segments of border around axes
     ax_remove_box(ax)
@@ -889,7 +888,6 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
         figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
     # Update plot options with user-given options
     figure_kwargs['xlabel'] = f'Time ({xunits})'
-    set_plot_options(ax, figure_kwargs)
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
@@ -905,14 +903,15 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
         indicies, remainder = preprocessing.split.indices_by_fraction(target, display_ratio)
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
-    ax.autoscale()
-
+        
+    set_plot_options(ax, figure_kwargs)
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
         ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
         if figure_kwargs.get('legend'):
             ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
+    
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
@@ -981,7 +980,6 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
     base_gs = gridspec.GridSpec(4, 1, figure=fig)
     fig.supxlabel(f'Time({xunits})')
     fig.suptitle(title)
-    fig.subplots_adjust(left=0,right=1,bottom=0,top=1)
 
     # Input, PCA's, and DPCA graphs added to our base gridspec
     gs = [base_gs[x].subgridspec(1,1) for x in range(base_gs.get_geometry()[0]-1)]
@@ -989,15 +987,14 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
     gs_ax = [fig.add_subplot(y[0,0]) for y in gs]
     gs_ax.append(fig.add_subplot(gs[3][:, :]))
 
-    input_plot = plot_data(pc_input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
-    predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, .1)}, display_ratio=1.0)
+    input_plot = plot_data(pc_input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'show_x': True,'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
+    predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, 999), 'show_x': True}, display_ratio=1.0)
     dpca_plot = [plot_data(full_dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=gs_ax[2]) 
                 for i in range(full_dpca['projection'].shape[2])]
-    set_plot_options(gs_ax[2], {'legend':True, 'margins':(0,.1), 'show_x':False,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
-
+    set_plot_options(gs_ax[2], {'legend':True, 'margins':(0,.1), 'show_x':True,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
     for idx, ax in enumerate(gs[3].subplots()):
         data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
-        plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False}, display_ratio=1.0)
+        plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False, 'show_x':False}, display_ratio=1.0)
 
     fig.tight_layout()
     return base_gs
