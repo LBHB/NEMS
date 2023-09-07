@@ -81,18 +81,21 @@ fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
 
 ln_dstrf = fitted_ln.dstrf(spectrogram_fit, D=5, reset_backend=True)
+
 # Note that this linear data does not show any changes between time steps
 visualization.plot_dstrf(ln_dstrf['input'])
 
 # In this example we can see how different options may provide changes
 # and how we can interact with that data
-print(f"DSTRF Shape: {ln_dstrf['input'].shape}")
-# The number of output channels from layers we're keeping track of
-print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
-# Time indexes are to decide when we look into the model and save that information
-print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
-# Output data is the actual output of a given layer at a time interval
-print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
+# .shape[0]: The number of output channels from layers we're keeping track of
+# .shape[1]: Time indexes are to decide when we look into the model and save that information
+# .shape[2:4]: Output data is the actual output of a given layer at a time interval
+
+print(f'''
+      DSTRF Shape: {ln_dstrf['input'].shape} \n 
+      Output Channels: {ln_dstrf['input'].shape[0]} \n 
+      Time Indexes: {ln_dstrf['input'].shape[1]} \n 
+      Output Data: {ln_dstrf['input'].shape[2:4]}''')
 cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, reset_backend=True)
 
 
@@ -119,9 +122,10 @@ cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, reset_backend=True)
 pca = compute_dpcs(cnn_dstrf)
 
 # If given multiple inputs; pca['input_key']['pcs'].shape would be equivalent
-print(f'Shape of our PCAs: {pca["pcs"].shape}')
-print(f'PC Mag: {pca["pc_mag"]}')
-print(f'PCA projection: {pca["projection"]}')
+print(f'''
+      Shape of our PCAs: {pca["pcs"].shape} \n
+      PC Mag: {pca["pc_mag"]} \n 
+      PCA projection: {pca["projection"]}''')
 
 
 ###########################
