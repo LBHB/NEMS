@@ -946,8 +946,6 @@ def plot_dpca(model, input, t_skip=20, t_len=0, title="DPCA Comparisons", xunits
         Fitted Model object to be used for DSTRF and predictions
     input: np.ndarray
         Input data to be used for prediction and DSTRF
-    D: Int
-        Size of DSTRF tape memory
     t_skip: Int
         How many input values to repeatedly skip over when creating a full dstrf
     t_len: Int

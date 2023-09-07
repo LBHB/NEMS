@@ -129,14 +129,11 @@ print(f'PCA projection: {pca["projection"]}')
 # By viewing a heatmap of our DSTRF, we can view our data
 # at each time step, allowing us to start to intepret new
 # information.
-# 
+###########################
+
+###########################
 # plot_dstrf
 # Provide a dstrf and a list of heatmaps will be plotted out
-#
-# plot_dpca
-# Directly creates a set of dstrf/pca graphs from the model 
-# and spectrogram data itself. 
-#   t_skip:
 ###########################
 
 # Traditional heatmap of our multidimensional set of data.
@@ -146,6 +143,19 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 # Using our Principle Components, we have a much easier time
 # interpreting the same data
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
+
+###########################
+# plot_dpca
+# Directly creates a set of dstrf/pca graphs from the model 
+# and spectrogram data itself. 
+#   t_skip: How many indexes to skip at each point when creating a full dstrf
+#           from our entire input
+#   t_len: Max length of our input to reduce overall size of our input
+#          when processing entire dstrf on input
+#   title: Title of figure
+#   xunits: units to be shown on x_label
+#   **dstrf_kwargs: Keyword arguments to be passed to our dstrf calls
+###########################
 
 # This plot computes a DSTRF based on every single existing 
 # timestep on the length of your input. This can take time...
