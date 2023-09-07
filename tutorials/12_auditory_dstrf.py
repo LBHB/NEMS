@@ -5,7 +5,6 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
-from nems.visualization.model import plot_dpca
 from nems.tools.dstrf import compute_dpcs
 
 # nems_db import module
@@ -137,6 +136,7 @@ print(f'PCA projection: {pca["projection"]}')
 # plot_dpca
 # Directly creates a set of dstrf/pca graphs from the model 
 # and spectrogram data itself. 
+#   t_skip:
 ###########################
 
 # Traditional heatmap of our multidimensional set of data.
@@ -149,4 +149,4 @@ visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 # This plot computes a DSTRF based on every single existing 
 # timestep on the length of your input. This can take time...
-visualization.plot_dpca(fitted_cnn, spectrogram_fit, D=15, t_steps=20, pc_len=6000)
+visualization.plot_dpca(fitted_cnn, spectrogram_fit, t_skip=20, t_len=6000, D=15, reset_backened=True)
