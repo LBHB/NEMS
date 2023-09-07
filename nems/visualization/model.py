@@ -932,7 +932,7 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     plt.tight_layout()
     return ax
 
-def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons", xunits='Bins'):
+def plot_dpca(model, input, t_skip=20, t_len=0, title="DPCA Comparisons", xunits='Bins', **dstrf_kwargs):
     """
     Using PCA's and DSTRF's to plot PC adjustments over fit data
     and see PC of overall DSTRF's. Returns base GridSpec
@@ -948,9 +948,9 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
         Input data to be used for prediction and DSTRF
     D: Int
         Size of DSTRF tape memory
-    t_steps: Int
+    t_skip: Int
         How many input values to repeatedly skip over when creating a full dstrf
-    pc_len: Int
+    t_len: Int
         Length of the input you wish to fully process for full dstrf
     title: String
         Suptitle for the plot figure
@@ -958,15 +958,20 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
         Unit value name to append to x_label
     
     """
-    if not pc_len:
-        pc_len = len(input)/5
-    pc_input = input[:pc_len]
-    t_indexes = np.arange(D, len(pc_input), t_steps)
-    pred_model = model.predict(pc_input)
-    full_dstrf = model.dstrf(pc_input, D, t_indexes=t_indexes, reset_backened=True)
+    # We need to define D before we can create any time indexes for our DSTRF
+    D=25
+    if dstrf_kwargs['D']:
+        D = dstrf_kwargs['D']
 
-    # For computing a PCA set of DSTRF heatmaps
-    short_dstrf = model.dstrf(input, D)
+    # If length of our time-frame is not given, just reduces size to 1/5th for time/viewing
+    if not t_len:
+        t_len = len(input)/5
+    pc_input = input[:t_len]
+    t_indexes = np.arange(D, len(pc_input), t_skip)
+    pred_model = model.predict(pc_input)
+
+    full_dstrf = model.dstrf(pc_input, t_indexes=t_indexes, **dstrf_kwargs)
+    short_dstrf = model.dstrf(input, **dstrf_kwargs)
 
     full_dpca = compute_dpcs(full_dstrf)
     short_dcpa = compute_dpcs(short_dstrf)
