@@ -881,8 +881,6 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
     if ax is None:
         fig, ax = plt.subplots(1, 1)
         ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
-        ax.margins(0,.05)
     data = np.array(data)
     if not figure_kwargs:
         figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
@@ -905,13 +903,11 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
         
     set_plot_options(ax, figure_kwargs)
+    ax.autoscale()
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
         ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
-        if figure_kwargs.get('legend'):
-            ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
-    
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
@@ -932,7 +928,7 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
         a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=_TEXT_BBOX)
-        
+    
     plt.tight_layout()
     return ax
 
@@ -989,9 +985,10 @@ def plot_dpca(model, input, D=15, t_steps=20, pc_len=0, title="DPCA Comparisons"
 
     input_plot = plot_data(pc_input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'show_x': True,'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
     predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, 999), 'show_x': True}, display_ratio=1.0)
-    dpca_plot = [plot_data(full_dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=gs_ax[2]) 
+    dpca_plot = [plot_data(full_dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=gs_ax[2], show_titles=False) 
                 for i in range(full_dpca['projection'].shape[2])]
     set_plot_options(gs_ax[2], {'legend':True, 'margins':(0,.1), 'show_x':True,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
+    gs_ax[2].text(gs_ax[2].get_xlim()[0], gs_ax[2].get_ylim()[1], 'DPCAs', va='top', bbox=_TEXT_BBOX)
     for idx, ax in enumerate(gs[3].subplots()):
         data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
         plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False, 'show_x':False}, display_ratio=1.0)
