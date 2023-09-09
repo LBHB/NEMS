@@ -376,7 +376,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 pax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
             else:
                 if (index>0) & (layers[index-1].name=='wc'):
-                    plot_strf(layer, wc_layer=layers[i-1], ax=pax)
+                    plot_strf(layer, wc_layer=layers[index-1], ax=pax)
                 else:
                     plot_strf(layer, ax=pax)
 
