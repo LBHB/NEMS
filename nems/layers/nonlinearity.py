@@ -153,7 +153,7 @@ class LevelShift(StaticNonlinearity):
 
         """
         kwargs = {
-            'label': [f'Channel {i}' for i in range(self.shape[1])]
+            'label': [f'Channel {i}' for i in range(self.shape[0])]
         }
         return kwargs
 
@@ -211,10 +211,10 @@ class DoubleExponential(StaticNonlinearity):
         zero = np.zeros(shape=self.shape)
         one = np.ones(shape=self.shape)
         phi = Phi(
-            Parameter('base', shape=self.shape, prior=Normal(-one, one/5)),
-            Parameter('amplitude', shape=self.shape, prior=Normal(2*one, one/5)),
-            Parameter('shift', shape=self.shape, prior=Normal(zero, one/5)),
-            Parameter('kappa', shape=self.shape, prior=Normal(one, one/5))
+            Parameter('base', shape=self.shape, prior=Normal(-one/10, one/50)),
+            Parameter('amplitude', shape=self.shape, prior=Normal(one/2, one/5)),
+            Parameter('shift', shape=self.shape, prior=Normal(zero, one/10)),
+            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10))
             )
         return phi
 
@@ -285,6 +285,9 @@ class RectifiedLinear(StaticNonlinearity):
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
         fixed_parameters = {}
+        self.no_shift=no_shift
+        self.no_offset=no_offset
+        self.no_gain=no_gain
         shift, offset, gain = self.get_parameter_values()
         if no_shift: fixed_parameters['shift'] = np.full_like(shift, 0)
         if no_offset: fixed_parameters['offset'] = np.full_like(offset, 0)
@@ -393,6 +396,10 @@ class RectifiedLinear(StaticNonlinearity):
 
         if self._skip_nonlinearity:
             return super().as_tensorflow_layer(**kwargs)
+        elif self.no_shift & self.no_offset & self.no_gain:
+            class RectifiedLinearTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return tf.nn.relu(inputs)
         else:
             class RectifiedLinearTF(NemsKerasLayer):
                 def call(self, inputs):

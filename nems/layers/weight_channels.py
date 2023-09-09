@@ -217,7 +217,13 @@ class WeightChannelsMulti(WeightChannels):
         """Multiply `input[...,i]` by `WeightChannels.coefficients[...,i]`."""
 
         try:
-            output = np.moveaxis(np.matmul(np.moveaxis(input, [0,1], [-2,-1]), 
+            # hack -- reshape spectral axis to allow using the same weights
+            # across multiple tiles, the input, reflecting different dimensions
+            # (eg, the stimulus into each ear)
+            if input.shape[-1] > self.coefficients.shape[0]:
+                input = np.swapaxes(np.reshape(input, [input.shape[0], -1, self.coefficients.shape[0]]), -2, -1)
+
+            output = np.moveaxis(np.matmul(np.moveaxis(input, [0,1], [-2,-1]),
                                            np.moveaxis(self.coefficients, [0,1], [-2,-1])),
                                  [-2,-1], [0, 1])
         except ValueError as e:
@@ -241,9 +247,16 @@ class WeightChannelsMulti(WeightChannels):
             def call(self, inputs):
                 # reshape inputs and coefficients so that mult can happen on last
                 # two dimensions. Broadcasting seems to work fine this way
+                if inputs.shape[-1] > self.coefficients.shape[0]:
+                    d = int(inputs.shape[-1]/self.coefficients.shape[0])
+                    inputs_ = tf.experimental.numpy.swapaxes(
+                        tf.reshape(tf.convert_to_tensor(inputs), [-1, inputs.shape[1], d, self.coefficients.shape[0]]), -2, -1)
+                else:
+                    inputs_ = inputs
+
                 out = tf.experimental.numpy.moveaxis(
                     tf.matmul(
-                        tf.experimental.numpy.moveaxis(inputs, [1, 2], [-2, -1]),
+                        tf.experimental.numpy.moveaxis(inputs_, [1, 2], [-2, -1]),
                         tf.experimental.numpy.moveaxis(self.coefficients, [0, 1], [-2, -1])
                         ),
                     [-2, -1], [1, 2]
@@ -277,8 +290,8 @@ class WeightChannelsGaussian(WeightChannels):
 
         """
 
-        mean_bounds = (0, 1)
-        sd_bounds = (0, np.inf)
+        mean_bounds = (-0.1, 1.1)
+        sd_bounds = (0.05, np.inf)
 
         rank = self.shape[1]
         other_dims = self.shape[2:]
@@ -293,7 +306,7 @@ class WeightChannelsGaussian(WeightChannels):
 
         mean_prior = Normal(tiled_means, np.full_like(tiled_means, 0.2))
         sd_prior = HalfNormal(np.full_like(tiled_means, 0.4))
-            
+
         parameters = Phi(
             Parameter(name='mean', shape=shape, bounds=mean_bounds,
                         prior=mean_prior),
@@ -343,13 +356,16 @@ class WeightChannelsGaussian(WeightChannels):
                 input_features = tf.cast(tf.shape(inputs)[-1],
                                          dtype=inputs.dtype)
                 temp = tf.range(input_features) / input_features
-                temp = tf.transpose((temp-mean)/sd, [1,0])
+
+                # roll channel dim from -1 to 0
+                sh = np.roll(np.arange(len(mean.shape)),1)
+                temp = tf.transpose((temp-mean)/sd, sh)
+
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
                 norm = tf.math.reduce_sum(temp, axis=-1, keepdims=True)
                 kernel = temp / norm
-
                 return tf.tensordot(inputs, kernel, axes=[[2], [0]])
-            
+
             def weights_to_values(self):
                 values = self.parameter_values
                 # Undo scaling.

@@ -104,7 +104,7 @@ class DataSet:
         
         """
         if self.has_samples:
-            n_samples = list(self.inputs.values())[0].shape[0]
+            n_samples = len(list(self.inputs.values())[0])
         else:
             n_samples = None
         return n_samples
@@ -123,14 +123,18 @@ class DataSet:
         """
 
         # Initialize inputs
-        if isinstance(input, np.ndarray):
-            input_dict = {self.input_name: input}
-            if state is not None:
-                input_dict[self.state_name] = state
-        else:
+        if isinstance(input, dict):
             # Arrays in shallow copy will share memory, but the new data
             # dictionary will end up with additional keys after evaluation.
             input_dict = input.copy()
+        else:
+            input_dict = {self.input_name: input}
+        if state is not None:
+            input_dict[self.state_name] = state
+        if isinstance(input, dict) | isinstance(input, np.ndarray):
+            self.data_format = 'array'
+        else:
+            self.data_format = 'fn'
 
         # Initialize outputs
         output_dict = {}
@@ -138,10 +142,10 @@ class DataSet:
         # Initialize targets
         if target is None:
             target_dict = {}
-        elif isinstance(target, np.ndarray):
-            target_dict = {self.target_name: target}
-        else:
+        elif isinstance(target, dict):
             target_dict = target.copy()
+        else:
+            target_dict = {self.target_name: target}
 
         # Make sure all targets are at least 2D, otherwise undesired broadcasting
         # may occurr in cost functions.
@@ -214,6 +218,9 @@ class DataSet:
         True
         
         """
+        if self.data_format=='fn':
+            # don't do anything if data is a generator
+            return self
 
         # In case inputs/outputs and targets have different numbers of samples,
         # broadcast within each category first.
@@ -323,7 +330,7 @@ class DataSet:
 
         if (batch_size is None) and (len(data) > 0):
             # Assume sample dimension exists, set batch_size to force 1 batch
-            batch_size = list(data.values())[0].shape[0]
+            batch_size = len(list(data.values())[0])
         batched_data = {
             k: np.split(v, np.arange(batch_size, len(v), batch_size))
             for k, v in data.items()

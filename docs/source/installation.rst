@@ -44,8 +44,8 @@ after making changes to the source code.
     pytest NEMS
 
 
-Alternative: PyPI (pip)
------------------------
+Install with pip
+-----------------------------
 
 Create a new environment using your preferred environment manager, then use
 :code:`pip install`.
@@ -55,8 +55,8 @@ Create a new environment using your preferred environment manager, then use
     pip install PyNEMS                       # note the leading Py
 
 
-Alternative: Conda
-------------------
+Install with conda
+-------------------------------
 Coming soon.
 
 
@@ -64,7 +64,7 @@ Note: the :code:`mkl` library for :code:`numpy` does not play well with
 :code:`tensorflow`. If using :code:`conda` to install dependencies manually,
 and you want to use the :code:`tensorflow` backend, use :code:`conda-forge` for
 :code:`numpy` (which uses :code:`openblas` instead of :code:`mkl`):
-::
+:: 
 
     conda install -c conda-forge numpy
 

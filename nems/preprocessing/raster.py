@@ -62,7 +62,7 @@ def spike_times_to_raster(spike_times, fs, duration=None):
     duplicate_spikes = 0
     truncated_spikes = 0
     for i, times in enumerate(spike_times):
-        column = np.zeros(shape=(n_time_bins, 1), dtype=np.bool)
+        column = np.zeros(shape=(n_time_bins, 1), dtype=bool)
 
         for j, t in enumerate(times):
             spike_bin = round(t*fs)

@@ -204,3 +204,36 @@ def test_frozen_bounds():
         model.parameter_count - 3
     assert len(model.get_bounds_vector()) == \
         model.parameter_count - 3
+
+def test_insert_layers():
+    layers = [WeightChannels(shape=(10,2)), FiniteImpulseResponse(shape=(5,2))]
+    model1 = Model(layers=layers)
+    model2 = Model()
+    model2.add_layers(*layers)
+    # same as constructor?
+    assert model1 == model2
+    # all layers?
+    assert len(model2.layers) == 2
+    # correct order?
+    assert model2.layers[0] == layers[0]
+    assert model2.layers[1] == layers[1]
+
+    layers.insert(1, WeightChannels(shape=(5,2)))
+    model2.insert_layers(1, layers[1])
+    
+    assert model2.layers[0] == layers[0]
+    assert model2.layers[1] == layers[1]
+    assert model2.layers[2] == layers[2]
+
+def test_insert_layer_keyerror():
+    with pytest.raises(TypeError, match="An Index integer value must be provided as the first argument"):
+        layers = [FiniteImpulseResponse(shape=(5,2))]
+        model = Model(layers=[WeightChannels(shape=(10,2))])
+        model.insert_layers(layers)
+
+def test_insert_layer_valueerror():
+    with pytest.raises(ValueError, match="Index value out of range"):
+        layers = [FiniteImpulseResponse(shape=(5,2))]
+        model = Model(layers=[WeightChannels(shape=(10,2))])
+        model.insert_layers(2, layers)
+

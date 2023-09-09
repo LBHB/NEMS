@@ -87,6 +87,8 @@ class NEMSEncoder(json.JSONEncoder):
         # has a corresponding `encode_{name}` method.
         # (This means NEMS objects can subclassed as many times as desired, and
         #  this method will still find the correct base class).
+        if isinstance(obj, np.float32):
+            return float(obj)
         inheritance_list = inspect.getmro(type(obj))
         for cls in inheritance_list:
             encoder = getattr(self, f"encode_{cls.__name__}", None)
