@@ -82,11 +82,13 @@ def load_demo(filebase=None, tutorial_subset=False):
         with np.load(filepath) as data_dict:        
             training_dict = {
                 'spectrogram': data_dict['X_est'],
-                'response': data_dict['Y_est']
+                'response': data_dict['Y_est'],
+                'cellid': data_dict.get('cellid','TAR010c-18-2')
             }
             test_dict = {
                 'spectrogram': data_dict['X_val'],
-                'response': data_dict['Y_val']
+                'response': data_dict['Y_val'],
+                'cellid': data_dict.get('cellid', 'TAR010c-18-2')
             }
 
     if tutorial_subset:

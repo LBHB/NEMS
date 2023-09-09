@@ -1,5 +1,9 @@
 NEMS -- The Neural Encoding Model System
 ========================================
+.. image:: https://img.shields.io/badge/License-GPLv3-blue.svg 
+.. image:: https://img.shields.io/badge/Python-3.10-green 
+.. image:: https://img.shields.io/badge/Python-3.9-green
+
 
 NEMS is the Neural Encoding Model System. It is helpful for fitting a
 mathematical model to time series data, plotting the model predictions,
@@ -24,8 +28,19 @@ Documentation for the previous iteration of NEMS can be found at
 
    tutorials/tutorials
 
-.. toctree::
-   :maxdepth: 1
-   :caption: API
+API Reference
+~~~~~~~~~~~~~
 
-   Module Reference <api/modules>
+.. autosummary::
+   :toctree: _autosummary
+   :template: custom-module-template.rst
+   :caption: API Reference
+   :recursive:
+
+   nems
+
+
+
+
+
+
