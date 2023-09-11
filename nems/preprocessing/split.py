@@ -123,7 +123,7 @@ class JackknifeIterator:
                                  target=self.get_jackknife(self.dataset['target'], self.mask_list[index]),
                                  state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[index]))
         
-        if self.inverse is 'both':
+        if self.inverse == 'both':
             jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[index]), 
                                  target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[index]),
                                  state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[index])))
@@ -243,11 +243,11 @@ def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=Non
 
     else:
         # Determines where to pad our data if indicies are not given
-        if pad_path is 'start':
+        if pad_path == 'start':
             padded_mask = np.arange(0, size)
             padded_array = np.insert(padded_array, obj=padded_mask, values=0, axis=axis)
 
-        elif pad_path is 'end':
+        elif pad_path == 'end':
             padded_mask = np.arange(array_length, padded_length)
             padded_array = np.append(padded_array, np.zeros((size, array_y)), axis=axis)
 
