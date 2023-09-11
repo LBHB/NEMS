@@ -932,7 +932,36 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
     plt.tight_layout()
     return ax
 
-def plot_dpca(model, input, t_skip=20, t_len=0, title="DPCA Comparisons", xunits='Bins', **dstrf_kwargs):
+def plot_dpcs(dpca, ax=None, title="DSTRF PC", xunits='Bins'):
+    """
+    Returns plotted graph of given DPCA. If no ax is given,
+    a new figure will be created. Returns Axes
+
+    Parameters
+    ----------
+    dpca: Dict
+        Computed DPCA Dictionary
+    ax: Axes
+        Given matplotlib ax to plot graph onto
+    title: 
+        Suptitle for the plot figure
+    xunits: String
+        Unit value name to append to x_label
+
+    """
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+        ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        fig.suptitle(title)
+        fig.supxlabel(f'Time({xunits})')
+    
+    [plot_data(dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=ax, show_titles=False) 
+                for i in range(dpca['projection'].shape[2])]
+    set_plot_options(ax, {'legend':True, 'margins':(0,.1), 'show_x':True,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
+    ax.text(ax.get_xlim()[0], ax.get_ylim()[1], 'DPCAs', va='top', bbox=_TEXT_BBOX)
+    return ax
+
+def plot_dpcs_comparison(model, input, t_skip=20, title="DPCA Comparisons", xunits='Bins', **dstrf_kwargs):
     """
     Using PCA's and DSTRF's to plot PC adjustments over fit data
     and see PC of overall DSTRF's. Returns base GridSpec
@@ -961,14 +990,10 @@ def plot_dpca(model, input, t_skip=20, t_len=0, title="DPCA Comparisons", xunits
     if dstrf_kwargs['D']:
         D = dstrf_kwargs['D']
 
-    # If length of our time-frame is not given, just reduces size to 1/5th for time/viewing
-    if not t_len:
-        t_len = len(input)/5
-    pc_input = input[:t_len]
-    t_indexes = np.arange(D, len(pc_input), t_skip)
-    pred_model = model.predict(pc_input)
+    t_indexes = np.arange(D, len(input), t_skip)
+    pred_model = model.predict(input)
 
-    full_dstrf = model.dstrf(pc_input, t_indexes=t_indexes, **dstrf_kwargs)
+    full_dstrf = model.dstrf(input, t_indexes=t_indexes, **dstrf_kwargs)
     short_dstrf = model.dstrf(input, **dstrf_kwargs)
 
     full_dpca = compute_dpcs(full_dstrf)
@@ -986,12 +1011,11 @@ def plot_dpca(model, input, t_skip=20, t_len=0, title="DPCA Comparisons", xunits
     gs_ax = [fig.add_subplot(y[0,0]) for y in gs]
     gs_ax.append(fig.add_subplot(gs[3][:, :]))
 
-    input_plot = plot_data(pc_input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'show_x': True,'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
+    input_plot = plot_data(input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'show_x': True,'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
     predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, 999), 'show_x': True}, display_ratio=1.0)
-    dpca_plot = [plot_data(full_dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=gs_ax[2], show_titles=False) 
-                for i in range(full_dpca['projection'].shape[2])]
-    set_plot_options(gs_ax[2], {'legend':True, 'margins':(0,.1), 'show_x':True,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
-    gs_ax[2].text(gs_ax[2].get_xlim()[0], gs_ax[2].get_ylim()[1], 'DPCAs', va='top', bbox=_TEXT_BBOX)
+    dpca_plot = plot_dpcs(full_dpca, ax=gs_ax[2])
+
+    # DSTRF heatmaps
     for idx, ax in enumerate(gs[3].subplots()):
         data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
         plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False, 'show_x':False}, display_ratio=1.0)
