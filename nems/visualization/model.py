@@ -475,8 +475,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 y_pos = second_last_ax.get_ylim()[1]
                 second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
 
-
-                return
+                return figure
             else:
                 for i, y in enumerate(target):
                     last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
