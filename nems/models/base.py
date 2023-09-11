@@ -26,9 +26,6 @@ class Model:
     This is the primary class for interacting with NEMS. Conceptually, a
     Model encapsulates all computations needed to transform an input into
     a desired output (or prediction).
-
-    TODO: more context here?
-
 ..
     Attributes
     ----------
@@ -65,7 +62,7 @@ class Model:
                     and a single target.
     """
 
-    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None,
+    def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
                  fs=None):
         """
         Parameters
@@ -120,6 +117,7 @@ class Model:
             
 
         self.name = name if name is not None else 'UnnamedModel'
+        self.output_name = output_name
 
         # Store optional metadata. This is a generic dictionary for information
         # about the model. Any type can be stored here as long as it can be
@@ -459,6 +457,8 @@ class Model:
             out = data.outputs
             if len(out) == 1:
                 out = list(out.values())[0]
+            elif self.output_name is not None:
+                out = out[self.output_name]
         else:
             if as_dataset:
                 out = data

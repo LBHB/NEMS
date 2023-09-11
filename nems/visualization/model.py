@@ -589,6 +589,8 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
         if len(fir.shape)>2:
             fir=fir[:,:,0]
         strf = fir.T
+        vlines=0
+        vlines_spacing=0
     else:
         wc = wc_layer.coefficients
         fir = fir_layer.coefficients
@@ -621,6 +623,10 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
 
     ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
               cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+    vlines = filter_count-1
+    vline_spacing = lag_count+1
+    for i in range(vlines):
+        ax.axvline((i+1)*vline_spacing-0.5, color='black')
     plt.tight_layout()
     
     return fig

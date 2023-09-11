@@ -50,7 +50,7 @@ class StateGain(Layer):
         gain = Parameter('gain', shape=self.shape, prior=gain_prior)
 
         offset_mean = zero
-        offset_sd = one
+        offset_sd = one/20
         offset_prior = Normal(offset_mean, offset_sd)
         offset = Parameter('offset', shape=self.shape, prior=offset_prior)
         
