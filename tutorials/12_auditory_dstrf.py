@@ -44,6 +44,10 @@ cnn.add_layers(
 )
 cnn.name = f"CNN_Model"
 
+# Fitting both our models to given fit data from our demo data import
+fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
+fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
+
 ############GETTING STARTED###############
 ########################################################
 # Auditory DSTRF
@@ -76,11 +80,7 @@ cnn.name = f"CNN_Model"
 # Linear model is used, you will see that our DSTRF values will not
 # change
 
-# Fitting both our models to given fit data from our demo data import
-fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
-fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
-
-ln_dstrf = fitted_ln.dstrf(spectrogram_fit, D=5, reset_backend=True)
+ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
 
 # Note that this linear data does not show any changes between time steps
 visualization.plot_dstrf(ln_dstrf['input'])
@@ -96,7 +96,7 @@ print(f'''
       Output Channels: {ln_dstrf['input'].shape[0]} \n 
       Time Indexes: {ln_dstrf['input'].shape[1]} \n 
       Output Data: {ln_dstrf['input'].shape[2:4]}''')
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, reset_backend=True)
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 
 
 
@@ -149,7 +149,7 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 ###########################
-# plot_dpca
+# plot_dpcs_comparison
 # Directly creates a set of dstrf/pca graphs from the model 
 # and spectrogram data itself. 
 #   t_skip: How many indexes to skip at each point when creating a full dstrf
@@ -163,4 +163,25 @@ visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
 
 # This plot computes a DSTRF based on every single existing 
 # timestep on the length of your input. This can take time...
-visualization.plot_dpca(fitted_cnn, spectrogram_fit, t_skip=20, t_len=6000, D=15, reset_backened=True)
+visualization.plot_dpcs_comparison(fitted_cnn, spectrogram_test, t_skip=20, D=15, reset_backened=True)
+
+###########################
+# plot_dpcs
+# Takes the core of our comparison function, and 
+# provides a graph(or figure) representing the full dpcs of the input
+#   dpca: DPCA to pull our pc's from and plot to our graph
+#   ax: Axes on which to plot, if none is given a figure will be created
+#   title, xunits: same as above
+###########################
+
+# First, create a set of indexes to run a PCA on the entire inpute
+# 15 = DSTRF memory, 25 = # of indexes to skip over at each point
+# Skipping indexes can help improve our DSTRF & DPCA visualizations
+t_indexes = np.arange(15, len(spectrogram_test), 25)
+
+full_cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, t_indexes=t_indexes, reset_backend=True)
+
+full_cnn_dpcs = compute_dpcs(full_cnn_dstrf)
+
+# Plots our newly created set of full dpc's
+visualization.plot_dpcs(full_cnn_dpcs)
