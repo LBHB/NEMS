@@ -5,7 +5,7 @@ from .tools import require_shape, pop_shape
 from nems.distributions import Normal, HalfNormal
 from nems.registry import layer
 
-# NOTE: WIP, currently non-functional
+# NOTE: WIP, currently only partially-functional
 class Conv2d(Layer):
     '''
     NEMS compatible convolutional 2-D layer. Currently
@@ -14,8 +14,6 @@ class Conv2d(Layer):
     def __init__(self, stride=1, pad_type='zero', pad_axes='both',
                   pool_type='mean', **kwargs):
         '''
-        NOTE: Any way to make filter simpler? 
-        Filter: 4D array format [filter_height, filter_width, in_channels, out_channels]
         '''
         require_shape(self, kwargs, minimum_ndim=2)
         self.stride      = stride
@@ -26,6 +24,8 @@ class Conv2d(Layer):
 
     def initial_parameters(self):
         '''
+        Saves important paramenters such as input data shape, to be used
+        in evaluation.
         '''
         mean = np.full(shape=self.shape, fill_value=0.0)
         sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
@@ -37,43 +37,62 @@ class Conv2d(Layer):
     def evaluate(self, input):
         '''
         '''
-        return self.convolution(input)
-
-    def convolution(self, input):
-        '''
-        '''
-        #input_tensor = tf.cast(tf.reshape(input, [1, input.shape[0], input.shape[1], 1] ), tf.float32)
-        input_tensor = input
-        filter_tensor = tf.cast(tf.reshape(self.coefficients, [self.coefficients.shape[0], self.coefficients.shape[1], 1, self.coefficients.shape[-1]]), tf.float32)
+        self.x_window    = input.shape[0]
+        self.y_window    = input.shape[1]
+        input_tensor = tf.cast(tf.reshape(input, shape=[1, input.shape[0], input.shape[1], 1]), tf.float32)
+        filter_tensor = tf.cast(tf.Variable(tf.constant(0, shape=[self.coefficients.shape[0], self.coefficients.shape[1], 1, 1])), tf.float32)
         if self.pad_type != 'None':
-            self.pad(input_tensor)
-        
-        convolved = []
-        for idx in self.coefficients[-2]:
-            input_convolution = tf.nn.conv2d(input_tensor, filter_tensor[...,idx], self.stride, padding='VALID')
-            convolved.append(input_convolution)
+            input_tensor = self.pad(input_tensor)
+            
+        # Should return data in original format of X * Y
+        return self.convolution(input_tensor, filter_tensor)[0,:,:,0]
+
+    def convolution(self, input_tensor, filter_tensor):
+        '''
+        Convolutions on input_tensor with given filter_tensor.
+        Total convolutions are stacked, and reshaped to the same
+        dimension as original input, before being pooled.
+        '''
+        input_convolutions = [tf.nn.conv2d(input_tensor, filter_tensor, self.stride, padding='VALID')[0,:,:,:] 
+                              for idx in range(self.coefficients.shape[-1])]
+        convolved = tf.stack(input_convolutions, 0)
+        reshape_height = int(convolved.shape[0]*convolved.shape[1]/2)
+        reshape_width = int(convolved.shape[0]*convolved.shape[2]/2)
+        convolved = tf.reshape(convolved, [1, reshape_height, reshape_width, 1])
 
         return self.pooling(convolved)
     
     def pooling(self, input_tensor):
         '''
+        Pools given input_tensor by k_size, from original input sizes.
+        Reduces size of filters in tensor either by average, or max, 
+        depending on user input
+
+        NOTE: k_size was needs a more thoughtfull decision, or
+        provided option for users
         '''
-        return tf.nn.pool(input_tensor, self.coefficients[0:1], pooling_type=self.pool_type)
+        k_size = [self.x_window, self.y_window]
+        if self.pool_type == 'AVG':
+            pooled_tensor = tf.nn.avg_pool2d(input_tensor, k_size, 1, 'VALID')
+        else:
+            pooled_tensor = tf.nn.max_pool2d(input_tensor, k_size, 1, 'VALID')
+        return pooled_tensor
+    
     
     def pad(self, input_tensor):
         '''
+        Pads X and Y dimensions of input, for use with convolutions and strides
+
         NOTE: Implement custom sizing for padding? 
         '''
-        y_axes, x_axes = (1, 1)
+        y_pad = int(self.coefficients.shape[1]/4+1)
+        x_pad = int(self.coefficients.shape[0]/4+1)
         if self.pad_axes == 'x':
-            y_axes = 0
+            y_pad = 0
         elif self.pad_axes == 'y':
-            x_axes = 0
+            x_pad = 0
 
-        y_kernel = int(self.coefficients.shape[1]/2+1)*y_axes
-        x_kernel = int(self.coefficients.shape[0]/2+1)*x_axes
-        pad_amounts = [y_kernel, x_kernel]
-        pad_array = tf.constant([[pad_amounts[0],pad_amounts[0] ], [pad_amounts[1], pad_amounts[1]]])
+        pad_array = tf.constant([[0,0], [y_pad,y_pad], [x_pad,x_pad], [0,0]])
 
         if self.pad_type == 'reflect':
             input_tensor = tf.pad(input_tensor, pad_array, mode='REFLECT')
