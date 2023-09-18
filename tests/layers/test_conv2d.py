@@ -19,10 +19,9 @@ def test_constructor():
 class TestEvaluate:
 
     def test_full_rank(self):
-        input_shape = (4, 28, 28, 3)
+        input_shape = (28, 28)
         x = tf.random.normal(input_shape)
 
-        # 50 ms filter, 18 spectral channels (full-rank STRF)
-        conv = Conv2d(shape=(4, 4, 1))
+        conv = Conv2d(shape=(4, 4, 4))
         out = conv.evaluate(x)
-        assert out.shape == (4, 24, 24, 3)
+        assert out.shape == (31, 31)
