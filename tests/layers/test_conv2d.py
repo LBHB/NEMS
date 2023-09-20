@@ -18,10 +18,26 @@ def test_constructor():
 
 class TestEvaluate:
 
-    def test_full_rank(self):
-        input_shape = (28, 28)
+    def test_2d(self):
+        input_shape = (1000, 28)
         x = tf.random.normal(input_shape)
 
         conv = Conv2d(shape=(4, 4, 4))
         out = conv.evaluate(x)
-        assert out.shape == (31, 31)
+        assert out.shape == (1000, 28)
+
+    def test_3d(self):
+        input_shape = (2, 1000, 28)
+        x = tf.random.normal(input_shape)
+
+        conv = Conv2d(shape=(4, 4, 4))
+        out = conv.evaluate(x)
+        assert out.shape == (1000, 28)
+
+    def test_4d(self):
+        input_shape = (2, 1000, 28, 4)
+        x = tf.random.normal(input_shape)
+
+        conv = Conv2d(shape=(4, 4, 4))
+        out = conv.evaluate(x)
+        assert out.shape == (1000, 28)
