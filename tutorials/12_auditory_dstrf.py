@@ -1,5 +1,3 @@
-# NOTE: Unfinished, provided comments are at best only partially correct and missing context  
-# TODO: Finish filling out data, confirm its correct, and make sure imports are working properly
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -46,6 +44,10 @@ cnn.add_layers(
 )
 cnn.name = f"CNN_Model"
 
+# Fitting both our models to given fit data from our demo data import
+fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
+fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
+
 ############GETTING STARTED###############
 ########################################################
 # Auditory DSTRF
@@ -78,24 +80,23 @@ cnn.name = f"CNN_Model"
 # Linear model is used, you will see that our DSTRF values will not
 # change
 
-# Fitting both our models to given fit data from our demo data import
-fitted_ln = ln.fit(spectrogram_fit, response_fit, backend='tf')
-fitted_cnn = cnn.fit(spectrogram_fit, response_fit, backend='tf')
-
 ln_dstrf = fitted_ln.dstrf(spectrogram_test, D=5, reset_backend=True)
+
 # Note that this linear data does not show any changes between time steps
 visualization.plot_dstrf(ln_dstrf['input'])
 
 # In this example we can see how different options may provide changes
 # and how we can interact with that data
-print(f"DSTRF Shape: {ln_dstrf['input'].shape}")
-# The number of output channels from layers we're keeping track of
-print(f"Output Channels: {ln_dstrf['input'].shape[0]}")
-# Time indexes are to decide when we look into the model and save that information
-print(f"Time Indexes: {ln_dstrf['input'].shape[1]}")
-# Output data is the actual output of a given layer at a time interval
-print(f"Output Data: {ln_dstrf['input'].shape[2:4]}")
-cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, t_indexes=np.arange(15, spectrogram_fit.shape[0]) , reset_backend=True)
+# .shape[0]: The number of output channels from layers we're keeping track of
+# .shape[1]: Time indexes are to decide when we look into the model and save that information
+# .shape[2:4]: Output data is the actual output of a given layer at a time interval
+
+print(f'''
+      DSTRF Shape: {ln_dstrf['input'].shape} \n 
+      Output Channels: {ln_dstrf['input'].shape[0]} \n 
+      Time Indexes: {ln_dstrf['input'].shape[1]} \n 
+      Output Data: {ln_dstrf['input'].shape[2:4]}''')
+cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, reset_backend=True)
 
 
 
@@ -121,9 +122,10 @@ cnn_dstrf = fitted_cnn.dstrf(spectrogram_fit, D=15, t_indexes=np.arange(15, spec
 pca = compute_dpcs(cnn_dstrf)
 
 # If given multiple inputs; pca['input_key']['pcs'].shape would be equivalent
-print(pca['pcs'].shape)
-print(pca['pc_mag'])
-print(pca['projection'])
+print(f'''
+      Shape of our PCAs: {pca["pcs"].shape} \n
+      PC Mag: {pca["pc_mag"]} \n 
+      PCA projection: {pca["projection"]}''')
 
 
 ###########################
@@ -131,10 +133,11 @@ print(pca['projection'])
 # By viewing a heatmap of our DSTRF, we can view our data
 # at each time step, allowing us to start to intepret new
 # information.
-# 
+###########################
+
+###########################
 # plot_dstrf
 # Provide a dstrf and a list of heatmaps will be plotted out
-#
 ###########################
 
 # Traditional heatmap of our multidimensional set of data.
@@ -144,3 +147,41 @@ visualization.plot_dstrf(cnn_dstrf['input'])
 # Using our Principle Components, we have a much easier time
 # interpreting the same data
 visualization.plot_dstrf(pca['pcs'], title="PC DSTRF's")
+
+###########################
+# plot_dpcs_comparison
+# Directly creates a set of dstrf/pca graphs from the model 
+# and spectrogram data itself. 
+#   t_skip: How many indexes to skip at each point when creating a full dstrf
+#           from our entire input
+#   t_len: Max length of our input to reduce overall size of our input
+#          when processing entire dstrf on input
+#   title: Title of figure
+#   xunits: units to be shown on x_label
+#   **dstrf_kwargs: Keyword arguments to be passed to our dstrf calls
+###########################
+
+# This plot computes a DSTRF based on every single existing 
+# timestep on the length of your input. This can take time...
+visualization.plot_dpcs_comparison(fitted_cnn, spectrogram_test, t_skip=20, D=15, reset_backened=True)
+
+###########################
+# plot_dpcs
+# Takes the core of our comparison function, and 
+# provides a graph(or figure) representing the full dpcs of the input
+#   dpca: DPCA to pull our pc's from and plot to our graph
+#   ax: Axes on which to plot, if none is given a figure will be created
+#   title, xunits: same as above
+###########################
+
+# First, create a set of indexes to run a PCA on the entire inpute
+# 15 = DSTRF memory, 25 = # of indexes to skip over at each point
+# Skipping indexes can help improve our DSTRF & DPCA visualizations
+t_indexes = np.arange(15, len(spectrogram_test), 25)
+
+full_cnn_dstrf = fitted_cnn.dstrf(spectrogram_test, D=15, t_indexes=t_indexes, reset_backend=True)
+
+full_cnn_dpcs = compute_dpcs(full_cnn_dstrf)
+
+# Plots our newly created set of full dpc's
+visualization.plot_dpcs(full_cnn_dpcs)
