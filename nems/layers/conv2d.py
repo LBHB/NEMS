@@ -161,7 +161,7 @@ class Conv2d(Layer):
         
         return input_tensor, coefficients
 
-    def convolution(self, input_tensor, filter_tensor, fillvalue):
+    def convolution(self, input_tensor, filter_tensor):
         '''
         Convolutions on input_tensor with given filter_tensor and
         stride. Completed convolutions are sent back to pool to reduce
@@ -268,7 +268,6 @@ class Conv2d(Layer):
 
     def as_tensorflow_layer(self, input_shape, **kwargs):
         """
-        NOTE: @tf.function conversion to existing functions
         Converts Conv2d to Tensorflow Keras layer. Building 
         inner-class with NemsKerasLayer to make compatible
         with tensorflow backend
@@ -288,12 +287,15 @@ class Conv2d(Layer):
         from nems.backends.tf import NemsKerasLayer
 
         # Putting relevant data in scope for class call
-        evaluate    = self.as_tf_evaluate()
         stride      = self.stride
-        pad_type    = self.pad_type
-        pad_axes    = self.pad_axes
-        pool_type   = self.pool_type
         pad_indices = self.pad_indices
+        pad_type    = self.pad_type
+
+        filters = self.as_tf_shape_filter(self.coefficients)
+        shape_input   = self.as_tf_shape_tensor()
+        convolve      = self.as_tf_convolution()
+        pool          = self.as_tf_pool(self.pool_type)
+        pad           = self.as_tf_pad(input_shape, self.pad_type, self.pad_axes)
 
         class Conv2dTF(NemsKerasLayer):
             def weights_to_values(self):
@@ -301,32 +303,17 @@ class Conv2d(Layer):
                 return {'coefficients': c}
 
             def call(self, inputs):
-                return evaluate(inputs, stride, pad_type, pad_axes, pool_type, pad_indices)
-            
+                input_tensor, filter_tensor = shape_input(inputs, filters)
+                pad_indices = [0, input_tensor.shape[1], 0, input_tensor.shape[2]]
+                if pad_type != 'None':
+                    input_tensor, pad_indices = pad(input_tensor)
+                convolved_tensor = convolve(input_tensor, filter_tensor)
+                convolved_tensor = pool(convolved_tensor)
+                return convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
+
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
     
-    def as_tf_evaluate(self):
-        '''
-        Create filter and input tensors to be used for convolutions.
-        Pad given tensors and pool before returning convolved tensor
-
-
-        '''
-        def evaluate(input, stride, pad_type, pad_axes, pool_type, pad_indices):
-            filter_tensor = self.as_tf_shape_filter(self.coefficients)
-            input_tensor, filter_tensor = self.as_tf_shape_tensor(input, filter_tensor)
-            pad_indices = [0, input_tensor.shape[1], 0, input_tensor.shape[2]]
-            if pad_type != 'None':
-                input_tensor, pad_indices = self.as_tf_pad(input_tensor, pad_type, pad_axes)
-                
-            # Should return data in format of Time x Neurons with padding removed
-            convolved_tensor = self.as_tf_convolution(input_tensor, filter_tensor)
-            convolved_tensor = self.as_tf_pool(convolved_tensor, pool_type)
-            return convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
-
-        return evaluate
-    
-    def as_tf_convolution(self, input_tensor, filter_tensor):
+    def as_tf_convolution(self):
         '''
         Convolutions on input_tensor with given filter_tensor and
         stride. Completed convolutions are sent back to pool to reduce
@@ -344,18 +331,27 @@ class Conv2d(Layer):
         NOTE: Currently only implemented with CPU in mind.
         '''
         #Temp CPU only
-
-        #NOTE: May need to look at this and make sure batch data isn't removed by this set up
-        conv_fn = lambda t: tf.cast(
-            tf.nn.conv2d(tf.expand_dims(t[0], axis=0), tf.expand_dims(t[1], axis=0), self.stride, padding='VALID'),
-            tf.float64)
-        input_convolutions = tf.map_fn(
-            fn=conv_fn,
-            elems=[input_tensor, filter_tensor],
-            dtype=tf.float64
-            )
-        input_convolutions = tf.squeeze(input_convolutions, 1)
-        return input_convolutions
+        num_gpus = len(tf.config.list_physical_devices('GPU'))
+        if num_gpus == 0:
+                #NOTE: May need to look at this and make sure batch data isn't removed by this set up
+            @tf.function
+            def convolve(input_tensor, filter_tensor):
+                conv_fn = lambda t: tf.cast(
+                    tf.nn.conv2d(tf.expand_dims(t[0], axis=0), tf.expand_dims(t[1], axis=0), self.stride, padding='VALID'),
+                    tf.float64)
+                input_convolutions = tf.map_fn(
+                    fn=conv_fn,
+                    elems=[input_tensor, filter_tensor],
+                    dtype=tf.float64
+                    )
+                input_convolutions = tf.squeeze(input_convolutions, 1)
+                return input_convolutions
+        else:
+            @tf.function
+            def convolve(input_tensor, filter_tensor):
+                input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride=self.stride, padding='VALID')
+                return input_convolutions
+        return convolve
     
     def as_tf_shape_filter(self, coefficients):
         '''
@@ -376,7 +372,7 @@ class Conv2d(Layer):
 
         return coefficients
     
-    def as_tf_shape_tensor(self, input_tensor, coefficients):
+    def as_tf_shape_tensor(self):
         '''
         Shapes our input data to fit conv2d if non-4D is provided.
         Last dimension of tensor/filter are also broadcasted.
@@ -384,40 +380,42 @@ class Conv2d(Layer):
         if ndim == 2, Add empty batch, and in_channel dimension
         if ndim == 3, Add empty in_channel dimension
         '''
-        print(input_tensor.ndim)
-        if input_tensor.ndim == 2:
-            input_tensor = tf.expand_dims(input_tensor, axis=0)
-            input_tensor = tf.expand_dims(input_tensor, axis=-1)
-        # If input_tensor contains 3 dimensions, it is assumed that batches are not provided
-        elif input_tensor.ndim == 3:
-            input_tensor = tf.expand_dims(input_tensor, axis=-1)
+        @tf.function
+        def shape_tensor(input_tensor, coefficients):
+            if input_tensor.ndim == 2:
+                input_tensor = tf.expand_dims(input_tensor, axis=0)
+                input_tensor = tf.expand_dims(input_tensor, axis=-1)
+            # If input_tensor contains 3 dimensions, it is assumed that batches are not provided
+            elif input_tensor.ndim == 3:
+                input_tensor = tf.expand_dims(input_tensor, axis=-1)
 
-        # Create fake shape to match coeff -2 == in_channels
-        input_tensor_shape = tf.expand_dims(input_tensor, axis=-1).shape[1:]
-        # Create empty array to broadcast later
-        fake_input = np.empty(shape=input_tensor_shape)
+            # Create fake shape to match coeff -2 == in_channels
+            input_tensor_shape = tf.expand_dims(input_tensor, axis=-1).shape[1:]
+            # Create empty array to broadcast later
+            fake_input = np.empty(shape=input_tensor_shape)
 
-        if input_tensor.shape[-2] < coefficients.shape[-2]:
-            try:
-                input_tensor_shape = broadcast_axes(fake_input, coefficients, axis=-2)
-                shape = list(input_tensor.shape[:-1]) + input_tensor_shape[-2]
-                input_tensor = tf.broadcast_to(input_tensor, shape)
-            except ValueError:
-                raise TypeError(
-                    "Last dimension of FIR input must match last dimension of "
-                    "coefficients, or one must be broadcastable to the other."
-                    )
-        elif coefficients.shape[-2] < input_tensor.shape[-2]:
-            try:
-                coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
-            except ValueError:
-                raise TypeError(
-                    "Last dimension of FIR input must match last dimension of "
-                    "coefficients, or one must be broadcastable to the other."
-                    )
-        return input_tensor, coefficients
+            if input_tensor.shape[-2] < coefficients.shape[-2]:
+                try:
+                    input_tensor_shape = broadcast_axes(fake_input, coefficients, axis=-2)
+                    shape = list(input_tensor.shape[:-1]) + input_tensor_shape[-2]
+                    input_tensor = tf.broadcast_to(input_tensor, shape)
+                except ValueError:
+                    raise TypeError(
+                        "Last dimension of FIR input must match last dimension of "
+                        "coefficients, or one must be broadcastable to the other."
+                        )
+            elif coefficients.shape[-2] < input_tensor.shape[-2]:
+                try:
+                    coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
+                except ValueError:
+                    raise TypeError(
+                        "Last dimension of FIR input must match last dimension of "
+                        "coefficients, or one must be broadcastable to the other."
+                        )
+            return input_tensor, coefficients
+        return shape_tensor
     
-    def as_tf_pool(self, input_tensor, pool_type):
+    def as_tf_pool(self, pool_type):
         '''
         Pooling of total filters created from conv2d function. Done via
         dimension reduction on the filter dimension via given pool_type.
@@ -439,24 +437,34 @@ class Conv2d(Layer):
             SUM - Reduction via sum values
 
         '''
-        print(input_tensor.shape)
-        pool_type = self.pool_type
         if pool_type == 'AVG':
-            pooled_tensor = tf.math.reduce_max(input_tensor, axis=-1, keepdims=False)
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_max(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'MIN':
-            pooled_tensor = tf.math.reduce_min(input_tensor, axis=-1, keepdims=False)
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_min(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'PROD':
-            pooled_tensor = tf.math.reduce_prod(input_tensor, axis=-1, keepdims=False)
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'STD':
-            pooled_tensor = tf.math.reduce_std(input_tensor, axis=-1, keepdims=False)
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_std(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'SUM':
-            pooled_tensor = tf.math.reduce_sum(input_tensor, axis=-1, keepdims=False)
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=False)
         else:
-            pooled_tensor = tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
-        return pooled_tensor
+            @tf.function
+            def pool(input_tensor):
+                return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
+        return pool
     
     
-    def as_tf_pad(self, input_tensor, pad_type, pad_axes):
+    def as_tf_pad(self, input_shape, pad_type, pad_axes):
         '''
         Pads X and Y dimensions of input, for use with convolutions and strides
         Uses total shape/size of filter window to determine amount of padding. 
@@ -481,7 +489,7 @@ class Conv2d(Layer):
         y_pad = int(self.coefficients.shape[1]/4)+1
         x_pad = int(self.coefficients.shape[0]/4)+1
         # Saving pad indices to remove later
-        pad_indices = [x_pad, input_tensor.shape[1]+x_pad, y_pad, input_tensor.shape[2]+y_pad]
+        pad_indices = [x_pad, input_shape[1]+x_pad, y_pad, input_shape[2]+y_pad]
 
         if pad_axes == 'x':
             y_pad = 0
@@ -491,17 +499,23 @@ class Conv2d(Layer):
         pad_array = tf.constant([[0,0], [x_pad*2,x_pad*2], [y_pad*2,y_pad*2], [0,0]])
         
         if pad_type == 'reflect':
-            input_tensor = tf.pad(input_tensor, pad_array, mode='REFLECT')
+            @tf.function
+            def pad(input_tensor):
+                return tf.pad(input_tensor, pad_array, mode='REFLECT'), pad_indices
         elif pad_type == 'symmetric':
-            input_tensor = tf.pad(input_tensor, pad_array, mode='SYMMETRIC')
+            @tf.function
+            def pad(input_tensor):
+                return tf.pad(input_tensor, pad_array, mode='SYMMETRIC'), pad_indices
         else:
             pad_constant = 0
             if pad_type == 'max':
                 pad_constant = np.max(np.abs(self.input))
             elif pad_type == 'min':
                 pad_constant = np.min(np.abs(self.input))
-            input_tensor = tf.pad(input_tensor, pad_array, mode='CONSTANT', constant_values=pad_constant)
-        return input_tensor, pad_indices
+            @tf.function
+            def pad(input_tensor):
+                return tf.pad(input_tensor, pad_array, mode='CONSTANT', constant_values=pad_constant), pad_indices
+        return pad
 
     @property
     def coefficients(self):
