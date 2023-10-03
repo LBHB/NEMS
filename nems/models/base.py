@@ -104,13 +104,13 @@ class Model:
         self._layers = {}  # layer.name : layer obj, increment on clashes
 
         # TODO: remove warning after fixing issues w/ scipy
-        if dtype != np.float64:
-            warnings.warn(
-                "Using `Model(dtype=...)` is currently experimental. For best "
-                "results, leave dtype as the default. TF Backend will overwrite "
-                "this setting to np.float32 for the time being."
-            )
-        self.dtype = dtype
+        #if dtype != np.float64:
+        #    warnings.warn(
+        #        "Using `Model(dtype=...)` is currently experimental. For best "
+        #        "results, leave dtype as the default. TF Backend will overwrite "
+        #        "this setting to np.float32 for the time being."
+        #    )
+        #self.dtype = dtype
 
         if layers is not None:
             self.add_layers(*layers)
