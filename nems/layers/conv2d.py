@@ -147,31 +147,9 @@ class Conv2d(Layer):
         elif input_array.ndim == 3:
             input_array = input_array[..., np.newaxis]
 
-        # Create fake shape to match coeff -2 == in_channels
-        input_array_shape = input_array[..., np.newaxis].shape[1:]
-        # Create empty array to broadcast later
-        fake_input = np.empty(shape=input_array_shape)
-        
-        if input_array.shape[-1] < coefficients.shape[-1]:
-            try:
-                input_array_shape = broadcast_axes(fake_input, coefficients, axis=-2)
-                shape = list(input_array.shape[:-1]) + [input_array_shape.shape[-2]]
-                input_array = np.broadcast_to(input_array, shape)
-            except ValueError:
-                raise TypeError(
-                    "Last dimension of FIR input must match last dimension of "
-                    "coefficients, or one must be broadcastable to the other."
-                    )
-        elif coefficients.shape[-1] < input_array.shape[-1]:
-            try:
-                coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
-            except ValueError:
-                raise TypeError(
-                    "Last dimension of FIR input must match last dimension of "
-                    "coefficients, or one must be broadcastable to the other."
-                    )
-        
-        return input_array, coefficients
+        broad_input, broad_coeff = self.broadcast_arrays(input_array, coefficients)
+
+        return broad_input, broad_coeff
 
     def convolution(self, input_array, filter_array):
         '''
@@ -305,7 +283,7 @@ class Conv2d(Layer):
         pad_type    = self.pad_type
 
         filters     = self.as_tf_shape_filter(self.coefficients)
-        shape_input = self.as_tf_shape_tensor()
+        shape_input, shape_coeff = self.as_tf_shape_tensor(input_shape, filters)
         convolve    = self.as_tf_convolution()
         pool        = self.as_tf_pool(self.pool_type)
         _pad_indices, pad = self.as_tf_pad(input_shape, self.pad_type, self.pad_axes)
@@ -316,13 +294,14 @@ class Conv2d(Layer):
                 return {'coefficients': c}
 
             def call(self, inputs):
-                input_tensor, filter_tensor = shape_input(inputs, filters)
+                input_tensor = shape_input(inputs)
+                filter_tensor = shape_coeff(filters)
                 pad_indices = [0, input_tensor.shape[1], 0, input_tensor.shape[2]]
                 if pad_type != 'None':
                     input_tensor = pad(input_tensor)
                     pad_indices = _pad_indices
                 #tf.print(input_tensor)
-                convolved_tensor = convolve(input_tensor, filter_tensor)
+                convolved_tensor = convolve(input_tensor, filter_tensor, stride)
                 convolved_tensor = pool(convolved_tensor)
                 #tf.print(convolved_tensor)
                 return convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
@@ -351,9 +330,9 @@ class Conv2d(Layer):
         if num_gpus == 0:
                 #NOTE: May need to look at this and make sure batch data isn't removed by this set up
             @tf.function
-            def convolve(input_tensor, filter_tensor):
+            def convolve(input_tensor, filter_tensor, stride):
                 conv_fn = lambda t: tf.cast(
-                    tf.nn.conv2d(tf.expand_dims(t[0], axis=0), tf.expand_dims(t[1], axis=0), self.stride, padding='VALID'),
+                    tf.nn.conv2d(tf.expand_dims(t[0], axis=0), tf.expand_dims(t[1], axis=0), stride, padding='VALID'),
                     tf.float64)
                 input_convolutions = tf.map_fn(
                     fn=conv_fn,
@@ -364,8 +343,8 @@ class Conv2d(Layer):
                 return input_convolutions
         else:
             @tf.function
-            def convolve(input_tensor, filter_tensor):
-                input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride=self.stride, padding='VALID')
+            def convolve(input_tensor, filter_tensor, stride):
+                input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride, padding='VALID')
                 return input_convolutions
         return convolve
     
@@ -388,7 +367,7 @@ class Conv2d(Layer):
 
         return coefficients
     
-    def as_tf_shape_tensor(self):
+    def as_tf_shape_tensor(self, input_shape, coefficients):
         '''
         Shapes our input data to fit conv2d if non-4D is provided.
         Last dimension of tensor/filter are also broadcasted.
@@ -396,39 +375,52 @@ class Conv2d(Layer):
         if ndim == 2, Add empty batch, and in_channel dimension
         if ndim == 3, Add empty in_channel dimension
         '''
-        def shape_tensor(input_tensor, coefficients):
-            if input_tensor.ndim == 2:
-                input_tensor = tf.expand_dims(input_tensor, axis=0)
-                input_tensor = tf.expand_dims(input_tensor, axis=-1)
-            # If input_tensor contains 3 dimensions, it is assumed that batches are not provided
-            elif input_tensor.ndim == 3:
-                input_tensor = tf.expand_dims(input_tensor, axis=-1)
+        # Making batch explicit so np.empty works
+        if input_shape[0] is None:
+            input_shape = [1] + list(input_shape[1:])
 
-            # Create fake shape to match coeff -2 == in_channels
-            input_tensor_shape = tf.expand_dims(input_tensor, axis=-1).shape[1:]
-            # Create empty array to broadcast later
-            fake_input = np.empty(shape=input_tensor_shape)
+        fake_input = np.empty(shape=input_shape)
+        if fake_input.ndim == 2:
+            fake_input = fake_input[..., np.newaxis]
+            fake_input = fake_input[np.newaxis, ...]
+            @tf.function()
+            def expand_input(input_tensor):
+                expanded_tensor = tf.expand_dims(input_tensor, axis=-1)
+                expanded_tensor = tf.expand_dims(input_tensor, axis=0)
+                return expanded_tensor
+        elif fake_input.ndim == 3:
+            fake_input = fake_input[..., np.newaxis]
+            @tf.function()
+            def expand_input(input_tensor):
+                expanded_tensor = tf.expand_dims(input_tensor, axis=-1)
+                return expanded_tensor
+        else:
+            @tf.function()
+            def expand_input(input_tensor): return input_tensor
+    
+        broad_fake_input, broad_coeff = self.broadcast_arrays(fake_input, coefficients)
+        fake_input_shape = fake_input.shape
+        coeff_shape = coefficients.shape
 
-            if input_tensor.shape[-2] < coefficients.shape[-2]:
-                try:
-                    input_tensor_shape = broadcast_axes(fake_input, coefficients, axis=-2)
-                    shape = list(input_tensor.shape[:-1]) + [input_tensor_shape.shape[-2]]
-                    input_tensor = tf.broadcast_to(input_tensor, shape)
-                except ValueError:
-                    raise TypeError(
-                        "Last dimension of FIR input must match last dimension of "
-                        "coefficients, or one must be broadcastable to the other."
-                        )
-            elif coefficients.shape[-2] < input_tensor.shape[-2]:
-                try:
-                    coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
-                except ValueError:
-                    raise TypeError(
-                        "Last dimension of FIR input must match last dimension of "
-                        "coefficients, or one must be broadcastable to the other."
-                        )
-            return input_tensor, coefficients
-        return shape_tensor
+        if broad_fake_input.shape[-1] > fake_input_shape[-1]:
+            @tf.function()
+            def shape_input(input_tensor):
+                batch_size = tf.keras.backend.shape(input_tensor)[0]
+                shape = [batch_size] + list(broad_fake_input.shape[1:])
+                return tf.broadcast_to(expand_input(input_tensor), shape)
+        else:
+            @tf.function()
+            def shape_input(input_tensor): return expand_input(input_tensor)
+            
+        if broad_coeff.shape[-2] > coeff_shape[-2]:
+            @tf.function()
+            def shape_coeff(coefficients):
+                return tf.broadcast_to(coefficients, broad_coeff)
+        else:
+            @tf.function()
+            def shape_coeff(coefficients): return coefficients
+
+        return shape_input, shape_coeff
     
     def as_tf_pool(self, pool_type):
         '''
@@ -478,7 +470,6 @@ class Conv2d(Layer):
                 return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
         return pool
     
-    
     def as_tf_pad(self, input_shape, pad_type, pad_axes):
         '''
         Pads X and Y dimensions of input, for use with convolutions and strides
@@ -510,9 +501,6 @@ class Conv2d(Layer):
 
         # Saving pad indices to remove later
         pad_indices = [int(y_pad/2), input_shape[1]+int(y_pad/2), int(x_pad/2), input_shape[2]+int(x_pad/2)]
-        print(pad_indices)
-        print(y_pad)
-
         pad_array = tf.constant([[0,0], [y_pad, y_pad], [x_pad, x_pad], [0,0]])
 
         
@@ -534,6 +522,40 @@ class Conv2d(Layer):
             def pad(input_tensor):
                 return tf.pad(input_tensor, pad_array, mode='CONSTANT', constant_values=pad_constant)
         return pad_indices, pad
+    
+    def broadcast_arrays(self, input_array, coefficients):
+        '''
+        Interal class function for broadcasting array and coefficients 
+        based on their input_channels. Compares in_channels and broadcasts 
+        one array to the other. Returns broadcasted array or 4-Tuple coefficients
+
+        Parameters
+        ----------
+        input_array: 4-D ndarray
+            Input array to compare and broadcast to/from
+        coefficients: 4-tuple
+            coefficients shape values for filters to broadcast to/from
+        '''
+        # Removing batch layer, to set both arrays in_channels to [-2]
+        fake_input = input_array[0,..., np.newaxis]
+
+        if input_array.shape[-2] < coefficients.shape[-2]:
+            try:
+                input_array = broadcast_axes(fake_input, coefficients, axis=-2)
+            except ValueError:
+                raise TypeError(
+                    "Last dimension of FIR input must match last dimension of "
+                    "coefficients, or one must be broadcastable to the other."
+                    )
+        elif coefficients.shape[-2] < input_array.shape[-2]:
+            try:
+                coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
+            except ValueError:
+                raise TypeError(
+                    "Last dimension of FIR input must match last dimension of "
+                    "coefficients, or one must be broadcastable to the other."
+                    )
+        return input_array, coefficients
 
     @property
     def coefficients(self):
