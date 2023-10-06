@@ -9,7 +9,7 @@ from nems.tools.arrays import broadcast_axes
 
 
 # NOTE: WIP, some things may not work as intended
-#       Currently only works with tensorflow
+#       - Output is most likely incorrect atm
 class Conv2d(Layer):
     '''
     NEMS compatible convolutional 2-D layer. 
@@ -187,7 +187,7 @@ class Conv2d(Layer):
             Given array with completed convolutions to pool
         pool_type: String
             String value to determine type of reduction used. Includes:
-            AVG - Reduction via average values along array 
+            MAX - Reduction via average values along array 
             MIN - Reduction via minimum values 
             PROD - Reduction via production of values
             STD - Reduction via standard deviation
@@ -300,10 +300,8 @@ class Conv2d(Layer):
                 if pad_type != 'None':
                     input_tensor = pad(input_tensor)
                     pad_indices = _pad_indices
-                #tf.print(input_tensor)
                 convolved_tensor = convolve(input_tensor, filter_tensor, stride)
                 convolved_tensor = pool(convolved_tensor)
-                #tf.print(convolved_tensor)
                 return convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
 
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
@@ -370,7 +368,7 @@ class Conv2d(Layer):
     def as_tf_shape_tensor(self, input_shape, coefficients):
         '''
         Shapes our input data to fit conv2d if non-4D is provided.
-        Last dimension of tensor/filter are also broadcasted.
+        In channels of our input and filters are broadcasted
 
         if ndim == 2, Add empty batch, and in_channel dimension
         if ndim == 3, Add empty in_channel dimension
@@ -437,7 +435,7 @@ class Conv2d(Layer):
             Given tensor with completed convolutions to pool
         pool_type: String
             String value to determine type of reduction used. Includes:
-            AVG - Reduction via average values along tensor 
+            MAX - Reduction via average values along tensor 
             MIN - Reduction via minimum values 
             PROD - Reduction via production of values
             STD - Reduction via standard deviation
@@ -501,6 +499,7 @@ class Conv2d(Layer):
 
         # Saving pad indices to remove later
         pad_indices = [int(y_pad/2), input_shape[1]+int(y_pad/2), int(x_pad/2), input_shape[2]+int(x_pad/2)]
+        print(pad_indices)
         pad_array = tf.constant([[0,0], [y_pad, y_pad], [x_pad, x_pad], [0,0]])
 
         
