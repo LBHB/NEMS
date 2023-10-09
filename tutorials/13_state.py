@@ -76,3 +76,20 @@ pred_state = fit_model_state.predict(spectrogram, state=state)
 # 1. A model with no state information attempting to fit to our data clearly shifted by some state
 # 2. A model that contains StateGain and State data can actually fit around data that has states
 visualization.plot_predictions([pred_no_state, pred_state], spectrogram, response, correlation=True, display_ratio=1)
+
+###########################
+# Jackknife with state
+# Using state we can jackknife across our inputs, targets, and state itself.
+# The example below covers a way to simply accomplish this.
+#
+###########################
+jackknife_multi = JackknifeIterator(spectrogram, state=state, target=response, samples=5, axis=0, inverse='both')
+multi_est, multi_val = next(jackknife_multi)
+
+model_fit = model_no_state.fit(multi_est['input'], target=multi_est['target'])
+state_model_fit = model_state.fit(multi_est['input'], target=multi_est['target'], state=multi_est['state'])
+
+pred_no_state = model_fit.predict(multi_est['input'])
+pred_state = state_model_fit.predict(multi_est['input'], state=multi_est['state'])
+
+visualization.plot_predictions({'jk_no_state':pred_no_state, 'jk_state':pred_state}, multi_est['input'], multi_est['target'], correlation=True, display_ratio=1)
