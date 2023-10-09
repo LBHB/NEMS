@@ -118,12 +118,11 @@ class JackknifeIterator:
 
     def get_indexed_jackknife(self, index, inverse=None):
         """Returns the jackknife at a given index, conditionally with inverse."""
-
         jackknife_data = DataSet(self.get_jackknife(self.dataset['input'], self.mask_list[index]),
                                  target=self.get_jackknife(self.dataset['target'], self.mask_list[index]),
                                  state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[index]))
         
-        if self.inverse == 'both':
+        if inverse == 'both':
             jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[index]), 
                                  target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[index]),
                                  state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[index])))
@@ -141,13 +140,17 @@ class JackknifeIterator:
         """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare"""
         if not isinstance(model_set, list):
             model_set = [model_set]
+
         # Need inverse on iterator to get predictions from validation data
+        # Saving state of inverse to reset back after predicting, for jk use consistency
+        reset_inverse = False
         if not self.inverse:
-            reset_inverse = True
             self.inverse = 'both'
+            reset_inverse = True
 
         self.reset_iter()
-        predicted = np.concatenate([(model.predict(inverse_set['input'], **kwargs)) for model, (_, inverse_set) in zip(model_set, self)])
+        predicted = np.concatenate([(model.predict(inverse_set['input'], state=inverse_set.get('state', None), **kwargs)) 
+                                    for model, (_, inverse_set) in zip(model_set, self)])
         self.reset_iter()
         target = np.concatenate([(inverse_set['target']) for model, (_, inverse_set) in zip(model_set, self)])
         dataset = {'prediction': predicted, 'target': target}
@@ -159,7 +162,11 @@ class JackknifeIterator:
     
     def get_fitted_jackknifes(self, model, **kwargs):
         """Returns a list of fitted models with the given model base."""
-        jackknifed = [model.fit(dataset['input'], dataset['target'], **kwargs) for dataset in self]
+        if self.inverse == 'both':
+            jackknifed = [model.fit(dataset['input'], dataset['target'], state=dataset.get('state', None), **kwargs) for dataset, _ in self]
+        else:
+            jackknifed = [model.fit(dataset['input'], dataset['target'], state=dataset.get('state', None), **kwargs) for dataset in self]
+
         self.fit_list = jackknifed
         return jackknifed
     
