@@ -80,9 +80,24 @@ visualization.plot_predictions([pred_no_state, pred_state], spectrogram, respons
 ###########################
 # Jackknife with state
 # Using state we can jackknife across our inputs, targets, and state itself.
-# The example below covers a way to simply accomplish this.
+# Below we cover several ways, and an example of why, to implement state 
+# with our jackknife iterators
 #
 ###########################
+
+# Standard State vs No-State jackknifing, fiting, predicting
+jackknife_iter = JackknifeIterator(spectrogram, state=state, target=response, samples=5, axis=0, inverse='both')
+model_fit_list = jackknife_iter.get_fitted_jackknifes(model_state)
+prediction_dataset = jackknife_iter.get_predicted_jackknifes(model_fit_list)
+
+jk_no_state = JackknifeIterator(spectrogram, target=response, samples=5, axis=0, inverse='both')
+model_fit_list = jk_no_state.get_fitted_jackknifes(model_no_state)
+prediction_dataset = jk_no_state.get_predicted_jackknifes(model_fit_list)
+
+jk_no_state.plot_estimate_error()
+jackknife_iter.plot_estimate_error()
+
+# Below is a more manual use of our iterator to create specific fit and prediction to see state in action on a per-iter case
 jackknife_multi = JackknifeIterator(spectrogram, state=state, target=response, samples=5, axis=0, inverse='both')
 multi_est, multi_val = next(jackknife_multi)
 
