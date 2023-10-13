@@ -86,12 +86,12 @@ class JackknifeIterator:
                                output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
 
     def __iter__(self):
+        self.reset_iter()
         return self
 
     def __next__(self):
         """Returns jackknifed data with mask at current index, then iterates index."""
         if self.index >= self.max_iter:
-            self.reset_iter()
             raise StopIteration
         jackknifed_data = self.get_indexed_jackknife(index=self.index, inverse=self.inverse)
         self.index += 1
