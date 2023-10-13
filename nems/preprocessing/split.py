@@ -69,23 +69,52 @@ class JackknifeIterator:
         Uses data and a single mask to return inverse subset of data
     
     """
-    def __init__(self, input, samples=5,*, axis=0, inverse=False, shuffle=False, state=None, target=None, 
+    def __init__(self, input, samples=15,*, axis=0, inverse=False, shuffle=False, state=None, target=None, 
                  input_name=None, state_name=None, output_name=None, target_name=None,
                  prediction_name=None, dtype=None, **kwargs):
         """
-        
+        Initializes our jackknife iterator object. By creating a mask using the first available input,
+        converting our data to a DataSet object, and setting initial parameters.
 
+        Parameters
+        ----------
+        input: np.ndarray or dict
+            Given input or dict of inputs to process jackknifes of.
+        samples: int
+            Given # of jackknife samples to iterator through
+        axis: int
+            Which axis to process our mask
+        inverse: boolean
+            If True, include inverse mask and data
+        shuffle:
+            If True, randomly shuffle which indexes are selected
+        state: np.ndarray
+            State data to be masked alonside inputs
+        target: np.ndarray
+            Target data to also be masked with our inputs and state data
+        input_name | state_name | output_name: string | prediction_name
+            Provided names to use for DataSet object if needed
+        dtype: type; optional.
+            Type value used within DataSet object
+            
+        
+        
         """
+        if input is dict:
+            self.mask_list       = self.create_jackknife_masks(next(iter(input)), samples, axis=axis, shuffle=shuffle, **kwargs)
+        else:
+            self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, shuffle=shuffle, **kwargs)
+        self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
+                               output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
+        
         self.inverse         = inverse
-        self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, shuffle=shuffle, **kwargs)
         self.fit_list        = None
         self.index           = 0
         self.samples         = samples
         self.max_iter        = samples
-        self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
-                               output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
 
     def __iter__(self):
+        """Initialization of new iteration state"""
         self.reset_iter()
         return self
 
@@ -124,18 +153,33 @@ class JackknifeIterator:
                                  state=self.get_jackknife(self.dataset.get('state', None), self.mask_list[index]))
         
         if inverse == 'both':
-            jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[index]), 
+            jackknife_data = (jackknife_data, DataSet(self.get_inverse_jackknife(self.dataset['input'], self.mask_list[index]),
                                  target=self.get_inverse_jackknife(self.dataset['target'], self.mask_list[index]),
                                  state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[index])))
         return jackknife_data
 
     def get_jackknife(self, data, mask, axis=0):
-        """Get a jackknife replicate by deleting slices at `indices` along `axis`."""
-        return np.delete(data, obj=mask, axis=axis) if data is not None else None
+        """
+        Get a jackknife replicate by deleting slices at `indices` along `axis`.
+        If multiple inputs are given, jackknife will be applied to each.
+        """
+        jackknifed = None
+        if data is not None: 
+            if data is dict:
+                jackknifed = {np.delete(data[key], obj=mask, axis=axis) for key in data.keys()}
+            else:
+                jackknifed = np.delete(data, obj=mask, axis=axis)
+        return jackknifed
     
     def get_inverse_jackknife(self, data, mask, axis=0):
         """Returns the inverse replicate of the given jackknife indices."""
-        return np.take(data, mask, axis=axis) if data is not None else None
+        jackknifed_inverse = None
+        if data is not None: 
+            if data is dict:
+                jackknifed_inverse = {np.take(data[key], mask, axis=axis) for key in data.keys()}
+            else:
+                jackknifed_inverse = np.take(data, mask, axis=axis)
+        return jackknifed_inverse
     
     def get_predicted_jackknifes(self, model_set, **kwargs):
         """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare"""
