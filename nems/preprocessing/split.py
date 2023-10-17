@@ -97,8 +97,6 @@ class JackknifeIterator:
         dtype: type; optional.
             Type value used within DataSet object
             
-        
-        
         """
         if input is dict:
             self.mask_list       = self.create_jackknife_masks(next(iter(input)), samples, axis=axis, shuffle=shuffle, **kwargs)
@@ -112,6 +110,7 @@ class JackknifeIterator:
         self.index           = 0
         self.samples         = samples
         self.max_iter        = samples
+        self.axis = axis
 
     def __iter__(self):
         """Initialization of new iteration state"""
@@ -158,11 +157,13 @@ class JackknifeIterator:
                                  state=self.get_inverse_jackknife(self.dataset.get('state', None), self.mask_list[index])))
         return jackknife_data
 
-    def get_jackknife(self, data, mask, axis=0):
+    def get_jackknife(self, data, mask, axis=None):
         """
         Get a jackknife replicate by deleting slices at `indices` along `axis`.
         If multiple inputs are given, jackknife will be applied to each.
         """
+        if axis is None:
+            axis = self.axis
         jackknifed = None
         if data is not None: 
             if data is dict:
@@ -171,8 +172,10 @@ class JackknifeIterator:
                 jackknifed = np.delete(data, obj=mask, axis=axis)
         return jackknifed
     
-    def get_inverse_jackknife(self, data, mask, axis=0):
+    def get_inverse_jackknife(self, data, mask, axis=None):
         """Returns the inverse replicate of the given jackknife indices."""
+        if axis is None:
+            axis = self.axis
         jackknifed_inverse = None
         if data is not None: 
             if data is dict:
@@ -182,7 +185,10 @@ class JackknifeIterator:
         return jackknifed_inverse
     
     def get_predicted_jackknifes(self, model_set, **kwargs):
-        """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare"""
+        """
+        Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare
+        NOTE: Must have or provide a fitted model_list via get_fitted_jackknifes
+        """
         if not isinstance(model_set, list):
             model_set = [model_set]
 
@@ -206,7 +212,9 @@ class JackknifeIterator:
         return dataset
     
     def get_fitted_jackknifes(self, model, **kwargs):
-        """Returns a list of fitted models with the given model base."""
+        """
+        Fits jackknife list to a model and returns a list of fitted models for each jackknife set
+        """
         if self.inverse == 'both':
             jackknifed = [model.fit(dataset['input'], dataset['target'], state=dataset.get('state', None), **kwargs) for dataset, _ in self]
         else:
@@ -214,110 +222,3 @@ class JackknifeIterator:
 
         self.fit_list = jackknifed
         return jackknifed
-    
-
-    
-# TODO: Do we need this for anything?
-def pad_array(array, size=0, axis=0, pad_type='zero', pad_path=None, indices=None):
-    '''
-    Pads given array using options settings and jackknife indicies
-
-    Parameters
-    ----------
-    Array: np.array
-        A dataset used for model fitting
-    Size: int
-        The additional amount we wish to pad onto our array
-    Axis: int
-        Axis used to create list of indices from datasets
-    Pad_type: string
-        Type of padding method to use
-    Pad_path: string
-        A string 'start' or 'end' to specifiy where to pad
-    Indices: np.array
-        An array mask of indices to pad from array
-
-    Returns
-    -------
-    np.array dataset, padded subset of data
-
-    
-    '''
-    # Pad based on original array mask given by jackknifes.
-    # Otherwise pad to end and start of arrays
-    pad_list = {}
-    padded_array = array.copy()
-    array_length = len(padded_array)
-    array_x, array_y = array.shape
-    padded_length = array_length + size
-    padded_mask = []
-
-    def pad_zero(array, mask, axis=0):
-        '''Replaces values at mask location in array with 0'''
-        array[mask] = 0
-        return array
-    
-
-    # TODO: This needs to re-evaluated given multi-dimensional arrays, is it even useful?
-    def pad_mean(array, mask, axis=0):
-        '''Replaces values at mask location in array with mean array value of given axis'''
-        array_mean = np.mean(array, axis=axis)
-        array[mask] = array_mean
-        return array
-    
-
-    def pad_edge(array, mask, **kwargs):
-        '''Replaces values at mask location in array with nearby values'''
-        for index in mask:
-            for_index = array[index+1]
-            back_index = array[index-1]
-            if for_index is not None:
-                array[index] = for_index
-            elif back_index is not None:
-                array[index] = back_index
-            else:
-                array[index] = 0
-        return array
-    
-
-    def pad_random(array, mask, **kwargs):
-        '''Replaces values at mask location in array with random array values from min to max'''
-        array_max = np.max(array)
-        array_min = np.min(array)
-        random_array = np.random.uniform(array_min, array_max, len(mask)+1)
-        for x, index in enumerate(mask):
-            array[index] = random_array[x]
-        return array
-
-
-    if indices is not None:
-        padded_mask = indices.copy()
-
-    else:
-        # Determines where to pad our data if indicies are not given
-        if pad_path == 'start':
-            padded_mask = np.arange(0, size)
-            padded_array = np.insert(padded_array, obj=padded_mask, values=0, axis=axis)
-
-        elif pad_path == 'end':
-            padded_mask = np.arange(array_length, padded_length)
-            padded_array = np.append(padded_array, np.zeros((size, array_y)), axis=axis)
-
-        else:
-            mask_length = int(size/2)
-            start_mask = np.arange(0, mask_length)
-            end_mask = np.arange(array_length, padded_length-mask_length)
-            padded_mask = np.concatenate((start_mask, end_mask))
-
-            #Expanding our array to allow new padding
-            padded_array = np.append(padded_array, np.zeros((mask_length+1, array_y)), axis=axis)
-            padded_array = np.insert(padded_array, obj=start_mask, values=0, axis=axis)
-
-    pad_list['zero']   = pad_zero
-    pad_list['mean']   = pad_mean
-    pad_list['edge']   = pad_edge
-    pad_list['random'] = pad_random
-
-    return pad_list[pad_type](padded_array, padded_mask, axis=axis)
-
-# TODO: what other generic split functions would be useful here?
