@@ -878,9 +878,6 @@ class Model:
         if fitter_options is None: fitter_options = {}
         if backend_options is None: backend_options = {}
 
-        # Initialize DataSet
-        if isinstance(input, DataSet):
-            input, target = (input['input'], input['target'])
         data = DataSet(
             input, target=target, target_name=target_name,
             prediction_name=prediction_name, **eval_kwargs
