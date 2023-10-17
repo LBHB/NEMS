@@ -304,7 +304,7 @@ class TensorFlowBackend(Backend):
         Returns
         -------
         np.ndarray
-            Outpt of the associated Keras model.
+            Output of the associated Keras model.
 
         """
         if batch_size == 0:

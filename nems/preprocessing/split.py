@@ -86,6 +86,7 @@ class JackknifeIterator:
                                output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
 
     def __iter__(self):
+        self.index = 0
         return self
 
     def __next__(self):

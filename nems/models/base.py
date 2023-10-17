@@ -111,6 +111,7 @@ class Model:
         #        "this setting to np.float32 for the time being."
         #    )
         #self.dtype = dtype
+        self.dtype = np.float64
 
         if layers is not None:
             self.add_layers(*layers)
@@ -929,7 +930,7 @@ class Model:
         return new_model
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
-              backend='tf', reset_backend=False, backend_options=None,
+              backend='tf', reset_backend=False, method='jacobian', backend_options=None,
               verbose=1, **eval_kwargs):
         """
         :param stim: input stimulus used to compute jacobian --> dSTRF
@@ -938,6 +939,7 @@ class Model:
         :param t_indexes: time samples to use
         :param backend: str, currently has to be 'tf'
         :param reset_backend: if True, force new initialization of backend
+        :param method: {'jacobian', 'delta'}
         :param backend_options: pass-through options for backend initialization
         :param verbose: future support for verbosity control
         :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
