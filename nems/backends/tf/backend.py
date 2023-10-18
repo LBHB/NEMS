@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
+from tensorflow.python.keras import regularizers
 import logging
 log = logging.getLogger(__name__)
 
@@ -68,8 +69,22 @@ class TensorFlowBackend(Backend):
         # Pass through Keras functional API to map inputs & outputs.
         last_output = None
         tf_data = tf_input_dict.copy()  # Need to keep actual Inputs separate
-        tf_kwargs = {}  # TODO, regularizer etc.
         for layer in self.nems_model.layers:
+            if layer.regularizer is not None:
+                reg = layer.regularizer
+                log.info(f"Applying regularizer {reg} to {layer.name}")
+                if reg.startswith('l2'):
+                    if len(reg)==2:
+                        p = 0.001
+                    else:
+                        p = 10**(-float(reg[2:]))
+                else:
+                    raise ValueError(f"unknown regularizer {reg}")
+                tf_kwargs = {'regularizer': regularizers.l2(p)}
+
+            else:
+                tf_kwargs = {}  # TODO, regularizer etc.
+
             # Get all `data` keys associated with Layer args and kwargs
             # TODO: how are Layers supposed to know which one is which?
             #       have to check the name?

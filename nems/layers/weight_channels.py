@@ -4,6 +4,7 @@ from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
 from .base import Layer, Phi, Parameter, ShapeError
 from .tools import require_shape, pop_shape
+from tensorflow.python.keras import regularizers
 
 
 # TODO: double check all shape references after dealing w/ data order etc,
@@ -132,6 +133,8 @@ class WeightChannels(Layer):
                 wc_class = WeightChannelsGaussian
             elif op == 'b':
                 wc_class = WeightChannelsMulti
+            elif op.startswith('l2'):
+                kwargs['regularizer'] = op
 
         wc = wc_class(**kwargs)
 
