@@ -112,7 +112,8 @@ class Conv2d(Layer):
             
         # Should return data in format of Time x Neurons with padding removed
         convolved_array = self.convolution(input_array, filter_array)
-        return convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0]
+        convolved_array = convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0]
+        return convolved_array
 
     def shape_filter(self, coefficients):
         '''
@@ -281,12 +282,14 @@ class Conv2d(Layer):
         # Putting relevant data in scope for class call
         stride      = self.stride
         pad_type    = self.pad_type
+        pool_type   = self.pool_type
+        pad_axes    = self.pad_axes
 
         filters     = self.as_tf_shape_filter(self.coefficients)
         shape_input, shape_coeff = self.as_tf_shape_tensor(input_shape, filters)
         convolve    = self.as_tf_convolution()
-        pool        = self.as_tf_pool(self.pool_type)
-        _pad_indices, pad = self.as_tf_pad(input_shape, self.pad_type, self.pad_axes)
+        pool        = self.as_tf_pool(pool_type)
+        _pad_indices, pad = self.as_tf_pad(input_shape, pad_type, pad_axes)
 
         class Conv2dTF(NemsKerasLayer):
             def weights_to_values(self):
@@ -301,8 +304,8 @@ class Conv2d(Layer):
                     input_tensor = pad(input_tensor)
                     pad_indices = _pad_indices
                 convolved_tensor = convolve(input_tensor, filter_tensor, stride)
-                convolved_tensor = pool(convolved_tensor)
-                return convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
+                convolved_tensor = pool(convolved_tensor)[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0]
+                return convolved_tensor
 
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
     
@@ -445,27 +448,27 @@ class Conv2d(Layer):
         if pool_type == 'MAX':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_max(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_max(input_tensor, axis=-1, keepdims=True)
         elif pool_type == 'MIN':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_min(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_min(input_tensor, axis=-1, keepdims=True)
         elif pool_type == 'PROD':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=True)
         elif pool_type == 'STD':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_std(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_std(input_tensor, axis=-1, keepdims=True)
         elif pool_type == 'SUM':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=True)
         else:
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
+                return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=True)
         return pool
     
     def as_tf_pad(self, input_shape, pad_type, pad_axes):
@@ -499,7 +502,6 @@ class Conv2d(Layer):
 
         # Saving pad indices to remove later
         pad_indices = [int(y_pad/2), input_shape[1]+int(y_pad/2), int(x_pad/2), input_shape[2]+int(x_pad/2)]
-        print(pad_indices)
         pad_array = tf.constant([[0,0], [y_pad, y_pad], [x_pad, x_pad], [0,0]])
 
         
