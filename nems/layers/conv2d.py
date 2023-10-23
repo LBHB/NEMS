@@ -48,7 +48,7 @@ class Conv2d(Layer):
     (Time x Neurons)
 
     '''
-    def __init__(self, stride=1, pad_type='zero', pad_axes='both',
+    def __init__(self, stride=[1,1,1,1], pad_type='zero', pad_axes='both',
                   pool_type='AVG', **kwargs):
         '''
         Initializes layer with given parameters
@@ -112,8 +112,9 @@ class Conv2d(Layer):
             
         # Should return data in format of Time x Neurons with padding removed
         convolved_array = self.convolution(input_array, filter_array)
-        convolved_array = convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0]
-        return convolved_array
+        pooled_array = self.pool(convolved_array)
+        pooled_array = convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0, 0]
+        return pooled_array
 
     def shape_filter(self, coefficients):
         '''
@@ -132,7 +133,8 @@ class Conv2d(Layer):
         elif coefficients.ndim == 3:
             coefficients = coefficients[:, :, np.newaxis, :]
 
-        return coefficients
+        # Flip filter so scipy and tf filter are equivalent
+        return np.fliplr(coefficients)
     
     def shape_input(self, input_array, coefficients):
         '''
@@ -171,7 +173,7 @@ class Conv2d(Layer):
         input_convolutions = [scipy.signal.convolve2d(input_array[0, :, :, 0], filter_array[:, :, 0, 0], mode='valid')[np.newaxis,..., np.newaxis] 
                               for idx in range(filter_array.shape[-1])]
         input_convolutions = np.stack(input_convolutions, axis=-1)
-        return self.pool(input_convolutions)
+        return input_convolutions
     
     def pool(self, input_array):
         '''
@@ -193,6 +195,7 @@ class Conv2d(Layer):
             PROD - Reduction via production of values
             STD - Reduction via standard deviation
             SUM - Reduction via sum values
+            NONE - Stacks data on Neuron axis
             
             default is mean reduction
         '''
@@ -207,6 +210,8 @@ class Conv2d(Layer):
             pooled_array = np.std(input_array, axis=-1, keepdims=False)
         elif pool_type == 'SUM':
             pooled_array = np.sum(input_array, axis=-1, keepdims=False)
+        elif pool_type == 'NONE':
+            pass
         else:
             pooled_array = np.mean(input_array, axis=-1, keepdims=False)
         return pooled_array
@@ -324,7 +329,6 @@ class Conv2d(Layer):
             Modified tensor, also 4-Dimensional of
             Height x Width x In_channels x Filters
 
-        NOTE: Currently only implemented with CPU in mind.
         '''
         #Temp CPU only
         num_gpus = len(tf.config.list_physical_devices('GPU'))
