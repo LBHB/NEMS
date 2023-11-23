@@ -822,7 +822,8 @@ class Model:
         
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+            verbose=1, in_place=False, freeze_layers=None, progress_fun=None,
+            **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -864,6 +865,8 @@ class Model:
             Backend subclass.
         backend_options : dict; optional.
             Keyword arguments to pass to the Backend constructor.
+        progress_fun : function, None
+            Evaluate after fit is complete
         eval_kwargs : dict
             Keyword arguments to supply to `Model.evaluate`.
 
@@ -926,6 +929,9 @@ class Model:
             data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options
             )
         new_model.results = fit_results
+
+        if progress_fun is not None:
+            progress_fun()
 
         return new_model
 
@@ -1559,6 +1565,10 @@ class _LayerDict:
 
     def values(self):
         return self._values
+
+    def pop(self, n=1):
+        key_list = list(self._dict.keys())
+        return _LayerDict({k: self._dict[k] for k in key_list[:-n]})
 
     def __repr__(self):
         return self._dict.__repr__()

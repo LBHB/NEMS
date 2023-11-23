@@ -379,6 +379,9 @@ class RectifiedLinear(StaticNonlinearity):
                 no_shift = False
             elif op == 'o':
                 no_offset = False
+            elif op == 'os':
+                no_shift = False
+                no_offset = False
             elif op == 'g':
                 no_gain = False
 
