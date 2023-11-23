@@ -5,10 +5,12 @@ import copy
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 from .tools import ax_remove_box, ax_bins_to_seconds
 from nems import metrics
 from nems import preprocessing
+from nems.tools.dstrf import compute_dpcs
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -16,6 +18,7 @@ _DEFAULT_PLOT_OPTIONS = {
     'show_y': True, 'ylabel': None, 'ymax_scale': 1, 'ymin_scale': 1,
     'show_seconds': True,
     'legend': False,
+    'margins': (0,.1),
     # Right of axis by default, aligned to top
     'legend_kwargs': {
         'frameon': False, 'bbox_to_anchor': (1, 1), 'loc': 'upper left'
@@ -69,6 +72,9 @@ def set_plot_options(ax, layer_options, time_kwargs=None):
     if ops['legend']:
         ax.legend(**ops['legend_kwargs'])
     
+    # Set margins of ax
+    ax.margins(*ops['margins'])
+
     # Remove top and right segments of border around axes
     ax_remove_box(ax)
 
@@ -589,6 +595,8 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
         if len(fir.shape)>2:
             fir=fir[:,:,0]
         strf = fir.T
+        vlines=0
+        vlines_spacing=0
     else:
         wc = wc_layer.coefficients
         fir = fir_layer.coefficients
@@ -621,6 +629,10 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
 
     ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
               cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+    vlines = filter_count-1
+    vline_spacing = lag_count+1
+    for i in range(vlines):
+        ax.axvline((i+1)*vline_spacing-0.5, color='black')
     plt.tight_layout()
     
     return fig
@@ -843,7 +855,7 @@ def plot_predictions(predictions, input=None, target=None, correlation=False, sh
     return fig
 
 def plot_data(data, title='Data', label=None, target=None, ax=None, 
-              correlation=False, imshow=False, show_titles=True, display_ratio=.5,
+              correlation=False, imshow=False, ds_imshow=False, show_titles=True, display_ratio=.5,
                xunits="Bins", **figure_kwargs):
     """
     Plotting most basic/important information of given data. Returns plotted ax.
@@ -874,32 +886,33 @@ def plot_data(data, title='Data', label=None, target=None, ax=None,
     if ax is None:
         fig, ax = plt.subplots(1, 1)
         ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
-        ax.margins(0,.05)
     data = np.array(data)
     if not figure_kwargs:
         figure_kwargs = {'legend': True, 'show_x': True, 'ylabel': 'Frequency'}
     # Update plot options with user-given options
     figure_kwargs['xlabel'] = f'Time ({xunits})'
-    set_plot_options(ax, figure_kwargs)
     if correlation:
         title += f" | Correlation: {metrics.correlation(data, target):.2f}"
     if imshow:
         ax.imshow(reduced_data.T, aspect='auto', interpolation='none')
+    # DSTRF based imshow settings
+    elif ds_imshow:
+        absmax = np.max(np.abs(data))
+        ax.imshow(reduced_data, aspect='auto', interpolation='none',
+                cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
     else:
         ax.plot(reduced_data, label=label)
     if target is not None:
         indicies, remainder = preprocessing.split.indices_by_fraction(target, display_ratio)
         reduced_target, _ = preprocessing.split.split_at_indices(target, indicies, remainder)
         ax.plot(reduced_target, label='Target', color='orange', lw=1, zorder=-1)
+        
+    set_plot_options(ax, figure_kwargs)
     ax.autoscale()
-
     if show_titles:
         x_pos = ax.get_xlim()[0]
         y_pos = ax.get_ylim()[1]
         ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
-        if figure_kwargs.get('legend'):
-            ax.legend(loc='upper center', bbox_to_anchor=(0.5,1.0))
     return ax
 
 # TODO: Iterate through dictionaries for larger inputs
@@ -920,6 +933,97 @@ def plot_dstrf(dstrf, title='DSTRF Models', xunits='Bins'):
         a.imshow(d, aspect='auto', interpolation='none',
                 cmap='bwr', vmin=-absmax, vmax=absmax, origin='lower')
         a.text(a.get_xlim()[0], a.get_ylim()[1], f"DSTRF:{i}", va='top', bbox=_TEXT_BBOX)
-        
+    
     plt.tight_layout()
     return ax
+
+def plot_dpcs(dpca, ax=None, title="DSTRF PC", xunits='Bins'):
+    """
+    Returns plotted graph of given DPCA. If no ax is given,
+    a new figure will be created. Returns Axes
+
+    Parameters
+    ----------
+    dpca: Dict
+        Computed DPCA Dictionary
+    ax: Axes
+        Given matplotlib ax to plot graph onto
+    title: 
+        Suptitle for the plot figure
+    xunits: String
+        Unit value name to append to x_label
+
+    """
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+        ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
+        fig.suptitle(title)
+        fig.supxlabel(f'Time({xunits})')
+    
+    [plot_data(dpca['projection'][0, :, i], label=f'DPCA {i}', title='DSTRF PCs', display_ratio=1.0, ax=ax, show_titles=False) 
+                for i in range(dpca['projection'].shape[2])]
+    set_plot_options(ax, {'legend':True, 'margins':(0,.1), 'show_x':True,'legend_kwargs':{'loc': 'upper right', 'frameon':True}})
+    ax.text(ax.get_xlim()[0], ax.get_ylim()[1], 'DPCAs', va='top', bbox=_TEXT_BBOX)
+    return ax
+
+def plot_dpcs_comparison(model, input, t_skip=20, title="DPCA Comparisons", xunits='Bins', **dstrf_kwargs):
+    """
+    Using PCA's and DSTRF's to plot PC adjustments over fit data
+    and see PC of overall DSTRF's. Returns base GridSpec
+
+    pc_len and t_steps allow for optimized and excitatory PCA's,
+    modify these values to create faster dpca's or more relevant dpca's
+    
+    Parameters
+    ----------
+    model: Model
+        Fitted Model object to be used for DSTRF and predictions
+    input: np.ndarray
+        Input data to be used for prediction and DSTRF
+    t_skip: Int
+        How many input values to repeatedly skip over when creating a full dstrf
+    t_len: Int
+        Length of the input you wish to fully process for full dstrf
+    title: String
+        Suptitle for the plot figure
+    xunits: String
+        Unit value name to append to x_label
+    
+    """
+    # We need to define D before we can create any time indexes for our DSTRF
+    D=25
+    if dstrf_kwargs['D']:
+        D = dstrf_kwargs['D']
+
+    t_indexes = np.arange(D, len(input), t_skip)
+    pred_model = model.predict(input)
+
+    full_dstrf = model.dstrf(input, t_indexes=t_indexes, **dstrf_kwargs)
+    short_dstrf = model.dstrf(input, **dstrf_kwargs)
+
+    full_dpca = compute_dpcs(full_dstrf)
+    short_dcpa = compute_dpcs(short_dstrf)
+
+    # Base gridspec to subspec our graphs below
+    fig = plt.figure()
+    base_gs = gridspec.GridSpec(4, 1, figure=fig)
+    fig.supxlabel(f'Time({xunits})')
+    fig.suptitle(title)
+
+    # Input, PCA's, and DPCA graphs added to our base gridspec
+    gs = [base_gs[x].subgridspec(1,1) for x in range(base_gs.get_geometry()[0]-1)]
+    gs.append(base_gs[3].subgridspec(1, short_dcpa['pcs'].shape[1]))
+    gs_ax = [fig.add_subplot(y[0,0]) for y in gs]
+    gs_ax.append(fig.add_subplot(gs[3][:, :]))
+
+    input_plot = plot_data(input, ax=gs_ax[0], title="Input", imshow=True, figure_kwargs={'show_x': True,'legend':False, 'y_label': 'Hz'}, display_ratio=1.0)
+    predict_plot = plot_data(pred_model, title='Prediction', ax=gs_ax[1], figure_kwargs={'legend':False, 'margins':(0, 999), 'show_x': True}, display_ratio=1.0)
+    dpca_plot = plot_dpcs(full_dpca, ax=gs_ax[2])
+
+    # DSTRF heatmaps
+    for idx, ax in enumerate(gs[3].subplots()):
+        data = np.fliplr(short_dcpa['pcs'][0,idx,:,:])
+        plot_data(data, ax=ax, ds_imshow=True, title=f'DPCA: {idx}', figure_kwargs={'legend':False, 'show_x':False}, display_ratio=1.0)
+
+    fig.tight_layout()
+    return base_gs

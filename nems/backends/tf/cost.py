@@ -170,6 +170,14 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         numers = tf.math.reduce_mean(squared_error, axis=-1)
         denoms = tf.math.reduce_mean(_response**2, axis=-1)
 
+        #mask = tf.math.is_finite(_response) & tf.math.is_finite(_prediction)
+        #r = tf.boolean_mask(_response, mask)
+        #p = tf.boolean_mask(_prediction, mask)
+
+        #squared_error = ((r - p) ** 2)
+        #numers = tf.math.reduce_mean(squared_error, axis=-1)
+        #denoms = tf.math.reduce_mean(r**2, axis=-1)
+
     denoms = tf.where(tf.equal(denoms, 0), tf.ones_like(denoms), denoms)
 
     nmses = (numers / denoms) ** 0.5

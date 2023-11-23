@@ -150,6 +150,7 @@ class _FitWrapper:
                     f" error is: {cost:.8f}...")
         self.iteration += 1
 
+    # From main branch
     def compute_cost(self):
         """Compute cost given current Model parameters."""
         # Retrieve outputs and targets from `data` as lists of arrays.
@@ -164,6 +165,46 @@ class _FitWrapper:
             target = target_list[0]
 
         return self.fn(prediction, target)
+
+    # alter version introduced in small_fixes. Unclear if it matters
+    def compute_cost_small_fixes(self):
+        """Compute cost given current Model parameters."""
+        prediction_list, target_list = self._get_arrays()
+        if (len(prediction_list) == 1) and (len(target_list) == 1):
+            cost = self.fn(prediction_list[0], target_list[0])
+
+        else:
+            # Dict keys are not stored in a guaranteed order, so can't expect
+            # .values() to match up even if the lengths are the same. Need to
+            # provide a separate mapping of {'pred_key' -> 'target_key'}
+            # (and do something different instead of just getting lists).
+            raise NotImplementedError(
+                "TODO: SciPy cost function for multiple predictions/targets."
+                )
+
+        return cost
+
+    def _get_arrays(self):
+        """Retrieve outputs and targets from `data` as lists of arrays."""
+        prediction = self.data.outputs
+        if self.model.output_name is not None:
+            prediction={self.model.output_name: prediction[self.model.output_name]}
+        target = self.data.targets
+
+        if len(prediction) == 0:
+            # No predictions, error
+            raise ValueError(f"{self.name}: No predictions found in data.")
+        else:
+            predictions = list(prediction.values())
+        
+        if len(target) == 0:
+            # No target, error
+            raise ValueError(f"{self.name}: No targets found in data.")
+        else:
+            targets = list(target.values())
+
+        return predictions, targets
+
 
     def get_fit_result(self, data, **fitter_options):
         """Process one optimization epoch."""
