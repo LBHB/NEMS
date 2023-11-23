@@ -12,5 +12,6 @@ from .state import StateGain, StateDexp, StateHinge
 from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
 from .algebra import SwapDims, ConcatSignals
+from .conv2d import Conv2d
 
 from .base import Layer, Phi, Parameter
