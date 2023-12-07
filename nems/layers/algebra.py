@@ -87,14 +87,29 @@ class SwapDims(Layer):
 
 class ConcatSignals(Layer):
 
-    def __init__(self, axis=1, **kwargs):
+    def __init__(self, input1='stim', input2='hrtf', axis=1, input=None, **kwargs):
         self.axis = axis
-        super().__init__(**kwargs)
+        self.input1 = input1
+        self.input2 = input2
 
-    def evaluate(self, *inputs):
+        super().__init__(input=[input1, input2], **kwargs)
+
+    @layer('cat')
+    def from_keyword(keyword):
+        """Construct ConcatSignals from keyword."""
+        options = keyword.split('.')
+        kwargs={}
+        if len(options)>1:
+            kwargs['input1']=options[1]
+        if len(options)>2:
+            kwargs['input2']=options[2]
+
+        return ConcatSignals(**kwargs)
+
+    def evaluate(self, input1, input2):
         # All inputs are treated the same, no fittable parameters.
 
-        return np.concatenate(inputs, axis=self.axis)
+        return np.concatenate([input1, input2], axis=self.axis)
 
     def as_tensorflow_layer(self, **kwargs):
         """TODO: docs"""
@@ -108,6 +123,75 @@ class ConcatSignals(Layer):
             def call(self, inputs):
                 # Assume inputs is a list of two tensors
                 # TODO: Use tensor names to not require this arbitrary order.
-                return tf.concat(inputs, ax)
+                return tf.concat([inputs[0], inputs[1]], ax)
 
         return ConcatSignalsTF(self, **kwargs)
+
+class MultiplySignals(Layer):
+
+    def __init__(self, input1='hrtf', input2='input', input=None, **kwargs):
+        self.input1 = input1
+        self.input2 = input2
+
+        super().__init__(input=[input1, input2], **kwargs)
+
+    @layer('mult')
+    def from_keyword(keyword):
+        """Construct MultiplySignals from keyword."""
+        options = keyword.split('.')
+        kwargs={}
+        if len(options)>1:
+            kwargs['input1']=options[1]
+        if len(options)>2:
+            kwargs['input2']=options[2]
+        kwargs['output']='hstim'
+        return MultiplySignals(**kwargs)
+
+        
+    def evaluate(self, input1, input2):
+        # All inputs are treated the same, no fittable parameters.
+        return input1*input2
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class MultiplySignalsTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors
+                # TODO: Use tensor names to not require this arbitrary order.
+                return tf.math.multiply(inputs[0], inputs[1])
+
+        return MultiplySignalsTF(self, **kwargs)
+
+
+class MultiplyByExp(Layer):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    @layer('multexp')
+    def from_keyword(keyword):
+        """Construct MultiplySignals from keyword."""
+        return MultiplyByExp()
+
+    def evaluate(self, *inputs):
+        # All inputs are treated the same, no fittable parameters.
+        return inputs[0] * np.exp(inputs[1])
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class MultiplyByExpTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors
+                # TODO: Use tensor names to not require this arbitrary order.
+                return tf.math.multiply(inputs[0], tf.math.exp(inputs[1]))
+
+        return MultiplyByExpTF(self, **kwargs)
+

@@ -112,8 +112,8 @@ class Conv2d(Layer):
             
         # Should return data in format of Time x Neurons with padding removed
         convolved_array = self.convolution(input_array, filter_array)
-        pooled_array = self.pool(convolved_array)
-        pooled_array = convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0, 0]
+        trimmed_array = convolved_array[0, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], :, :]
+        pooled_array = self.pool(trimmed_array)
         return pooled_array
 
     def shape_filter(self, coefficients):
@@ -192,9 +192,10 @@ class Conv2d(Layer):
             String value to determine type of reduction used. Includes:
             MAX - Reduction via average values along array 
             MIN - Reduction via minimum values 
-            PROD - Reduction via production of values
+            PROD - Reduction via product of values
             STD - Reduction via standard deviation
             SUM - Reduction via sum values
+            STACK - Collapse last two di
             NONE - Stacks data on Neuron axis
             
             default is mean reduction
@@ -210,6 +211,9 @@ class Conv2d(Layer):
             pooled_array = np.std(input_array, axis=-1, keepdims=False)
         elif pool_type == 'SUM':
             pooled_array = np.sum(input_array, axis=-1, keepdims=False)
+        elif pool_type == 'STACK':
+            x_shape = list(input_array.shape)
+            pooled_array = np.reshape(input_array, x_shape[:-3]+[x_shape[-3]*x_shape[-1]])
         elif pool_type == 'NONE':
             pass
         else:
@@ -309,8 +313,9 @@ class Conv2d(Layer):
                     input_tensor = pad(input_tensor)
                     pad_indices = _pad_indices
                 convolved_tensor = convolve(input_tensor, filter_tensor, stride)
-                convolved_tensor = pool(convolved_tensor)[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], 0]
-                return convolved_tensor
+                trimmed_tensor = convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
+                pooled_tensor = pool(trimmed_tensor)
+                return pooled_tensor
 
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
     
@@ -469,6 +474,12 @@ class Conv2d(Layer):
             @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=True)
+        elif pool_type == 'STACK':
+            @tf.function
+            def pool(input_tensor):
+                x_shape = list(input_tensor.shape)
+                new_shape = [-1] + x_shape[1:-2] + [x_shape[-2]*x_shape[-1]]
+                return tf.reshape(input_tensor, new_shape)
         else:
             @tf.function
             def pool(input_tensor):
@@ -599,7 +610,9 @@ class Conv2d(Layer):
         options = keyword.split('.')
         kwargs['shape'] = pop_shape(options)
         for op in options:
-            if op.startswith('s'):
+            if op == 'stack':
+                kwargs['pool_type'] = 'STACK'
+            elif op.startswith('s'):
                 kwargs['stride'] = int(op[1:])
         conv = Conv2d_class(**kwargs)
 

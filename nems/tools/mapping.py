@@ -46,23 +46,46 @@ def dlog(x, offset):
     return np.log((x + d) / d)
 
 
-def load_mapping_model(modelspec=None, version=1):
+def load_mapping_model(modelname=None, version=1):
 
-    if modelspec is None:
-        modelspec = 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x80-fir.10x1x80-relu.80-wc.80x100-relu.100-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4'
+    if modelname is None:
+        modelname = 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x80-fir.10x1x80-relu.80-wc.80x100-relu.100-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4'
 
-    modelfilepath = os.path.join(model_path,modelspec+'.json')
+    modelfilepath = os.path.join(model_path,modelname+'.json')
     modelspec = json.load_model(modelfilepath)
     layers = modelspec.layers._values[:-2]
     new_modelspec = Model(layers=layers, name=modelspec.name, meta=modelspec.meta.copy(),
                           output_name=modelspec.output_name, fs=modelspec.fs)
-    new_modelspec.meta['smin'] = np.zeros((18,1))
-    new_modelspec.meta['smax'] = np.array([[2.07361315, 1.9316044 , 1.94671749, 2.08861981, 2.0431995 ,
-        1.98397283, 2.00941414, 2.03533967, 2.13307407, 2.05509621,
-        1.86860145, 2.05164048, 1.91209762, 2.00511489, 2.08149414,
-        1.82319729, 1.82759065, 1.86091482]]).T
-    new_modelspec.meta['log_compress']=1
-    new_modelspec.meta['rasterfs']=100
+
+    channels = new_modelspec.layers[0].shape[0]
+    new_modelspec.meta['smin'] = np.zeros((channels, 1))
+    if channels == 18:
+        new_modelspec.meta['smax'] = np.array([[2.07361315, 1.9316044 , 1.94671749, 2.08861981, 2.0431995 ,
+            1.98397283, 2.00941414, 2.03533967, 2.13307407, 2.05509621,
+            1.86860145, 2.05164048, 1.91209762, 2.00511489, 2.08149414,
+            1.82319729, 1.82759065, 1.86091482]]).T
+    elif channels == 32:
+        new_modelspec.meta['smax'] = np.array([
+            [0.17319407, 0.17128999, 0.18907563, 0.1996132, 0.19443185,
+             0.18742472, 0.17706056, 0.18663591, 0.17925323, 0.19462644,
+             0.17475645, 0.17967997, 0.17574365, 0.19425933, 0.17833606,
+             0.17270589, 0.17245491, 0.18347096, 0.17326807, 0.15476016,
+             0.16378335, 0.15130896, 0.15690385, 0.14773204, 0.13089093,
+             0.11983025, 0.10506714, 0.09612146, 0.07826547, 0.07168109,
+             0.0430525, 0.06475942]]).T
+    if 'norm.l1' in modelname:
+        new_modelspec.meta['log_compress']=1
+    else:
+        new_modelspec.meta['log_compress']=0
+
+    if 'fs200' in modelname:
+        new_modelspec.meta['rasterfs'] = 200
+    elif 'fs100' in modelname:
+        new_modelspec.meta['rasterfs'] = 100
+    elif 'fs50' in modelname:
+        new_modelspec.meta['rasterfs'] = 50
+    else:
+        raise ValueError('unsupported fs')
 
     return new_modelspec
 
@@ -72,11 +95,16 @@ def project(modelspec, wav=None, w=None, fs=None,
 
     if (w is not None) & (fs is not None):
         pass
-    elif (wavfile is not None):
+    elif (wav is not None):
         fs, w = wavfile.read(wav)
 
         w = w / np.iinfo(w.dtype).max
-        w *= raw_scale
+        if raw_scale is not None:
+            w *= raw_scale
+        else:
+            # scale to +/- 5 sin wav = 80 dB RMS
+            w *= 3.519 / np.nanstd(w)
+        # adjust to stimulus RMS
         sf = 10 ** ((80 - OveralldB) / 20)
         w /= sf
     else:
@@ -108,7 +136,8 @@ def project(modelspec, wav=None, w=None, fs=None,
         ax[0].set_xlim([t[0], t[-1]])
         ax[0].set_xticklabels([])
         ts = s.shape[0] / rasterfs
-        im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5])
+        im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5],
+                          cmap='gray_r')
         ax[1].set_xticklabels([])
         ax[2].imshow(projection.T, origin='lower', interpolation='none',
                      extent=[0, ts, -0.5, projection.shape[1] + 0.5])
@@ -117,3 +146,55 @@ def project(modelspec, wav=None, w=None, fs=None,
 
     return projection
 
+def spectrogram(wav=None, channels=18, rasterfs=100, w=None, fs=None,
+            log_compress=0, raw_scale=250, OveralldB=65, verbose=True):
+
+    if (w is not None) & (fs is not None):
+        pass
+    elif (wav is not None):
+        fs, w = wavfile.read(wav)
+
+        w = w / np.iinfo(w.dtype).max
+        if raw_scale is not None:
+            w *= raw_scale
+        else:
+            # scale to +/- 5 sin wav = 80 dB RMS
+            w *= 3.519 / np.nanstd(w)
+        # adjust to stimulus RMS
+        sf = 10 ** ((80 - OveralldB) / 20)
+        w /= sf
+    else:
+        raise ValueError('required parameters: wavfile or (w,fs)')
+
+    f_min = 100
+    f_max = 10000
+    window_time = 1 / rasterfs
+    hop_time = 1 / rasterfs
+    padbins = int(np.ceil((window_time - hop_time) / 2 * fs))
+
+    s = gammagram(np.pad(w,[padbins, padbins]), fs, window_time, hop_time, channels, f_min, f_max)
+    s = _dlog(s, -log_compress)
+
+    if verbose:
+        f = plt.figure(figsize=(5,2.5))
+        ax = [f.add_subplot(2, 1, 1), f.add_subplot(2, 1, 2)]
+        t = np.arange(len(w)) / fs
+        ax[0].plot(t, w, 'k', lw=0.5)
+        ax[0].set_xlim([t[0], t[-1]])
+        ax[0].set_xticklabels([])
+        ax[0].set_axis_off()
+
+        ts = s.shape[0] / rasterfs
+        im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5],
+                          cmap='gray_r')
+        yi = np.arange(0,channels,10)
+        sf = np.log2(f_max/f_min)
+        ys=[str(int(np.round(2**(y/channels * sf)*f_min/10,0)*10)) for y in yi]
+        ax[1].set_yticks(yi,ys)
+        ax[1].set_xlabel('Time (s)')
+        ax[1].set_ylabel('Frequency (Hz)')
+
+        if wav is not None:
+            ax[0].set_title(os.path.basename(wav))
+        plt.tight_layout()
+        return f

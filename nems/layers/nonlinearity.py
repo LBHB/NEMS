@@ -280,6 +280,140 @@ class DoubleExponential(StaticNonlinearity):
             return DoubleExponentialTF(self, **kwargs)
 
 
+class Sigmoid(StaticNonlinearity):
+    """TODO: doc here? maybe just copy .evaluate?"""
+
+    def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
+        super().__init__(**kwargs)
+        fixed_parameters = {}
+        self.no_shift = no_shift
+        self.no_offset = no_offset
+        self.no_gain = no_gain
+        shift, offset, gain = self.get_parameter_values()
+        if no_shift: fixed_parameters['shift'] = np.full_like(shift, 0)
+        if no_offset: fixed_parameters['offset'] = np.full_like(offset, 0)
+        if no_gain: fixed_parameters['gain'] = np.full_like(gain, 1)
+        self.set_permanent_values(**fixed_parameters)
+
+    def initial_parameters(self):
+        """Get initial values for `RectifiedLinear.parameters`.
+
+        Layer parameters
+        ----------------
+        shift : scalar or ndarray
+            Value(s) that are added to input prior to rectification. Shape
+            (N,) must match N channels per input.
+            Prior:  Normal(mean=-0.1, sd=1/sqrt(N))
+        offset : scalar or ndarray
+            Value(s) that are added to input after rectification.
+            Prior:  TODO
+        gain : scalar or ndarray
+            Rectified input(s) will be multiplied by this (i.e. slope of the
+            linear portion for each output).
+            Prior:  TODO
+
+        """
+        # TODO: explain choice of prior.
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+        shift_prior = {'mean': zero + 0.05, 'sd': one / 100}
+        offset_prior = {'mean': zero - 0.05, 'sd': one / 100}
+        gain_prior = {'mean': one, 'sd': one / 100}
+        phi = Phi(
+            Parameter('shift', shape=self.shape, prior=Normal(**shift_prior)),
+            Parameter('offset', shape=self.shape, prior=Normal(**offset_prior)),
+            Parameter('gain', shape=self.shape, prior=Normal(**gain_prior))
+        )
+
+        return phi
+
+    def nonlinearity(self, input):
+        """Implements `y = offset + gain * rectify(x - shift)`.
+
+        By default, `offset=0, shift=0, gain=1` and this is equivalent to
+        standard linear rectification: `y = 0 if x < 0, else x`.
+
+        Notes
+        -----
+        The negative of `shift` is used so that its interpretation in
+        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+
+        """
+
+        shift, offset, gain = self.get_parameter_values()
+
+        if (input.shape[-1] < shift.shape[-1]) or (not self._inplace_ok):
+            # First condition means output will be larger than input, so we
+            # can't store it in the same array.
+            out = None
+        else:
+            out = input
+
+        output = gain / (1 + np.exp(-input-shift)) + offset
+
+        return output
+
+    @layer('sig')
+    def from_keyword(keyword):
+        """Construct RectifiedLinear from a keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+
+        Returns
+        -------
+        RectifiedLinear
+
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        options = keyword.split('.')
+        no_shift = True
+        no_offset = True
+        no_gain = True
+        shape = pop_shape(options)
+
+        for op in options[1:]:
+            if op == 's':
+                no_shift = False
+            elif op == 'o':
+                no_offset = False
+            elif op == 'os':
+                no_shift = False
+                no_offset = False
+            elif op == 'g':
+                no_gain = False
+
+        relu = Sigmoid(
+            shape=shape, no_shift=no_shift, no_offset=no_offset,
+            no_gain=no_gain
+        )
+
+        return relu
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        if self._skip_nonlinearity:
+            return super().as_tensorflow_layer(**kwargs)
+        elif self.no_shift & self.no_offset & self.no_gain:
+            class SigmoidTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return 1 / (1 + tf.math.exp(-inputs))
+        else:
+            class SigmoidTF(NemsKerasLayer):
+                def call(self, inputs):
+                    rectified = 1 / (1 + tf.math.exp(-inputs - self.shift))
+                    return self.offset + self.gain * rectified
+
+        return SigmoidTF(self, **kwargs)
+
+
 class RectifiedLinear(StaticNonlinearity):
     """TODO: doc here? maybe just copy .evaluate?"""
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):

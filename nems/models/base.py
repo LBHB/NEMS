@@ -1004,7 +1004,7 @@ class Model:
     def score(self, input, target, metric='correlation', metric_kwargs=None,
               prediction_name=None, **eval_kwargs):
         """Score model performance using post-fit metrics like correlation.
-        
+
         This only supports metrics that expect a model output as a first
         argument, a target as a second argument, and no other positional
         arguments.
@@ -1048,6 +1048,21 @@ class Model:
 
         return metric(prediction, target, **metric_kwargs)
 
+    def get_io_names(self):
+        """generate lists of """
+        all_inputs = []
+        all_outputs = []
+        for l in self.layers:
+            if type(l.input) is list:
+                all_inputs.extend(l.input)
+            elif l.input is not None:
+                all_inputs.append(l.input)
+            if l.output is not None:
+                all_outputs.append(l.output)
+        all_inputs = ['input'] + list(set(all_inputs) - set(all_outputs) - set(['input']))
+        all_outputs = list(set(all_outputs))
+
+        return all_inputs, all_outputs
 
     def get_bounds_vector(self, none_for_inf=True):
         """Get all parameter bounds, formatted as a list of 2-tuples.

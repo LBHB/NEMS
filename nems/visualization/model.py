@@ -563,7 +563,7 @@ def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=No
     return fig
 
 
-def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
+def plot_strf(fir_layer, wc_layer=None, fs=1, ax=None, fig=None):
     """Generate a heatmap representing a Spectrotemporal Receptive Field (STRF).
     
     Parameters
@@ -597,13 +597,13 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
         strf = fir.T
         vlines=0
         vlines_spacing=0
+        filter_count=1
     else:
         wc = wc_layer.coefficients
         fir = fir_layer.coefficients
         if len(fir.shape)>2:
             filter_count = fir.shape[2]
             chan_count = wc.shape[0]
-            lag_count = fir.shape[0]
             gap = np.full([wc.shape[0], 1], np.nan)
             strfs = []
             for i in range(filter_count):
@@ -620,19 +620,16 @@ def plot_strf(fir_layer, wc_layer=None, fs=None, ax=None, fig=None):
             #fir=fir[:,:,0]
         else:
             strf = wc @ fir.T
-
+            filter_count = 1
+    lag_count = fir.shape[0]
     mm = np.nanmax(abs(strf))
-    if fs is not None:
-        extent=[0, strf.shape[0]/fs, 0, strf.shape[1]]
-    else:
-        extent=[0, strf.shape[0], 0, strf.shape[1]]
-
+    extent=[0, strf.shape[1]/fs, 0, strf.shape[0]]
     ax.imshow(strf, aspect='auto', interpolation='none', origin='lower',
               cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
     vlines = filter_count-1
-    vline_spacing = lag_count+1
+    vline_spacing = (lag_count+1)/fs
     for i in range(vlines):
-        ax.axvline((i+1)*vline_spacing-0.5, color='black')
+        ax.axvline((i+1)*vline_spacing-0.5/fs, color='black', lw=0.5)
     plt.tight_layout()
     
     return fig
@@ -768,7 +765,7 @@ def plot_model_list(model_list, input, target, plot_comparitive=True, plot_full=
 
         # Loop through our list, compare models, plots data, and save best model
         for fitidx, model in enumerate(model_list):
-            if model.name is "UnnamedModel":
+            if model.name == "UnnamedModel":
                 model.name = f"Model_Fit-{fitidx}"
             if find_best and (best_fit is None or best_fit.results.final_error > model.results.final_error):
                 best_fit = fitidx
