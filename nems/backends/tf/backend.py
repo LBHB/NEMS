@@ -218,7 +218,11 @@ class TensorFlowBackend(Backend):
         loss_name = 'loss'
         if (validation_split > 0) or (validation_data is not None):
             loss_name = 'val_loss'
-        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs)]
+        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
+                     tf.keras.callbacks.TerminateOnNaN(),
+                     TerminateOnNaNWeights()
+        ]
+        log.info(f"{callbacks}")
         if early_stopping_tolerance != 0:
             early_stopping = DelayedStopper(
                 monitor=loss_name, patience=early_stopping_patience,
@@ -531,3 +535,14 @@ class ProgressCallback(tf.keras.callbacks.Callback):
                     info += ' %.4e' % v
 
             log.info(info)
+
+class TerminateOnNaNWeights(tf.keras.callbacks.Callback):
+    """Termiantes on NaN weights, or inf. Modelled on tf.keras.callbacks.TerminateOnNan."""
+    def on_epoch_end(self, epoch, logs=None):
+        """Goes through weights looking for any NaNs."""
+        for weight in self.model.weights:
+            if tf.math.reduce_any(tf.math.is_nan(weight)) or tf.math.reduce_any(tf.math.is_inf(weight)):
+                log.info(f'Epoch {epoch}: Invalid weights in "{weight.name}", terminating training')
+                log.info(f'Weights {weight}')
+                self.model.early_terminated = True
+                self.model.stop_training = True

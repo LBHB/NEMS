@@ -667,36 +667,9 @@ class WeightGaussianExpand(Layer):
         return WeightGaussianExpandTF(self, new_values=new_values,
                                         new_bounds=new_bounds, **kwargs)
 
-    @layer('wc')
     def from_keyword(keyword):
-        """Construct WeightChannels (or subclass) from keyword.
-
-        Keyword options
-        ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-        g : Use gaussian function(s) to determine coefficients.
-
-        See also
-        --------
-        Layer.from_keyword
-
-        """
-        wc_class = WeightChannels
-        kwargs = {}
-        options = keyword.split('.')
-        kwargs['shape'] = pop_shape(options)
-
-        for op in options:
-            if op == 'g':
-                wc_class = WeightChannelsGaussian
-            elif op == 'b':
-                wc_class = WeightChannelsMulti
-            elif op.startswith('l2'):
-                kwargs['regularizer'] = op
-
-        wc = wc_class(**kwargs)
-
-        return wc
+        # TODO
+        pass
 
     @property
     def plot_kwargs(self):
