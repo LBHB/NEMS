@@ -129,7 +129,7 @@ class JackknifeIterator:
         if shuffle:
             masks = np.random.permutation(masks)
         self.max_index = data.shape[axis]
-        self.mask_list = np.array_split(masks, n, axis=self.axis)
+        self.mask_list = np.array_split(masks, n)
         return masks
 
     def plot_estimate_error(self):
@@ -140,10 +140,10 @@ class JackknifeIterator:
         """Returns the jackknife at a given index, conditionally with inverse."""
 
         def fn(x):
-            return np.delete(x, obj=self.mask_list[index], axis=0)
+            return np.delete(x, obj=self.mask_list[index], axis=self.axis)
 
         def fn2(x):
-            return np.take(x, self.mask_list[index], axis=0)
+            return np.take(x, self.mask_list[index], axis=self.axis)
 
         if inverse==False:
             jackknife_data = self.dataset.apply(fn, allow_copies=True)
@@ -176,19 +176,21 @@ class JackknifeIterator:
         self.inverse = True
 
         preds = [model.predict(inverse_set) for model, inverse_set in zip(model_set, self)]
+        for i, inverse_set in enumerate(self):
+            preds[i]['target'] = inverse_set.targets['target']
         dataset = {}
+        # for each key in the dataset (including target)
         for k in list(preds[0].keys()):
+            # create an output array
             s = list(preds[0][k].shape)
             s[self.axis] = self.max_index
             dataset[k] = np.zeros(s)
+            # paste held-out component in appropriate slots
             for p, mask in zip(preds, self.mask_list):
                 if self.axis==0:
                     dataset[k][mask] = p[k]
                 elif self.axis==1:
                     dataset[k][:,mask] = p[k]
-
-        target = np.concatenate([inverse_set['target'] for inverse_set in self], axis=0)
-        dataset['target'] = target
 
         self.inverse = save_inverse
 

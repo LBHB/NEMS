@@ -222,7 +222,7 @@ class TensorFlowBackend(Backend):
                      tf.keras.callbacks.TerminateOnNaN(),
                      TerminateOnNaNWeights()
         ]
-        log.info(f"{callbacks}")
+        #log.info(f"{callbacks}")
         if early_stopping_tolerance != 0:
             early_stopping = DelayedStopper(
                 monitor=loss_name, patience=early_stopping_patience,
@@ -499,12 +499,12 @@ class TensorFlowBackend(Backend):
             z = self.model(tensor)
             # assume we only care about first output (think this is NEMS standard)
             if type(z) is list:
-                z = z[0][0, -1, out_channel]
+                z = z[-1][0, -1, out_channel]
             else:
                 z = z[0, -1, out_channel]
 
-        return g.jacobian(z, tensor)
-
+            res = g.jacobian(z, tensor)
+        return res
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):
     """Early stopper that waits before kicking in."""

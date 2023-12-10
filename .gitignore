@@ -133,5 +133,8 @@ dmypy.json
 
 # downloaded demo data for NEMS
 nems/tools/demo_data/saved_data/*
+# downloaded pre-fit models for NEMS
+nems/tools/demo_data/saved_models/*
 # but still keep the parent folder
 !nems/tools/demo_data/saved_data/.gitkeep
+!nems/tools/demo_data/saved_models/.gitkeep

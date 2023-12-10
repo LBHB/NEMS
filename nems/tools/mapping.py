@@ -18,7 +18,8 @@ from nems.models.base import Model
 from nems.backends.base import FitResults
 from nems.tools import json
 from nems.preprocessing.spectrogram import gammagram
-from nems0.modules.nonlinearity import _dlog
+#from nems0.modules.nonlinearity import _dlog
+from nems.tools.demo_data.file_management import download_models
 
 dir_path = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(dir_path,'demo_data','saved_models')
@@ -52,6 +53,15 @@ def load_mapping_model(modelname=None, version=1):
         modelname = 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x80-fir.10x1x80-relu.80-wc.80x100-relu.100-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4'
 
     modelfilepath = os.path.join(model_path,modelname+'.json')
+    
+    if os.path.exists(modelfilepath) == False:
+        # download from S3
+        print(f"{modelfilepath} not found. downloading")
+        download_models()
+    print(f"Loading {modelfilepath}")
+    if os.path.exists(modelfilepath) == False:
+        raise ValueError(f"Pre-computed model {modelname} not in saved_model path.")
+        
     modelspec = json.load_model(modelfilepath)
     layers = modelspec.layers._values[:-2]
     new_modelspec = Model(layers=layers, name=modelspec.name, meta=modelspec.meta.copy(),
@@ -92,7 +102,13 @@ def load_mapping_model(modelname=None, version=1):
 
 def project(modelspec, wav=None, w=None, fs=None,
             raw_scale=250, OveralldB=65, verbose=True):
-
+    """
+    Use modelspec to project a wavefrom (filename wav or vector w) into AC model space. Note that modelspec has to be a special
+    'decapitated' model. Ie, a NEMS model fit to a big dataset and with the last, neuron-specific, layers chopped off. Typically
+    these are the last two layers (linear mapping from AC space to neurons and output NL). 
+    See mapping.load_mapping model for loading a NEMS model and perform the necessary chopping (also set some model metadata to
+    appropriately pre-process the data).
+    """
     if (w is not None) & (fs is not None):
         pass
     elif (wav is not None):
@@ -122,7 +138,7 @@ def project(modelspec, wav=None, w=None, fs=None,
     smax = modelspec.meta['smax']
 
     s = gammagram(np.pad(w,[padbins, padbins]), fs, window_time, hop_time, channels, f_min, f_max)
-    s = _dlog(s, -log_compress)
+    s = dlog(s, -log_compress)
     s -= smin.T
     s /= (smax-smin).T
 
@@ -135,12 +151,16 @@ def project(modelspec, wav=None, w=None, fs=None,
         ax[0].plot(t, w)
         ax[0].set_xlim([t[0], t[-1]])
         ax[0].set_xticklabels([])
+        ax[0].set_ylabel('Waveform')
         ts = s.shape[0] / rasterfs
         im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5],
                           cmap='gray_r')
         ax[1].set_xticklabels([])
+        ax[1].set_ylabel('Spectrogram')
         ax[2].imshow(projection.T, origin='lower', interpolation='none',
                      extent=[0, ts, -0.5, projection.shape[1] + 0.5])
+        ax[2].set_ylabel('Model output')
+        ax[2].set_xlabel('Time (s)')
         if wav is not None:
             ax[0].set_title(os.path.basename(wav))
 
@@ -173,7 +193,7 @@ def spectrogram(wav=None, channels=18, rasterfs=100, w=None, fs=None,
     padbins = int(np.ceil((window_time - hop_time) / 2 * fs))
 
     s = gammagram(np.pad(w,[padbins, padbins]), fs, window_time, hop_time, channels, f_min, f_max)
-    s = _dlog(s, -log_compress)
+    s = dlog(s, -log_compress)
 
     if verbose:
         f = plt.figure(figsize=(5,2.5))
