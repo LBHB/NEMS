@@ -13,12 +13,12 @@ datapath = pathlib.Path(__file__).parent / 'saved_data'
 modelpath = pathlib.Path(__file__).parent / 'saved_models'
 
 demo_files = ['TAR010c-18-2.npz', "TAR010c_data.npz"]
-model_files = [
-    'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x80-fir.10x1x80-relu.80.o.s-wc.80x100-relu.100.o.s-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
-    'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x80-fir.10x1x80-relu.80-wc.80x100-relu.100-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
-    'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
-    'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70-wc.70x1x90-fir.10x1x90-relu.90-wc.90x120-relu.120-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
-]
+model_files = {
+    'CNN-18':       'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+    'CNN-18-fixed': 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x90-fir.10x1x90-relu.90-wc.90x120-relu.120-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+    'CNN-32':       'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+    'CNN-32-fixed': 'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70-wc.70x1x90-fir.10x1x90-relu.90-wc.90x120-relu.120-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+}
 
 def download_data(url, filepath):
     r = requests.get(url, stream=True)
@@ -61,10 +61,14 @@ def download_demo(overwrite=False):
     )
 
 # TODO: Other download options, or just the one file?
-def download_models(overwrite=False):
-    
+def download_models(overwrite=False, modelname=None):
+    if modelname is None:
+        modelnames = [v for k,v in model_files.items()]
+    else:
+        modelnames = [modelname]
+
     prefix = remote_uri + '/sample_models/'
-    for filebase in model_files:
+    for filebase in modelnames:
         url = prefix + filebase
         filepath = modelpath / filebase
 
@@ -74,7 +78,7 @@ def download_models(overwrite=False):
                 f"{filepath}\n"
                 "To overwrite data, use `download_models(overwrite=True)`."
             )
-            
+
         else:
             print(f"Downloading NEMS pre-fit models from:\n{url}\n...\n")
             download_data(url, filepath)

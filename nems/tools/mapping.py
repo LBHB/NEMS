@@ -19,7 +19,7 @@ from nems.backends.base import FitResults
 from nems.tools import json
 from nems.preprocessing.spectrogram import gammagram
 #from nems0.modules.nonlinearity import _dlog
-from nems.tools.demo_data.file_management import download_models
+from nems.tools.demo_data.file_management import download_models, model_files
 
 dir_path = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(dir_path,'demo_data','saved_models')
@@ -47,17 +47,21 @@ def dlog(x, offset):
     return np.log((x + d) / d)
 
 
-def load_mapping_model(modelname=None, version=1):
+def load_mapping_model(name=None, modelname=None, version=1):
+
+    if (name is None) and (modelname is None):
+        name='CNN-32'
+        # maps to 'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json'
 
     if modelname is None:
-        modelname = 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x80-fir.10x1x80-relu.80-wc.80x100-relu.100-wc.100xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4'
+        modelname = model_files[name]
 
-    modelfilepath = os.path.join(model_path,modelname+'.json')
+    modelfilepath = os.path.join(model_path, modelname)
     
     if os.path.exists(modelfilepath) == False:
         # download from S3
         print(f"{modelfilepath} not found. downloading")
-        download_models()
+        download_models(modelname=modelname)
     print(f"Loading {modelfilepath}")
     if os.path.exists(modelfilepath) == False:
         raise ValueError(f"Pre-computed model {modelname} not in saved_model path.")

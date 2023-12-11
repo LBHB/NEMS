@@ -219,8 +219,7 @@ class TensorFlowBackend(Backend):
         if (validation_split > 0) or (validation_data is not None):
             loss_name = 'val_loss'
         callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
-                     tf.keras.callbacks.TerminateOnNaN(),
-                     TerminateOnNaNWeights()
+                     TerminateOnNaNWeights(),
         ]
         #log.info(f"{callbacks}")
         if early_stopping_tolerance != 0:
@@ -248,8 +247,7 @@ class TensorFlowBackend(Backend):
             else:
                 target = list(data.targets.values())[0]
 
-            initial_error = self.model.evaluate(inputs, target, return_dict=False,
-                                                verbose=self.verbose)
+            initial_error = self.model.evaluate(inputs, target, return_dict=False, verbose=False)
             if type(initial_error) is float:
                 initial_error = np.array([initial_error])
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
@@ -300,7 +298,7 @@ class TensorFlowBackend(Backend):
             nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
 
         final_parameters = self.nems_model.get_parameter_vector()
-        final_error = history.history[loss_name][-1]
+        final_error = np.nanmin(history.history[loss_name])
         log.info(f'Final loss: {final_error:.4f}')
         nems_fit_results = FitResults(
             initial_parameters, final_parameters, initial_error, final_error,
@@ -537,12 +535,28 @@ class ProgressCallback(tf.keras.callbacks.Callback):
             log.info(info)
 
 class TerminateOnNaNWeights(tf.keras.callbacks.Callback):
-    """Termiantes on NaN weights, or inf. Modelled on tf.keras.callbacks.TerminateOnNan."""
+    """Termiantes on NaN weights, or inf. Modeled on tf.keras.callbacks.TerminateOnNan."""
+    def __init__(self, **kwargs):
+        super(TerminateOnNaNWeights, self).__init__(**kwargs)
+        self.safe_weights = None
+        
     def on_epoch_end(self, epoch, logs=None):
         """Goes through weights looking for any NaNs."""
+        found_nan = None
         for weight in self.model.weights:
             if tf.math.reduce_any(tf.math.is_nan(weight)) or tf.math.reduce_any(tf.math.is_inf(weight)):
                 log.info(f'Epoch {epoch}: Invalid weights in "{weight.name}", terminating training')
                 log.info(f'Weights {weight}')
                 self.model.early_terminated = True
                 self.model.stop_training = True
+                found_nan = weight.name
+                break
+        if found_nan is not None:
+            if self.safe_weights is not None:
+                log.info(f"RESTORING SAFE WEIGHTS??")
+                self.model.set_weights(self.safe_weights)
+                for weight in self.model.weights:
+                    if weight.name==found_nan:
+                        log.info(f'Weights {weight}')
+        else:
+            self.safe_weights = self.model.get_weights()
