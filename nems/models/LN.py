@@ -11,6 +11,11 @@ from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
 
+
+
+#
+# Class defs
+#
 class LN_STRF(Model):
 
     def __init__(self, time_bins, channels, rank=None,
@@ -155,6 +160,7 @@ class LN_STRF(Model):
         ymin, ymax = self.out_range[0][0], self.out_range[1][0]
         plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
         plt.tight_layout()
+        return f
 
     # TODO
     # @module('LNSTRF')
@@ -284,38 +290,11 @@ class LN_pop(Model):
 
         return strf
 
-    def get_strf(self, channels=None):
-        wc = self.layers[0].coefficients
-        fir = self.layers[1].coefficients
-        wc2 = self.layers[2].coefficients
-        filter_count = fir.shape[2]
-        strf1 = np.stack([wc[:, :, i] @ fir[:, :, i].T for i in range(filter_count)], axis=2)
-        strf2 = np.tensordot(strf1, wc2, axes=(2, 0))
-        if channels is not None:
-            strf2 = strf2[:, :, channels]
-        return strf2
+    def get_strf(self, **opts):
+        return LN_get_strf(self, **opts)
 
-    def plot_strf(self, labels=None, channels=None):
-        strf2 = self.get_strf(channels=channels)
-
-        channels_out = strf2.shape[-1]
-        f, ax = plt.subplots(channels_out, 2, figsize=(4,channels_out*2),
-                             sharex='col')
-        for c in range(channels_out):
-            mm = np.max(np.abs(strf2[:,:,c]))
-            if self.fs is not None:
-                extent = [0, strf2.shape[0] / self.fs, 0, strf2.shape[1]]
-            else:
-                extent = [0, strf2.shape[0], 0, strf2.shape[1]]
-            ax[c, 0].imshow(strf2[:, :, c], aspect='auto', cmap='bwr',
-                            origin='lower', interpolation='none', extent=extent,
-                            vmin=-mm, vmax=mm)
-            xmin, xmax = self.out_range[0][c], self.out_range[1][c]
-            plot_nl(self.layers[-1], range=[xmin, xmax], channel=c, ax=ax[c,1])
-            if labels is not None:
-                ax[c,0].set_ylabel(labels[c])
-        ax[-1,0].set_xlabel('Time lag')
-        plt.tight_layout()
+    def plot_strf(self, **opts):
+        return LN_plot_strf(self, **opts)
 
     # TODO
     # @module('LNSTRF')
@@ -563,3 +542,87 @@ class CNN_reconstruction(Model):
         # But would need the .from_keywords method to check for list vs single
         # module returned.
         pass
+
+
+
+#
+# helper functions
+#
+
+def LN_get_strf(model, channels=None, layer=2):
+    wc = model.layers[0].coefficients
+    fir = model.layers[1].coefficients
+    wc2 = model.layers[2].coefficients
+    filter_count = fir.shape[2]
+    strf1 = np.stack([wc[:, :, i] @ fir[:, :, i].T for i in range(filter_count)], axis=2)
+    if layer==1:
+        return strf1
+
+    strf2 = np.tensordot(strf1, wc2, axes=(2, 0))
+    if channels is not None:
+        strf2 = strf2[:, :, channels]
+    return strf2
+
+def LN_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, merge=None):
+    strf2 = LN_get_strf(model, channels=channels, layer=layer)
+
+    hcontra = strf2[:18, :, :]
+    hipsi = strf2[18:, :, :]
+
+    norm = strf2.std(axis=(0,1), keepdims=True)
+    if merge=='sum':
+        strf2=(hcontra+hipsi)
+    elif merge=='diff':
+        strf2=(hcontra-hipsi)
+    elif merge=='both':
+        strf2 = np.concatenate(((hcontra+hipsi), (hcontra-hipsi)),axis=0)
+
+    if model.fs is None:
+        fs=1
+    else:
+        fs=model.fs
+    wc2 = model.layers[2].coefficients
+    wc2std=wc2.std(axis=0,keepdims=True)
+    wc2std[wc2std==0]=1
+    wc2 /= wc2std
+    channels_out = strf2.shape[-1]
+    colcount=int(np.ceil(channels_out/10))
+    rowcount=np.min([channels_out,10])
+    if plot_nl:
+        col_mult=2
+    else:
+        col_mult=1
+    f, ax = plt.subplots(rowcount, colcount*col_mult, figsize=(colcount*col_mult,rowcount*0.75),
+                         sharex='col', sharey='col')
+    if (colcount*col_mult)==1:
+        ax=np.array([ax]).T
+    for c in range(channels_out):
+        rr = c % 10
+        cc = int(np.floor(c/10))
+        #mm = np.max(np.abs(strf2[:,:,c]))
+        mm=norm[0,0,c]*6
+        extent = [0, strf2.shape[1]/fs, 0, strf2.shape[0]]
+        ax[rr, cc*col_mult].imshow(strf2[:, :, c], aspect='auto', cmap='bwr',
+                        origin='lower', interpolation='none', extent=extent,
+                        vmin=-mm, vmax=mm)
+        if plot_nl:
+            if (layer==2):
+                xmin, xmax = modelmodel.out_range[0][c], model.out_range[1][c]
+                plot_nl(model.layers[-1], range=[xmin, xmax], channel=c, ax=ax[rr, cc*2+1])
+            else:
+                ax[rr, cc*2+1].plot(wc2[c])
+                ax[rr, cc*2+1].axhline(y=0, ls='--', color='black')
+            ax[rr, cc * 2+1].set_ylabel('')
+            ax[rr, cc * 2+1].set_yticklabels([])
+            ax[rr, cc * 2+1].set_xlabel('')
+
+        if labels is not None:
+            ax[rr, cc*col_mult].text(extent[0],extent[3],labels[c],va='bottom')
+        if cc>0:
+            ax[rr,cc*col_mult].set_yticklabels([])
+
+    ax[-1,0].set_xlabel('Time lag')
+    plt.suptitle(model.name[:30])
+    plt.tight_layout()
+
+    return f

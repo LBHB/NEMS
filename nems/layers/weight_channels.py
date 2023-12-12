@@ -4,6 +4,7 @@ from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
 from .base import Layer, Phi, Parameter, ShapeError
 from .tools import require_shape, pop_shape
+from tensorflow.python.keras import regularizers
 
 
 # TODO: double check all shape references after dealing w/ data order etc,
@@ -132,6 +133,8 @@ class WeightChannels(Layer):
                 wc_class = WeightChannelsGaussian
             elif op == 'b':
                 wc_class = WeightChannelsMulti
+            elif op.startswith('l2'):
+                kwargs['regularizer'] = op
 
         wc = wc_class(**kwargs)
 
@@ -509,3 +512,192 @@ class WeightChannelsMultiGaussian(WeightChannels):
 
         return WeightChannelsMultiTF(self, **kwargs)
 
+
+class WeightGaussianExpand(Layer):
+    """As WeightChannels, but sample coefficients from gaussian functions."""
+
+    def initial_parameters(self):
+        """Get initial values for `WeightChannelsGaussian.parameters`.
+
+        Layer parameters
+        ----------------
+        mean : scalar or ndarray
+            Mean of gaussian, shape is `self.shape[1:]`.
+            Prior:  TODO  # Currently using defaults
+            Bounds: (0, 1)
+        sd : scalar or ndarray
+            Standard deviation of gaussian, shape is `self.shape[1:]`.
+            Prior:  TODO  # Currently using defaults
+            Bounds: (0*, np.inf)
+            * Actually set to machine epsilon to avoid division by zero.
+
+        Returns
+        -------
+        nems.layers.base.Phi
+
+        """
+
+        mean_bounds = (0, 1.0)
+        sd_bounds = (0.2, np.inf)
+        amp_bounds = (0.05, np.inf)
+
+        input_channels = self.shape[0]
+        output_channels = self.shape[1]
+        other_dims = self.shape[2:]
+        shape = (input_channels,) + other_dims
+        # Pick means so that the centers of the gaussians are spread across the
+        # available frequencies.
+        channels = np.arange(input_channels + 1)[1:]
+        tiled_means = channels / (input_channels*2 + 2) + 0.25
+        for dim in other_dims:
+            # Repeat tiled gaussian structure for other dimensions.
+            tiled_means = tiled_means[...,np.newaxis].repeat(dim, axis=-1)
+
+        mean_prior = Normal(tiled_means, np.full_like(tiled_means, 0.2))
+        sd_prior = HalfNormal(np.full_like(tiled_means, 0.4))
+        amp_prior = HalfNormal(np.full_like(tiled_means, 0.4))
+
+        parameters = Phi(
+            Parameter(name='mean', shape=shape, bounds=mean_bounds,
+                        prior=mean_prior),
+            Parameter(name='sd', shape=shape, bounds=sd_bounds,
+                        prior=sd_prior, zero_to_epsilon=True),
+            Parameter(name='amp', shape=shape, bounds=amp_bounds,
+                        prior=amp_prior, zero_to_epsilon=True)
+            )
+
+        return parameters
+
+    @property
+    def coefficients(self):
+        """Return N discrete gaussians with T bins, where `shape=(T,N)`."""
+        mean = self.parameters['mean'].values
+        sd = self.parameters['sd'].values
+        amp = self.parameters['amp'].values
+        output_channels = self.shape[1]
+
+        x = np.arange(output_channels)/output_channels
+        mean = np.asanyarray(mean)[..., np.newaxis]
+        sd = np.asanyarray(sd)[..., np.newaxis]
+        amp = np.asanyarray(amp)[..., np.newaxis]
+        coefficients = np.exp(-0.5*((x-mean)/sd)**2)  # (rank, ..., outputs, T)
+
+        # Normalize by the cumulative sum for each channel
+        #cumulative_sum = np.sum(coefficients, axis=-1, keepdims=True)
+        # If all coefficients for a channel are 0, skip normalization
+        #cumulative_sum[cumulative_sum == 0] = 1
+        normalized = coefficients*amp # / cumulative_sum
+
+        reordered = np.moveaxis(normalized, -1, 1)  # (T, rank, ..., outputs)
+        return reordered
+
+    def evaluate(self, input):
+        """Multiply input by WeightChannels.coefficients.
+
+        Computes $y = XA$ for input $X$, where $A$ is
+        `WeightChannels.coefficients` and $y$ is the output.
+
+        Parameters
+        ----------
+        input : np.ndarray
+
+        Returns
+        -------
+        np.ndarray
+
+        """
+
+        try:
+            sci = 1 / (1+np.exp(-input))
+            output = np.tensordot(sci, self.coefficients, axes=(1, 0))
+            #mm = np.exp(output)
+            #nn = np.sum(mm, axis=1, keepdims=True)
+            #output = mm/nn
+            #output = mm
+
+        except ValueError as e:
+            # Check for dimension swap, to give more informative error message.
+            if 'shape-mismatch for sum' in str(e):
+                raise ShapeError(self, input=input.shape,
+                                 coefficients=self.coefficients.shape)
+            else:
+                # Otherwise let the original error through.
+                raise e
+
+        return output
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        # TODO: Ask SVD about this kludge in old NEMS code. Is this still needed?
+        # If so, explain: I think this was to keep gradient from "blowing up"?
+        # Scale up sd bound
+        sd, = self.get_parameter_values('sd')
+        sd_lower, sd_upper = self.parameters['sd'].bounds
+        new_values = {'sd': sd*10}
+        new_bounds = {'sd': (sd_lower, sd_upper*10)}
+        output_channels = self.shape[1]
+        class WeightGaussianExpandTF(NemsKerasLayer):
+            def call(self, inputs):
+                mean = tf.expand_dims(self.mean, -1)
+                sd = tf.expand_dims(self.sd/10, -1)
+                amp = tf.expand_dims(self.amp, -1)
+                output_features = tf.cast(output_channels, dtype=inputs.dtype)
+                temp = tf.expand_dims(tf.range(output_features) / output_features, 0)
+                temp = (temp-mean)/sd
+                temp = tf.math.exp(-0.5 * tf.math.square(temp))
+                #norm = tf.math.reduce_sum(temp, axis=0, keepdims=True)
+                kernel = temp * amp
+                sci = 1 / (1+tf.math.exp(-inputs))
+                return tf.tensordot(sci, kernel, axes=[[2], [0]])
+
+                #mm = tf.math.exp(sc)
+                #nn = tf.reduce_sum(mm, axis=1, keepdims=True)
+                #return mm/nn
+                #return sc
+
+            def weights_to_values(self):
+                values = self.parameter_values
+                # Undo scaling.
+                values['sd'] = values['sd'] / 10
+                return values
+
+        return WeightGaussianExpandTF(self, new_values=new_values,
+                                        new_bounds=new_bounds, **kwargs)
+
+    def from_keyword(keyword):
+        # TODO
+        pass
+
+    @property
+    def plot_kwargs(self):
+        """Add incremented labels to each output channel for plot legend.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        kwargs = {
+            'label': [f'Channel {i}' for i in range(self.shape[1])]
+        }
+        return kwargs
+
+    @property
+    def plot_options(self):
+        """Add legend at right of plot, with default formatting.
+
+        Notes
+        -----
+        The legend will grow quite large if there are many output channels,
+        but for common use cases (< 10) this should not be an issue. If needed,
+        increase figsize to accomodate the labels.
+
+        See also
+        --------
+        Layer.plot
+
+        """
+        return {'legend': False}

@@ -44,7 +44,7 @@ class Layer:
     _inplace_ok = False
 
     def __init__(self, shape=None, input=None, output=None, parameters=None,
-                 priors=None, bounds=None, name=None):
+                 priors=None, bounds=None, name=None, regularizer=None):
         """Encapsulates one data-transformation step of a NEMS ModelSpec.
 
         Layers are intended to exist as components of a parent Model by
@@ -157,6 +157,7 @@ class Layer:
 
         self.initial_priors = priors
         self.initial_bounds = bounds
+        self.regularizer = regularizer
         if shape is not None: shape = tuple(shape)
         self.shape = shape
         # In the event of a name clash in a Model, an integer will be appended
@@ -1008,13 +1009,18 @@ class Layer:
         ...         return data
 
         """
+
+        skip_attrs = ['input', 'output', 'initial_priors', 'initial_bounds', 'shape', '_name', 'default_name', 'model', 'parameters',
+                      'data_map', '_skip_nonlinearity', '_unfrozen_parameters', '_inplace_ok']
+        all_attrs = list(self.__dict__.keys())
+        save_attrs = [i for i in all_attrs if i not in skip_attrs]
         data = {
             'kwargs': {
                 'input': self.input, 'output': self.output,
                 'parameters': self.parameters, 'priors': self.priors,
                 'bounds': self.bounds, 'name': self.name, 'shape': self.shape,
             },
-            'attributes': {},
+            'attributes': {k: getattr(self, k) for k in save_attrs},
             'class_name': type(self).__name__
             }
 
@@ -1047,9 +1053,9 @@ class Layer:
             # Subclass has overwritten `from_json`, use that method instead.
             layer = subclass.from_json()
         else:
-            layer = subclass(**json['kwargs'])
-            for k, v in json['attributes'].items():
-                setattr(layer, k, v)
+            layer = subclass(**json['attributes'], **json['kwargs'])
+            #for k, v in json['attributes'].items():
+            #    setattr(layer, k, v)
 
         return layer
 

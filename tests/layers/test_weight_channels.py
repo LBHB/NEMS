@@ -2,7 +2,8 @@ import pytest
 import numpy as np
 
 from nems.layers.weight_channels import (
-    WeightChannels, WeightChannelsGaussian, WeightChannelsMulti
+    WeightChannels, WeightChannelsGaussian, WeightChannelsMulti,
+    WeightGaussianExpand
     )
 
 
@@ -65,3 +66,30 @@ class TestEvaluate:
         wcg = WeightChannelsGaussian(shape=(spectral, 5))
         out = wcg.evaluate(spectrogram)
         assert out.shape == (time, 5)
+
+import matplotlib.pyplot as plt
+import importlib
+from nems.layers import weight_channels
+importlib.reload(weight_channels)
+
+spectrogram = np.random.randn(100,2)
+time, spectral = spectrogram.shape
+wcg = weight_channels.WeightGaussianExpand(shape=(spectral, 18, 2))
+wcg['mean']=np.array([[0.1, 0.2],[0.5, 0.6]]).T
+wcg['sd']=np.array([[0.1, 0.1],[0.2, 0.2]]).T
+out = wcg.evaluate(spectrogram)
+print(out.shape)
+
+f,ax=plt.subplots(1,2)
+ax[0].imshow(out[:,0,:].T,origin='lower')
+ax[1].imshow(out[:,1,:].T,origin='lower')
+
+wcg = weight_channels.WeightGaussianExpand(shape=(spectral, 18))
+wcg['mean']=np.array([0.1, 0.7])
+wcg['sd']=np.array([0.1, 0.2])
+wcg['amp']=np.array([1, 2])
+out = wcg.evaluate(spectrogram)
+print(out.shape)
+
+f,ax=plt.subplots()
+ax.imshow(out.T,origin='lower')

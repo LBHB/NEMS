@@ -149,6 +149,8 @@ class DataSet:
 
         # Make sure all targets are at least 2D, otherwise undesired broadcasting
         # may occurr in cost functions.
+        #for k,v in target_dict.items():
+        #    print(k,v.shape)
         target_dict = apply_to_dict(
             lambda a: a if a.ndim >= 2 else a[..., np.newaxis],
             target_dict, allow_copies=False
