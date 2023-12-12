@@ -9,6 +9,7 @@ import inspect
 from functools import partialmethod
 
 import numpy as np
+import scipy.signal
 from scipy.io import wavfile
 import matplotlib.pyplot as plt
 
@@ -48,7 +49,16 @@ def dlog(x, offset):
 
 
 def load_mapping_model(name=None, modelname=None, version=1):
-
+    """
+    :param name: short name for model. Currently select from ['CNN-18', 'CNN-32']
+                 CNN-xx where xx is the number of spectrogram channels on front end
+    :param modelname: long-form name of model == filename of json-encoded modelspec
+                      that can be loaded with nems.tools.json.load_model()
+    :param version: not used (forward compatibility)
+    :return: NEMS modelspec with some extra meta-parameters attached that will
+             allow projection of arbitrary waveforms into the semi-final (bottleneck)
+             layer of the model
+    """
     if (name is None) and (modelname is None):
         name='CNN-32'
         # maps to 'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json'
@@ -104,20 +114,34 @@ def load_mapping_model(name=None, modelname=None, version=1):
     return new_modelspec
 
 
-def project(modelspec, wav=None, w=None, fs=None,
+def project(modelspec, wavfilename=None, w=None, fs=None,
             raw_scale=250, OveralldB=65, verbose=True):
     """
     Use modelspec to project a wavefrom (filename wav or vector w) into AC model space. Note that modelspec has to be a special
     'decapitated' model. Ie, a NEMS model fit to a big dataset and with the last, neuron-specific, layers chopped off. Typically
-    these are the last two layers (linear mapping from AC space to neurons and output NL). 
+    these are the last two layers (linear mapping from AC space to neurons and output NL).
     See mapping.load_mapping model for loading a NEMS model and perform the necessary chopping (also set some model metadata to
     appropriately pre-process the data).
+    :param modelspec: NEMS-format modelspec, with some extra meta-parameters added by load_mapping_model()
+    :param wavfilename:
+    :param w:
+    :param fs:
+    :param raw_scale:
+    :param OveralldB:
+    :param verbose:
+    :return:
     """
+    f_min = 200
+    f_max = 20000
     if (w is not None) & (fs is not None):
         pass
-    elif (wav is not None):
-        fs, w = wavfile.read(wav)
-
+    elif (wavfilename is not None):
+        fs, w = wavfile.read(wavfilename)
+        if fs<f_max*2:
+            stimlen=len(w)/fs
+            finalsamples = int(stimlen*fs_out)
+            print(f"Upsampling from {fs} to {fs_out} ({len(w)} to {finalsamples} samples)")
+            w = scipy.signal.resample(w, finalsamples)
         w = w / np.iinfo(w.dtype).max
         if raw_scale is not None:
             w *= raw_scale
@@ -132,8 +156,6 @@ def project(modelspec, wav=None, w=None, fs=None,
 
     channels = modelspec.layers[0].shape[0]
     rasterfs = modelspec.meta['rasterfs']
-    f_min = 200
-    f_max = 20000
     window_time = 1 / rasterfs
     hop_time = 1 / rasterfs
     padbins = int(np.ceil((window_time - hop_time) / 2 * fs))
@@ -158,15 +180,15 @@ def project(modelspec, wav=None, w=None, fs=None,
         ax[0].set_ylabel('Waveform')
         ts = s.shape[0] / rasterfs
         im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5],
-                          cmap='gray_r')
+                          cmap='gray_r', aspect='auto')
         ax[1].set_xticklabels([])
         ax[1].set_ylabel('Spectrogram')
         ax[2].imshow(projection.T, origin='lower', interpolation='none',
-                     extent=[0, ts, -0.5, projection.shape[1] + 0.5])
+                     extent=[0, ts, -0.5, projection.shape[1] + 0.5], aspect='auto')
         ax[2].set_ylabel('Model output')
         ax[2].set_xlabel('Time (s)')
-        if wav is not None:
-            ax[0].set_title(os.path.basename(wav))
+        if wavfilename is not None:
+            ax[0].set_title(os.path.basename(wavfilename))
 
     return projection
 
