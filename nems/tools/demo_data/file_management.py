@@ -14,9 +14,10 @@ modelpath = pathlib.Path(__file__).parent / 'saved_models'
 
 demo_files = ['TAR010c-18-2.npz', "TAR010c_data.npz"]
 model_files = {
-    'CNN-18':       'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+    'CNN-18': 'CNN-gtgram.fs100.ch18-norm.l1.json',
+    #'CNN-18':       'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
     'CNN-18-fixed': 'gtgram.fs100.ch18.pop-loadpop-norm.l1-popev_wc.18x1x70.g-fir.15x1x70-relu.70-wc.70x1x90-fir.10x1x90-relu.90-wc.90x120-relu.120-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
-    'CNN-32':       'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70.o.s-wc.70x1x90-fir.10x1x90-relu.90.o.s-wc.90x120-relu.120.o.s-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
+    'CNN-32':       'CNN-gtgram.fs100.ch32-norm.l1.json',
     'CNN-32-fixed': 'gtgram.fs100.ch32.pop-loadpop-norm.l1-popev_wc.32x1x70.g-fir.15x1x70-relu.70-wc.70x1x90-fir.10x1x90-relu.90-wc.90x120-relu.120-wc.120xR-dexp.R_lite.tf.init.lr1e3.t3.es20.rb10-lite.tf.lr1e4.json',
 }
 
@@ -125,6 +126,10 @@ def load_demo(filebase=None, tutorial_subset=False):
             f"{filepath}\n"
             "First use `nems.download_demo()`, then try `load_demo()` again."
         )
+    elif filebase.lower().endswith('.wav'):
+        from scipy.io import wavfile
+        fs, w = wavfile.read(filepath)
+        return fs, w
     else:
         # TODO: just save the file this way instead?
         #       possibly rename it as well, to something like:

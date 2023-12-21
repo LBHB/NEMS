@@ -196,6 +196,7 @@ def project(modelspec, wavfilename=None, w=None, fs=None,
     else:
         return projection
 
+
 def spectrogram(wav=None, channels=18, rasterfs=100, w=None, fs=None,
             log_compress=0, raw_scale=250, OveralldB=65, verbose=True):
 
