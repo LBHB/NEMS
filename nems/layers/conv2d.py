@@ -334,7 +334,7 @@ class Conv2d(Layer):
                     pad_indices = _pad_indices
                 convolved_tensor = convolve(input_tensor, filter_tensor, stride)
                 trimmed_tensor = convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
-                print(input_tensor.shape, trimmed_tensor.shape)
+                #print(input_tensor.shape, trimmed_tensor.shape)
                 pooled_tensor = pool(trimmed_tensor)
                 if len(input_shape)==2:
                     return pooled_tensor[0,:,:,0]
@@ -342,6 +342,7 @@ class Conv2d(Layer):
                     return pooled_tensor[:,:,:,0]
                 else:
                     return pooled_tensor
+
 
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
     
@@ -512,11 +513,12 @@ class Conv2d(Layer):
         elif pool_type == 'STACK':
             @tf.function
             def pool(input_tensor):
-                print(input_tensor.shape)
+                #print(input_tensor.shape)
                 input_tensor = tf.transpose(input_tensor, perm=(0, 1, 3, 2))
                 x_shape = list(input_tensor.shape)
 
                 new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3], 1]
+
                 return tf.reshape(input_tensor, new_shape)
         else:
             @tf.function
@@ -662,6 +664,7 @@ class Conv2d(Layer):
                 kwargs['pool_type'] = 'MAX'
             elif op.startswith('s'):
                 kwargs['stride'] = [1, int(op[1]), int(op[2]), 1]
+
         conv = Conv2d_class(**kwargs)
 
         return conv
