@@ -17,7 +17,7 @@ modelname='CNN-32'  # could also be CNN-18 for model that uses 18 channel spectr
 modelspec = mapping.load_mapping_model(name=modelname)
 
 # any wav file can be loaded here. All we need is the waveform and sampling rate (fs)
-wavfile = 'cat414_rec1_woman_speaking_excerpt1.wav'
+wavfile = 'woman_speaking.wav'
 fs, w = nems.load_demo(wavfile)
 
 # One important consideration is that the waveform amplitude is scaled to a range that
