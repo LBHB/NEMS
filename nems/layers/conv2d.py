@@ -114,13 +114,15 @@ class Conv2d(Layer):
         convolved_array = self.convolution(input_array, filter_array)
         trimmed_array = convolved_array[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3], :, :]
         pooled_array = self.pool(trimmed_array)
+        #print(input_array.shape, trimmed_array.shape, pooled_array.shape)
 
         # shape output-- remove dimensions that were added by shape_input()
         if input.ndim == 2:
-            pooled_array = pooled_array[0,:,:,0] # input channel axis
+            return pooled_array[0, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
         elif input.ndim == 3:
-            pooled_array = pooled_array[:,:,:,0] # input channel axis
-        return pooled_array
+            return pooled_array[:, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+        else:
+            return pooled_array[:,::self.stride[1],::self.stride[2],:]
 
     def shape_filter(self, coefficients):
         '''
@@ -223,8 +225,9 @@ class Conv2d(Layer):
         elif pool_type == 'SUM':
             pooled_array = np.sum(input_array, axis=-1, keepdims=False)
         elif pool_type == 'STACK':
+            input_array=input_array.transpose((0,1,4,2,3))
             x_shape = list(input_array.shape)
-            pooled_array = np.reshape(input_array, x_shape[:-3]+[x_shape[-3]*x_shape[-1]])[...,np.newaxis]
+            pooled_array = np.reshape(input_array, x_shape[:2]+[x_shape[2]*x_shape[3], x_shape[4]])
         elif pool_type == 'NONE':
             pass
         else:
@@ -331,6 +334,7 @@ class Conv2d(Layer):
                     pad_indices = _pad_indices
                 convolved_tensor = convolve(input_tensor, filter_tensor, stride)
                 trimmed_tensor = convolved_tensor[:, pad_indices[0]:pad_indices[1], pad_indices[2]:pad_indices[3]]
+                print(input_tensor.shape, trimmed_tensor.shape)
                 pooled_tensor = pool(trimmed_tensor)
                 if len(input_shape)==2:
                     return pooled_tensor[0,:,:,0]
@@ -362,7 +366,7 @@ class Conv2d(Layer):
 
         num_gpus = len(tf.config.list_physical_devices('GPU'))
         if num_gpus == -1:
-                #NOTE: May need to look at this and make sure batch data isn't removed by this set up
+            # DEPRECATED?  WAS USED FOR non-GPU eval
             @tf.function
             def convolve(input_tensor, filter_tensor, stride):
                 conv_fn = lambda t: tf.cast(
@@ -378,6 +382,7 @@ class Conv2d(Layer):
         else:
             @tf.function
             def convolve(input_tensor, filter_tensor, stride):
+                print(input_tensor.shape, filter_tensor.shape)
                 input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride, padding='VALID')
                 return input_convolutions
         return convolve
@@ -403,11 +408,13 @@ class Conv2d(Layer):
     
     def as_tf_shape_tensor(self, input_shape, coefficients):
         '''
-        Shapes our input data to fit conv2d if non-4D is provided.
+        Shapes our input data to fit conv2d if non-4D is provided. Also reverses coefficients on axis 1 to get
+        proper output... why????? TODO
         In channels of our input and filters are broadcasted
 
         if ndim == 2, Add empty batch, and in_channel dimension
         if ndim == 3, Add empty in_channel dimension
+
         '''
         import tensorflow as tf
 
@@ -451,10 +458,10 @@ class Conv2d(Layer):
         if broad_coeff.shape[-2] > coeff_shape[-2]:
             @tf.function()
             def shape_coeff(coefficients):
-                return tf.broadcast_to(coefficients, broad_coeff)
+                return tf.reverse(tf.broadcast_to(coefficients, broad_coeff), axis=[0])
         else:
             @tf.function()
-            def shape_coeff(coefficients): return coefficients
+            def shape_coeff(coefficients): return tf.reverse(coefficients, axis=[0])
 
         return shape_input, shape_coeff
     
@@ -505,8 +512,11 @@ class Conv2d(Layer):
         elif pool_type == 'STACK':
             @tf.function
             def pool(input_tensor):
+                print(input_tensor.shape)
+                input_tensor = tf.transpose(input_tensor, perm=(0, 1, 3, 2))
                 x_shape = list(input_tensor.shape)
-                new_shape = [-1, x_shape[1], x_shape[2]*x_shape[-1], 1]
+
+                new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3], 1]
                 return tf.reshape(input_tensor, new_shape)
         else:
             @tf.function
@@ -646,10 +656,12 @@ class Conv2d(Layer):
         options = keyword.split('.')
         kwargs['shape'] = pop_shape(options)
         for op in options:
-            if op == 'stack':
+            if op.lower() == 'stack':
                 kwargs['pool_type'] = 'STACK'
+            elif op.lower() == 'max':
+                kwargs['pool_type'] = 'MAX'
             elif op.startswith('s'):
-                kwargs['stride'] = int(op[1:])
+                kwargs['stride'] = [1, int(op[1]), int(op[2]), 1]
         conv = Conv2d_class(**kwargs)
 
         return conv
