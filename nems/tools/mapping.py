@@ -129,7 +129,9 @@ def project(modelspec, wavfilename=None, w=None, fs=None,
     :param raw_scale:
     :param OveralldB:
     :param verbose:
-    :return:
+    :return: projection [, f]
+        T x channel projection of input wav. Optional second output is
+        figure handle if verbose=True
     """
     f_min = 200
     f_max = 20000
@@ -190,7 +192,10 @@ def project(modelspec, wavfilename=None, w=None, fs=None,
         if wavfilename is not None:
             ax[0].set_title(os.path.basename(wavfilename))
 
-    return projection
+        return projection, f
+    else:
+        return projection
+
 
 def spectrogram(wav=None, channels=18, rasterfs=100, w=None, fs=None,
             log_compress=0, raw_scale=250, OveralldB=65, verbose=True):
