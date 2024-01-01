@@ -1,10 +1,13 @@
 import numpy as np
 import numexpr as ne
+import logging
 
 from nems.registry import layer
 from nems.distributions import Normal
 from .base import Layer, Phi, Parameter
 from .tools import require_shape, pop_shape
+
+log = logging.getLogger(__name__)
 
 
 class StateGain(Layer):
@@ -70,6 +73,7 @@ class StateGain(Layer):
         """
 
         gain, offset = self.get_parameter_values()
+        #log.info(f"{state.shape}, {input.shape}, {gain.shape}")
         if gain.shape[0]==state.shape[1]:
             with_gain = np.matmul(state, gain) * input
         else:
@@ -563,7 +567,7 @@ class HRTF(Layer):
         #gain, offset = self.get_parameter_values()
         #return np.matmul(state, gain) * input + np.matmul(state, offset)
 
-    @layer('stategain')
+    @layer('hrtf')
     def from_keyword(keyword):
         """Construct StateGain from keyword.
 

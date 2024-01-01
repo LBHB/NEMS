@@ -1,5 +1,5 @@
 import numpy as np
-import numpy as np
+import logging
 
 from nems.registry import layer
 from nems.visualization import plot_layer
@@ -7,6 +7,7 @@ from nems.tools.arrays import one_or_more_nan
 from .phi import Phi
 from .map import DataMap
 
+log = logging.getLogger(__name__)
 
 # TODO: add more examples, and tests
 # TODO: add option to propagate other Parameter options from Layer.__init__,

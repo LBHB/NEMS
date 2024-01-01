@@ -4,11 +4,12 @@ import tensorflow.keras as keras
 from tensorflow.keras import Input
 from tensorflow.python.keras import regularizers
 import logging
-log = logging.getLogger(__name__)
 
 from ..base import Backend, FitResults
 from .cost import get_cost
 from .cost import pearson as pearsonR
+
+log = logging.getLogger(__name__)
 
 class TensorFlowBackend(Backend):
 
@@ -293,9 +294,25 @@ class TensorFlowBackend(Backend):
             layer for layer in self.model.layers
             if not layer.name in [x.name for x in self.model.inputs]
             ]
-        layer_iter = zip(self.nems_model.layers, tf_model_layers)
-        for nems_layer, tf_layer in layer_iter:
-            nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+        
+        # SVD fix to allow tf layer order to change randomly (can't force it to match?)
+        for nems_layer in self.nems_model.layers:
+            for tf_layer in tf_model_layers:
+                if nems_layer.name==tf_layer.name:
+                    #log.info(f"fixed order: {nems_layer.name}, {tf_layer.name}")
+                    nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+
+        # OLD
+        #layer_iter = zip(self.nems_model.layers, tf_model_layers)
+        #for nems_layer, tf_layer in layer_iter:
+        #    if nems_layer.name==tf_layer.name:
+        #        log.info(f"worked in order: {nems_layer.name}, {tf_layer.name}")
+        #        nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+        #    else:
+        #        for tfl in tf_model_layers:
+        #            if nems_layer.name==tfl.name:
+        #                log.info(f"fixed order: {nems_layer.name}, {tfl.name}")
+        #                nems_layer.set_parameter_values(tfl.weights_to_values(), ignore_bounds=True)
 
         final_parameters = self.nems_model.get_parameter_vector()
         final_error = np.nanmin(history.history[loss_name])
