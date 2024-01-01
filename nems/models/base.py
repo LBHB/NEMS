@@ -104,13 +104,14 @@ class Model:
         self._layers = {}  # layer.name : layer obj, increment on clashes
 
         # TODO: remove warning after fixing issues w/ scipy
-        if dtype != np.float64:
-            warnings.warn(
-                "Using `Model(dtype=...)` is currently experimental. For best "
-                "results, leave dtype as the default. TF Backend will overwrite "
-                "this setting to np.float32 for the time being."
-            )
-        self.dtype = dtype
+        #if dtype != np.float64:
+        #    warnings.warn(
+        #        "Using `Model(dtype=...)` is currently experimental. For best "
+        #        "results, leave dtype as the default. TF Backend will overwrite "
+        #        "this setting to np.float32 for the time being."
+        #    )
+        #self.dtype = dtype
+        self.dtype = np.float64
 
         if layers is not None:
             self.add_layers(*layers)
@@ -821,7 +822,8 @@ class Model:
         
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+            verbose=1, in_place=False, freeze_layers=None, progress_fun=None,
+            **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -863,6 +865,8 @@ class Model:
             Backend subclass.
         backend_options : dict; optional.
             Keyword arguments to pass to the Backend constructor.
+        progress_fun : function, None
+            Evaluate after fit is complete
         eval_kwargs : dict
             Keyword arguments to supply to `Model.evaluate`.
 
@@ -926,10 +930,13 @@ class Model:
             )
         new_model.results = fit_results
 
+        if progress_fun is not None:
+            progress_fun()
+
         return new_model
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
-              backend='tf', reset_backend=False, backend_options=None,
+              backend='tf', reset_backend=False, method='jacobian', backend_options=None,
               verbose=1, **eval_kwargs):
         """
         :param stim: input stimulus used to compute jacobian --> dSTRF
@@ -938,6 +945,7 @@ class Model:
         :param t_indexes: time samples to use
         :param backend: str, currently has to be 'tf'
         :param reset_backend: if True, force new initialization of backend
+        :param method: {'jacobian', 'delta'}
         :param backend_options: pass-through options for backend initialization
         :param verbose: future support for verbosity control
         :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
@@ -996,7 +1004,7 @@ class Model:
     def score(self, input, target, metric='correlation', metric_kwargs=None,
               prediction_name=None, **eval_kwargs):
         """Score model performance using post-fit metrics like correlation.
-        
+
         This only supports metrics that expect a model output as a first
         argument, a target as a second argument, and no other positional
         arguments.
@@ -1040,6 +1048,21 @@ class Model:
 
         return metric(prediction, target, **metric_kwargs)
 
+    def get_io_names(self):
+        """generate lists of """
+        all_inputs = []
+        all_outputs = []
+        for l in self.layers:
+            if type(l.input) is list:
+                all_inputs.extend(l.input)
+            elif l.input is not None:
+                all_inputs.append(l.input)
+            if l.output is not None:
+                all_outputs.append(l.output)
+        all_inputs = ['input'] + list(set(all_inputs) - set(all_outputs) - set(['input']))
+        all_outputs = list(set(all_outputs))
+
+        return all_inputs, all_outputs
 
     def get_bounds_vector(self, none_for_inf=True):
         """Get all parameter bounds, formatted as a list of 2-tuples.
@@ -1557,6 +1580,10 @@ class _LayerDict:
 
     def values(self):
         return self._values
+
+    def pop(self, n=1):
+        key_list = list(self._dict.keys())
+        return _LayerDict({k: self._dict[k] for k in key_list[:-n]})
 
     def __repr__(self):
         return self._dict.__repr__()

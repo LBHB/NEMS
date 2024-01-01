@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
+from tensorflow.python.keras import regularizers
 import logging
 log = logging.getLogger(__name__)
 
@@ -68,8 +69,22 @@ class TensorFlowBackend(Backend):
         # Pass through Keras functional API to map inputs & outputs.
         last_output = None
         tf_data = tf_input_dict.copy()  # Need to keep actual Inputs separate
-        tf_kwargs = {}  # TODO, regularizer etc.
         for layer in self.nems_model.layers:
+            if layer.regularizer is not None:
+                reg = layer.regularizer
+                log.info(f"Applying regularizer {reg} to {layer.name}")
+                if reg.startswith('l2'):
+                    if len(reg)==2:
+                        p = 0.001
+                    else:
+                        p = 10**(-float(reg[2:]))
+                else:
+                    raise ValueError(f"unknown regularizer {reg}")
+                tf_kwargs = {'regularizer': regularizers.l2(p)}
+
+            else:
+                tf_kwargs = {}  # TODO, regularizer etc.
+
             # Get all `data` keys associated with Layer args and kwargs
             # TODO: how are Layers supposed to know which one is which?
             #       have to check the name?
@@ -203,7 +218,10 @@ class TensorFlowBackend(Backend):
         loss_name = 'loss'
         if (validation_split > 0) or (validation_data is not None):
             loss_name = 'val_loss'
-        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs)]
+        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
+                     TerminateOnNaNWeights(),
+        ]
+        #log.info(f"{callbacks}")
         if early_stopping_tolerance != 0:
             early_stopping = DelayedStopper(
                 monitor=loss_name, patience=early_stopping_patience,
@@ -229,8 +247,7 @@ class TensorFlowBackend(Backend):
             else:
                 target = list(data.targets.values())[0]
 
-            initial_error = self.model.evaluate(inputs, target, return_dict=False,
-                                                verbose=self.verbose)
+            initial_error = self.model.evaluate(inputs, target, return_dict=False, verbose=False)
             if type(initial_error) is float:
                 initial_error = np.array([initial_error])
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
@@ -281,7 +298,7 @@ class TensorFlowBackend(Backend):
             nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
 
         final_parameters = self.nems_model.get_parameter_vector()
-        final_error = history.history[loss_name][-1]
+        final_error = np.nanmin(history.history[loss_name])
         log.info(f'Final loss: {final_error:.4f}')
         nems_fit_results = FitResults(
             initial_parameters, final_parameters, initial_error, final_error,
@@ -304,7 +321,7 @@ class TensorFlowBackend(Backend):
         Returns
         -------
         np.ndarray
-            Outpt of the associated Keras model.
+            Output of the associated Keras model.
 
         """
         if batch_size == 0:
@@ -480,12 +497,12 @@ class TensorFlowBackend(Backend):
             z = self.model(tensor)
             # assume we only care about first output (think this is NEMS standard)
             if type(z) is list:
-                z = z[0][0, -1, out_channel]
+                z = z[-1][0, -1, out_channel]
             else:
                 z = z[0, -1, out_channel]
 
-        return g.jacobian(z, tensor)
-
+            res = g.jacobian(z, tensor)
+        return res
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):
     """Early stopper that waits before kicking in."""
@@ -516,3 +533,30 @@ class ProgressCallback(tf.keras.callbacks.Callback):
                     info += ' %.4e' % v
 
             log.info(info)
+
+class TerminateOnNaNWeights(tf.keras.callbacks.Callback):
+    """Termiantes on NaN weights, or inf. Modeled on tf.keras.callbacks.TerminateOnNan."""
+    def __init__(self, **kwargs):
+        super(TerminateOnNaNWeights, self).__init__(**kwargs)
+        self.safe_weights = None
+        
+    def on_epoch_end(self, epoch, logs=None):
+        """Goes through weights looking for any NaNs."""
+        found_nan = None
+        for weight in self.model.weights:
+            if tf.math.reduce_any(tf.math.is_nan(weight)) or tf.math.reduce_any(tf.math.is_inf(weight)):
+                log.info(f'Epoch {epoch}: Invalid weights in "{weight.name}", terminating training')
+                log.info(f'Weights {weight}')
+                self.model.early_terminated = True
+                self.model.stop_training = True
+                found_nan = weight.name
+                break
+        if found_nan is not None:
+            if self.safe_weights is not None:
+                log.info(f"RESTORING SAFE WEIGHTS??")
+                self.model.set_weights(self.safe_weights)
+                for weight in self.model.weights:
+                    if weight.name==found_nan:
+                        log.info(f'Weights {weight}')
+        else:
+            self.safe_weights = self.model.get_weights()
