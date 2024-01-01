@@ -5,6 +5,7 @@ import nems
 from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, DoubleExponential, RectifiedLinear
 from nems import visualization
+from nems.metrics import correlation
 
 # More specific options for our model here. You will 
 # need TensorFlow installed, see readme install instructions. 
@@ -56,3 +57,6 @@ visualization.plot_model(fitted_cnn, spectrogram_test, response_test)
 # Again all the information here is basically unreadable at the moment
 pred_cnn = fitted_cnn.predict(spectrogram_test)
 visualization.plot_predictions(pred_cnn, spectrogram_test, response_test)
+
+predxc_per_unit = correlation(pred_cnn, response_test)
+print(f"mean correlation: {predxc_per_unit.mean():.3f} across {len(predxc_per_unit)} neurons")

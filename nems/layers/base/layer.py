@@ -92,6 +92,11 @@ class Layer:
         name : str or None; optional.
             A name for the Layer so that it can be referenced through the
             parent Model, in addition to integer indexing.
+        regularizer: str or None; optional
+            If not None, specify how the layer parameters should be regularized
+            during fitting. 'l2<p>' is currently the only one supported (and only
+            for TF), where the hyperparameter is set to 10**(-p). If only 'l2' is
+            specifified, p=3 -> l2(0.001)
 
         Warnings
         --------

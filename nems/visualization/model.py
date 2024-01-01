@@ -635,7 +635,7 @@ def plot_strf(fir_layer, wc_layer=None, fs=1, ax=None, fig=None):
     return fig
 
 
-def plot_layer(output, fig=None, ax=None, **plot_kwargs):
+def plot_layer(output, max_lines=5, fig=None, ax=None, **plot_kwargs):
     """Default Layer plot, displays all outputs on a single 2D line plot.
     
     Parameters
@@ -669,9 +669,12 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
         if all_outputs[0].ndim > 2:
             # TODO: Do something more useful here.
             print("Too many dimensions to plot")
-        else:
+        elif len(all_outputs)<=max_lines:
             for output in all_outputs:
                 ax.plot(output, **plot_kwargs)
+        else:
+            all_outputs = np.reshape(output, (output.shape[0],-1))
+            ax.imshow(all_outputs.T, origin='lower', interpolation='none', aspect='auto')
     else:
         print("One of the outputs is a single integer and could not be plotted")
     return fig

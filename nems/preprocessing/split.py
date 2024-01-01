@@ -174,8 +174,10 @@ class JackknifeIterator:
         # Need inverse on iterator to get predictions from validation data
         save_inverse = self.inverse
         self.inverse = True
-
+        
         preds = [model.predict(inverse_set) for model, inverse_set in zip(model_set, self)]
+        if isinstance(preds[0],np.ndarray):
+            preds = [{'output': p} for p in preds]
         for i, inverse_set in enumerate(self):
             preds[i]['target'] = inverse_set.targets['target']
         dataset = {}

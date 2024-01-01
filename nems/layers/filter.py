@@ -224,6 +224,8 @@ class FiniteImpulseResponse(Layer):
                 kwargs['fs'] = int(op[fs_idx+2:])
             elif op.startswith('s'):
                 kwargs['stride'] = int(op[1:])
+            elif op.startswith('l2'):
+                kwargs['regularizer'] = op
         fir = fir_class(**kwargs)
 
         return fir

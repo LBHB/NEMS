@@ -70,7 +70,16 @@ class StateGain(Layer):
         """
 
         gain, offset = self.get_parameter_values()
-        return np.matmul(state, gain) * input + np.matmul(state, offset)
+        if gain.shape[0]==state.shape[1]:
+            with_gain = np.matmul(state, gain) * input
+        else:
+            with_gain = (np.matmul(state, gain[1:,]) + gain [0,:]) * input
+        if offset.shape[0]==state.shape[1]:
+            with_offset = with_gain + np.matmul(state, offset)
+        else:
+            with_offset = with_gain + offset[[0],:] + np.matmul(state, offset[1:,])
+            
+        return with_offset
 
     @layer('stategain')
     def from_keyword(keyword):
@@ -94,11 +103,17 @@ class StateGain(Layer):
 
         return StateGain(shape=shape)
 
-    def as_tensorflow_layer(self, **kwargs):
+    def as_tensorflow_layer(self, input_shape=None, **kwargs):
         """TODO: docs"""
         import tensorflow as tf
         from nems.backends.tf.layer_tools import NemsKerasLayer
-
+        if input_shape is None:
+            raise ValueError(f"input_shape=[input.shape, staet.shape] required")
+        stim_shape=input_shape[0]
+        state_shape=input_shape[1]
+        gain_len=self['gain'].shape[0]
+        offset_len=self['offset'].shape[0]
+        
         class StateGainTF(NemsKerasLayer):
 
             def call(self, inputs):
@@ -106,10 +121,15 @@ class StateGain(Layer):
                 # TODO: Use tensor names to not require this arbitrary order.
                 input = inputs[0]
                 state = inputs[1]
+                if gain_len==state_shape[1]:
+                    with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                else:
+                    with_gain = tf.multiply(tf.slice(self.gain,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.gain,[1,0],[-1,-1])), input)
+                if offset_len==state_shape[1]:
+                    with_offset = with_gain + tf.matmul(state, self.offset)
+                else:
+                    with_offset = with_gain + tf.slice(self.offset,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.offset,[1,0],[-1,-1]))
 
-                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
-                with_offset = with_gain + tf.matmul(state, self.offset)
-                
                 return with_offset
 
         return StateGainTF(self, **kwargs)
@@ -491,7 +511,7 @@ class StateHinge(Layer):
 
 
 class HRTF(Layer):
-    state_arg = 'aerd'  # azimuth, elevation, tilt, distance
+    state_arg = 'state'  # azimuth, elevation, tilt, distance
 
     def __init__(self, speaker_count=2, **kwargs):
         """Docs TODO.
@@ -535,9 +555,10 @@ class HRTF(Layer):
             State data to modulate input with.
 
         """
-
-        gain, offset = self.get_parameter_values()
-        return np.matmul(state, gain) * input + np.matmul(state, offset)
+        pass
+        return input
+        #gain, offset = self.get_parameter_values()
+        #return np.matmul(state, gain) * input + np.matmul(state, offset)
 
     @layer('stategain')
     def from_keyword(keyword):
