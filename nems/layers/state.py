@@ -511,7 +511,10 @@ class StateHinge(Layer):
 
 
 class HRTF(Layer):
+
+    # TODO fix this.. currenty defaulting to aerd breaks pytest
     state_arg = 'state'  # azimuth, elevation, tilt, distance
+    #state_arg = 'aerd'  # azimuth, elevation, tilt, distance
 
     def __init__(self, speaker_count=2, **kwargs):
         """Docs TODO.

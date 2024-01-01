@@ -121,6 +121,11 @@ class Conv2d(Layer):
             return pooled_array[0, ::self.stride[1], ::self.stride[2]]  # input channel axis
         else:
             return pooled_array[:,::self.stride[1],::self.stride[2]]
+        #    return pooled_array[0, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+        #elif input.ndim == 3:
+        #    return pooled_array[:, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+        #else:
+        #    return pooled_array[:,::self.stride[1],::self.stride[2],:]
 
     def shape_filter(self, coefficients):
         '''
@@ -244,6 +249,7 @@ class Conv2d(Layer):
         elif pool_type == 'NONE':
             pass
         else:
+            # default to MEAN
             pooled_array = np.mean(input_array, axis=-1, keepdims=False)
 
         if pooled_array.shape[-1]>1:
@@ -495,6 +501,7 @@ class Conv2d(Layer):
             @tf.function()
             def shape_coeff(coefficients):
                 return tf.reverse(tf.broadcast_to(coefficients, broad_coeff.shape), axis=[0])
+
         else:
             @tf.function()
             def shape_coeff(coefficients): return tf.reverse(coefficients, axis=[0])
@@ -559,7 +566,6 @@ class Conv2d(Layer):
                 #print(input_tensor.shape)
                 input_tensor = tf.transpose(input_tensor, perm=(0, 1, 3, 2))
                 x_shape = list(input_tensor.shape)
-
                 new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3]]
 
                 return tf.reshape(input_tensor, new_shape)
