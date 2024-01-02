@@ -73,11 +73,19 @@ class TensorFlowBackend(Backend):
         for layer in self.nems_model.layers:
             if layer.regularizer is not None:
                 reg = layer.regularizer
-                if len(reg) == 2:
-                    p = 0.001
-                else:
+                reg_ops = reg.split(':')[1:]
+                p = 0.001
+                p2 = 0.001
+                if len(reg_ops)>=2:
+                    p=10 ** (-float(reg_ops[0]))
+                    p2=10 ** (-float(reg_ops[1]))
+                elif len(reg_ops)>=1:
+                    p=10 ** (-float(reg_ops[0]))
+                elif len(reg)>2:
                     p = 10 ** (-float(reg[2:]))
-                if reg.startswith('l2'):
+                if reg.startswith('l1l2'):
+                    tf_kwargs = {'regularizer': regularizers.l1_l2(l1=p,l2=p2)}
+                elif reg.startswith('l2'):
                     tf_kwargs = {'regularizer': regularizers.l2(l2=p)}
                 elif reg.startswith('l1'):
                     tf_kwargs = {'regularizer': regularizers.l1(l1=p)}
