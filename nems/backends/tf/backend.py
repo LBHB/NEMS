@@ -73,15 +73,17 @@ class TensorFlowBackend(Backend):
         for layer in self.nems_model.layers:
             if layer.regularizer is not None:
                 reg = layer.regularizer
-                log.info(f"Applying regularizer {reg} to {layer.name}")
-                if reg.startswith('l2'):
-                    if len(reg)==2:
-                        p = 0.001
-                    else:
-                        p = 10**(-float(reg[2:]))
+                if len(reg) == 2:
+                    p = 0.001
                 else:
-                    raise ValueError(f"unknown regularizer {reg}")
-                tf_kwargs = {'regularizer': regularizers.l2(p)}
+                    p = 10 ** (-float(reg[2:]))
+                if reg.startswith('l2'):
+                    tf_kwargs = {'regularizer': regularizers.l2(l2=p)}
+                elif reg.startswith('l1'):
+                    tf_kwargs = {'regularizer': regularizers.l1(l1=p)}
+                else:
+                    raise ValueError(f"Unknown regularizer {reg}")
+                log.info(f"Applying regularizer {reg} (p={p}) to {layer.name}")
 
             else:
                 tf_kwargs = {}  # TODO, regularizer etc.

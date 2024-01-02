@@ -265,7 +265,7 @@ def plot_model_outputs(model, input, target=None, target_name=None, n=None,
 def plot_model(model, input, target=None, target_name=None, n=None,
                select_layers=None, n_columns=1, show_titles=True,
                figure_kwargs=None, sampling_rate=None, time_axis='x',
-               conversion_factor=1, decimals=2, plot_input=True,
+               conversion_factor=1, decimals=2, plot_input=True, T_max=1000,
                **eval_kwargs):
     """TODO: revise doc.
 
@@ -394,22 +394,25 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                     plot_strf(layer, wc_layer=layers[index-1], ax=pax)
                 else:
                     plot_strf(layer, ax=pax)
+                pax.set_xticklabels([])
 
             # Plotting coefficients of specific layers
             elif 'coefficients' in parameters:
                 if len(layer.coefficients.shape)==2:
                     pax.plot(layer.coefficients, lw=0.5)
                 else:
-                    pax.imshow(layer.coefficients[:,0,:],
-                            aspect='auto', interpolation='none', origin='lower')
+                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower')
                 x_pos = pax.get_xlim()[0]
                 y_pos = pax.get_ylim()[1]
                 title = f'coefficients'
                 pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+                pax.set_xticklabels([])
 
             # Plot if non-linear
             elif 'nonlinearity' in str(type(layer)):
-                plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+                plot_nl(layer, [previous_output.min(), previous_output.max()],
+                        ax=pax, showlabels=False)
+                pax.set_xticklabels([])
             else:
                 pax.set_visible(False)
 
@@ -417,7 +420,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         plot_args = layer.plot_kwargs
         plot_args['lw'] = '0.5'
         layer.plot_options['legend'] = False
-        layer.plot(output, ax=ax, **plot_args)
+        layer.plot(output[:T_max], ax=ax, **plot_args)
 
         if show_titles:
             x_pos = ax.get_xlim()[0]
@@ -432,12 +435,15 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     # Plot input info as well
     if plot_input:
         ax = subaxes[0]
-        if isinstance(input, dict) or len(input.shape)>2:
-            pass
-        elif (len(input.shape)>1) & (input.shape[1]>1):
-            ax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
+        if isinstance(input, dict):
+            _input = input['input'][:T_max]
+        else:
+            _input = input[:T_max]
+        if (len(_input.shape)>1) & (_input.shape[1]>1):
+            ax.imshow(_input.T, origin='lower', aspect='auto', interpolation='none')
         else:
             ax.plot(input)
+
         if show_titles:
             title = 'input'
             x_pos = ax.get_xlim()[0]
@@ -468,8 +474,8 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.clear()
                 second_last_ax.clear()
 
-                last_ax.imshow(target[0].T, aspect='auto', interpolation='none', origin='lower')
-                second_last_ax.imshow(output.T, aspect='auto', interpolation='none', origin='lower')
+                last_ax.imshow(target[0][:T_max].T, aspect='auto', interpolation='none', origin='lower')
+                second_last_ax.imshow(output[:T_max].T, aspect='auto', interpolation='none', origin='lower')
 
                 last_ax.set_xlim(subaxes[0].get_xlim())
                 x_pos = last_ax.get_xlim()[0]
@@ -492,11 +498,11 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         cc = model.meta.get('r_test',[0])[0]
 
     figure.suptitle(f"{model.name} cc={cc:.3f}", fontsize=10)
-    plt.tight_layout()
+    #plt.tight_layout()
 
     return figure
 
-def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
+def plot_nl(layer, range=None, channel=None, ax=None, fig=None, showlabels=True):
 
     if ax is not None:
         fig = ax.figure
@@ -516,8 +522,9 @@ def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
         ax.plot(x, y, lw=0.5)
     else:
         ax.plot(x, y[:,channel])
-    ax.set_xlabel('NL input')
-    ax.set_ylabel('NL output')
+    if showlabels:
+        ax.set_xlabel('NL input')
+        ax.set_ylabel('NL output')
 
 
 def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=None):

@@ -206,7 +206,7 @@ def load_model(filepath):
     return model
 
 
-def generate_model_filepath(model, basepath="", max_length=100):
+def generate_model_filepath(model=None, modelname=None, basepath="", max_length=100):
     """Get filepath for saving Model based on `Model.name`.
     
     Uses `Model.name` to guess an appropriate directory name. Directory name is
@@ -231,8 +231,13 @@ def generate_model_filepath(model, basepath="", max_length=100):
     filepath : string
 
     """
+    if (model is None) & (modelname is None):
+        raise ValueError(f"Must specify model or modelname")
 
-    guess = model.name
+    if modelname is None:
+        guess = model.name
+    else:
+        guess = modelname
 
     # Remove problematic characters
     guess = re.sub('[/]', '_', guess)
