@@ -89,17 +89,15 @@ class JackknifeIterator:
         """
         self.inverse         = inverse
         self.axis = axis
-        if type(input) is dict:
-            k = list(input.keys())
-            self.create_jackknife_masks(input[k[0]], samples, axis=axis, shuffle=shuffle, **kwargs)
-        else:
-            self.mask_list       = self.create_jackknife_masks(input, samples, axis=axis, shuffle=shuffle, **kwargs)
         self.fit_list        = None
         self.index           = 0
+        self.shuffle = shuffle
         self.samples         = samples
         self.max_iter        = samples
         self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
                                output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
+        k = list(self.dataset.inputs.keys())
+        self.create_jackknife_masks(self.dataset.inputs[k[0]])
 
     def __iter__(self):
         self.index = 0
@@ -109,8 +107,8 @@ class JackknifeIterator:
         """Returns jackknifed data with mask at current index, then iterates index."""
         if self.index >= self.max_iter:
             raise StopIteration
-        log.info(f"Extracting JK {self.index+1}/{self.max_iter}")
         jackknifed_data = self.get_indexed_jackknife(index=self.index, inverse=self.inverse)
+        #log.info(f"Extracting JK {self.index+1}/{self.max_iter}")
         self.index += 1
 
         return jackknifed_data
@@ -123,14 +121,18 @@ class JackknifeIterator:
         """Sets new sample amount to iterator"""
         self.samples = new_sample
 
-    def create_jackknife_masks(self, data, n, axis=0, shuffle=False):
-        """Returns list of masks for jackknifes"""
-        masks = np.arange(0, data.shape[axis])
-        if shuffle:
+    def create_jackknife_masks(self, data):
+        """Generates list of masks for jackknifes, saves in self.mask_list
+
+        param: data: np.array
+        """
+        self.max_index = data.shape[self.axis]
+        n = self.samples
+        masks = np.arange(0, self.max_index)
+        if self.shuffle:
             masks = np.random.permutation(masks)
-        self.max_index = data.shape[axis]
         self.mask_list = np.array_split(masks, n)
-        return masks
+        return self.mask_list
 
     def plot_estimate_error(self):
         '''Wrapper for nems.visualization.metrics.jackknife_est_error(model_list, ...)'''
@@ -156,7 +158,6 @@ class JackknifeIterator:
                               self.dataset.apply(fn2, allow_copies=True))
         else:
             raise ValueError(f"Unknown value inverse={inverse}")
-
         return jackknife_data
 
     def get_jackknife(self, data, mask, axis=0):
@@ -200,15 +201,21 @@ class JackknifeIterator:
     
     def get_fitted_jackknifes(self, model, **kwargs):
         """Returns a list of fitted models with the given model base."""
-        if type(model) is list:
-            # assume this is round 2 and we already have a list of models, one per jackknife
-            self.fit_list = [m.fit(dataset.inputs, dataset.targets, **kwargs) for m, dataset in zip(model,self)]
-        else:
-            # fit each JK set from the same initial conditions.
-            self.fit_list = [model.fit(dataset.inputs, dataset.targets, **kwargs) for dataset in self]
 
-        return self.fit_list
-    
+        if type(model) is list:
+            mlist = model
+        else:
+            mlist = []
+            for i in range(self.samples):
+                n = model.name + f"/JK{i+1}"
+                mlist.append(model.copy(name=n))
+        fit_list = []
+        for i, (m, dataset) in enumerate(zip(mlist, self)):
+            log.info(f'** Fitting JK {i+1}/{self.samples} **')
+            fit_list.append(m.fit(dataset.inputs, dataset.targets, **kwargs))
+        self.fit_list = fit_list
+
+        return fit_list
 
     
 # TODO: Do we need this for anything?

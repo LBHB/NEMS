@@ -885,10 +885,12 @@ class Model:
         # Initialize DataSet
         if isinstance(input, DataSet):
             input, target = (input['input'], input['target'])
-        data = DataSet(
-            input, target=target, target_name=target_name,
-            prediction_name=prediction_name, **eval_kwargs
-            )
+            data=DataSet
+        else:
+            data = DataSet(
+                input, target=target, target_name=target_name,
+                prediction_name=prediction_name, **eval_kwargs
+                )
         if data.data_format == 'array':
             tdata = data
             tinput = input
@@ -1461,7 +1463,7 @@ class Model:
         model.results = json['results']
         return model
 
-    def copy(self):
+    def copy(self, name=None):
         """Returns a deep copy of Model without a backend or fit results.
         
         Notes
@@ -1477,7 +1479,8 @@ class Model:
         copied_model = copy.deepcopy(self)
         self.backend = backend_save
         self.dstrf_backend = dstrf_backend_save
-
+        if name is not None:
+            copied_model.name = name
         return copied_model
 
     def __eq__(self, other):

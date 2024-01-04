@@ -406,23 +406,29 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                     plot_strf(layer, ax=pax)
                 pax.set_xticklabels([])
 
-            # Plotting coefficients of specific layers
-            elif 'coefficients' in parameters:
-                if len(layer.coefficients.shape)==2:
-                    pax.plot(layer.coefficients, lw=0.5)
-                else:
-                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower')
-                x_pos = pax.get_xlim()[0]
-                y_pos = pax.get_ylim()[1]
-                title = f'coefficients'
-                pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
-                pax.set_xticklabels([])
-
-            # Plot if non-linear
+            # Plot i-o if nonlinearity
             elif 'nonlinearity' in str(type(layer)):
                 plot_nl(layer, [previous_output.min(), previous_output.max()],
                         ax=pax, showlabels=False)
+                compact_label(pax, f'nl')
                 pax.set_xticklabels([])
+
+            # Plotting coefficients of specific layers
+            elif 'coefficients' in parameters:
+                if len(layer.coefficients.shape)==2:
+                    pax.imshow(layer.coefficients, aspect='auto', interpolation='none', origin='lower')
+                    #pax.plot(layer.coefficients, lw=0.5)
+                else:
+                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower')
+                compact_label(pax, f'coefficients')
+                pax.set_xticklabels([])
+
+            # Plotting coefficients of specific layers
+            elif 'gain' in parameters:
+                pax.imshow(layer.parameters['gain'].values, aspect='auto', interpolation='none', origin='lower')
+                compact_label(pax, f'gain')
+                pax.set_xticklabels([])
+
             else:
                 pax.set_visible(False)
 
@@ -433,11 +439,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         layer.plot(output[:T_max], ax=ax, **plot_args)
 
         if show_titles:
-            x_pos = ax.get_xlim()[0]
-            y_pos = ax.get_ylim()[1]
-            name = layer.name
-            title = f'({model.get_layer_index(name)}) {name}'
-            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+            compact_label(ax, f'({model.get_layer_index(layer.name)}) {layer.name}')
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
@@ -455,11 +457,7 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             ax.plot(input)
 
         if show_titles:
-            title = 'input'
-            x_pos = ax.get_xlim()[0]
-            y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
-        ax.set_xlim(subaxes[-1].get_xlim())
+            compact_label(ax, 'input')
         ax.xaxis.set_visible(False)
 
     # Final x-axis of the final layer in each column is always visible
@@ -474,8 +472,6 @@ def plot_model(model, input, target=None, target_name=None, n=None,
             target_name = 'Target'
         if not isinstance(target, list):
             second_last_ax = subaxes[-2]
-            last_ax.clear()
-            second_last_ax.clear()
             if target.shape[1]>2:
                 last_ax.imshow(target[:T_max].T, aspect='auto', interpolation='none', origin='lower')
                 second_last_ax.imshow(output[:T_max].T, aspect='auto', interpolation='none', origin='lower')
@@ -483,22 +479,15 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 last_ax.plot(target[:T_max])
                 second_last_ax.plot(output[:T_max])
 
-            x_pos = last_ax.get_xlim()[0]
-            y_pos = last_ax.get_ylim()[1]
-            last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=_TEXT_BBOX)
-
-            x_pos = second_last_ax.get_xlim()[0]
-            y_pos = second_last_ax.get_ylim()[1]
-            second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
-            #last_ax.set_xticklabels([])
+            compact_label(last_ax, 'Target')
+            compact_label(second_last_ax, 'Output')
         else:
             for i, y in enumerate(target):
                 last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
-        #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-        #last_ax.autoscale()
-        cc = correlation(output,target)
+
+        cc = correlation(output, target)
         last_px.plot(cc)
-        compact_label(last_px, 'CC')
+        compact_label(last_px, f'CC ({cc.mean():.3f})')
         figure.suptitle(f"{model.name}", fontsize=10)
 
     else:

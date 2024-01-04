@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 
 log = logging.getLogger(__name__)
 
-def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
+def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, as_dict=False):
     """
     Perform PCA on 4D dstrf matrix, separately for each output channel
     dstrf matrix is [output X time X input channel X time lag]
@@ -22,17 +22,16 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
        if True, pc_mag returned as fraction variance, otherwise raw varaince
     :param snr_threshold: float
        excloude outlier dstrf samples with high variance: variance(sample)/average_variance > snr_threshold
+    :param as_dict: bool
+       if True, return results as a dict rather than tuple
     :return: depends on input format:
-        input is dict: Should work on multiple inputs with format pca['input_name']['pcs/pc_mag/projection']
-        input is np.array: pcs, pc_mag
+        as_dict==True: dict with keys pcs, pc_mag, projection
+        as_dict==False: tuple: (pcs, pc_mag)
     """
     
     if type(dstrf) is not dict:
         # convert to dict format for compatibility
-        dstrf={'input': dstrf}
-        return_as_matrix=True
-    else:
-        return_as_matrix=False
+        dstrf = {'input': dstrf}
         
     return_dict = {}
     for input_name, input_dstrf in dstrf.items():
@@ -77,14 +76,12 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5):
             pc_mag[:, c] = variance[:pc_count]
             print(projection.shape, transformed_pca.shape)
             projection[c, :, :] = transformed_pca
-        return_dict[input_name] = {'pcs':pcs, 'pc_mag':pc_mag, 'projection':projection}
-    # If our given inputs is only one, we can directly return pcs,pc_mag, projection
-    #if len(return_dict) == 1:
-    #    return_dict = return_dict.popitem()[1]
-    if return_as_matrix:
-        return return_dict['input']['pcs'], return_dict['input']['pc_mag']
-    else:
+        return_dict[input_name] = {'pcs': pcs, 'pc_mag': pc_mag, 'projection': projection}
+
+    if as_dict:
         return return_dict
+    else:
+        return return_dict['input']['pcs'], return_dict['input']['pc_mag']
 
 
 def dpc_project(dpcs, X):

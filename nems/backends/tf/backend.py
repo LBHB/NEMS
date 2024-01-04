@@ -522,6 +522,7 @@ class TensorFlowBackend(Backend):
         with tf.GradientTape(persistent=True) as g:
             g.watch(tensor)
             z = self.model(tensor)
+
             # assume we only care about first output (think this is NEMS standard)
             if type(z) is list:
                 z = z[-1][0, -1, out_channel]
@@ -529,7 +530,9 @@ class TensorFlowBackend(Backend):
                 z = z[0, -1, out_channel]
 
             res = g.jacobian(z, tensor)
+
         return res
+
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):
     """Early stopper that waits before kicking in."""
