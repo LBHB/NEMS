@@ -3,6 +3,7 @@ import textwrap
 import itertools
 import warnings
 import types
+import inspect
 
 import numpy as np
 import logging
@@ -117,6 +118,7 @@ class Model:
             self.add_layers(*layers)
             
 
+        self._name = None
         self.name = name if name is not None else 'UnnamedModel'
         self.output_name = output_name
 
@@ -1414,7 +1416,12 @@ class Model:
             keywords = split
         # Get Layer instances by invoking `Layer.from_keyword` through registry.
         layers = [keyword_lib[kw] for kw in keywords]
-        return cls(layers=layers)
+
+        inheritance_list = inspect.getmro(type(layers[0]))
+        if any([cls.__name__.split('.')[-1] == 'Model' for cls in inheritance_list]):
+            return layers[0]
+        else:
+            return cls(layers=layers)
 
     # Add compatibility for saving to json
     def to_json(self):

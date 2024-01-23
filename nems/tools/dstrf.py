@@ -38,6 +38,7 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, as_dict=Fal
         channel_count = input_dstrf.shape[0]
         s = list(input_dstrf.shape)
         s[1] = pc_count
+        dmean = np.zeros([s[0]]+s[2:])
         pcs = np.zeros(s)
         pc_mag = np.zeros((pc_count, channel_count))
         projection = np.zeros((channel_count, input_dstrf.shape[1], pc_count))
@@ -67,16 +68,23 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, as_dict=Fal
                 variance = np.sqrt(pca.explained_variance_ratio_)
             else:
                 variance = np.sqrt(pca.explained_variance_)
+            
+            dmean[c] = np.reshape(features.mean(axis=0), [s[2], s[3]])
             pcs[c, :, :, :] = np.reshape(components, [pc_count, s[2], s[3]])
+            pc_mag[:, c] = variance[:pc_count]
+            #print(projection.shape, transformed_pca.shape)
+            projection[c, :, :] = transformed_pca
 
             # flip sign of first PC so that mean is positive
-            mean_dstrf = input_dstrf[c, :, :, :].mean(axis=0)
-            if np.sum(mean_dstrf * pcs[c, 0, :, :]) < 0:
-                pcs[c, 0, :, :] = -pcs[c, 0, :, :]
-            pc_mag[:, c] = variance[:pc_count]
-            print(projection.shape, transformed_pca.shape)
-            projection[c, :, :] = transformed_pca
-        return_dict[input_name] = {'pcs': pcs, 'pc_mag': pc_mag, 'projection': projection}
+            #mean_dstrf = input_dstrf[c, :, :, :].mean(axis=0)
+            #if np.sum(mean_dstrf * pcs[c, 0, :, :]) < 0:
+            #    pcs[c, 0, :, :] = -pcs[c, 0, :, :]
+            for oi in range(pc_count):
+                if pcs[c, oi].sum()<0:
+                    log.info(f"Flipping sign of c={c}, pc={oi}, projection oi=dim2, shape={transformed_pca.shape}")
+                    pcs[c, oi] = -pcs[c,oi]
+                    projection[c, :, oi] = -projection[c, :, oi]
+        return_dict[input_name] = {'pcs': pcs, 'pc_mag': pc_mag, 'projection': projection, 'mean': dmean}
 
     if as_dict:
         return return_dict

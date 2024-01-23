@@ -510,8 +510,7 @@ def plot_nl(layer, range=None, channel=None, ax=None, fig=None, showlabels=True)
     else:
         x = range
     outcount=layer.shape[0]
-    if outcount>1:
-        x=np.broadcast_to(x[:,np.newaxis],[x.shape[0],outcount])
+    x=np.broadcast_to(x[:, np.newaxis], [x.shape[0], outcount])
     y = layer.evaluate(x)
     if channel is None:
         ax.plot(x, y, lw=0.5)

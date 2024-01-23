@@ -3,15 +3,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from .base import Model
+from nems.registry import layer
+from nems.layers.tools import require_shape, pop_shape
+
 from nems.layers import (
     WeightChannels, WeightChannelsGaussian, FiniteImpulseResponse,
-    RectifiedLinear, DoubleExponential
+    RectifiedLinear, DoubleExponential, LevelShift
     )
 from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
-
-
 
 #
 # Class defs
@@ -20,7 +21,7 @@ class LN_STRF(Model):
 
     def __init__(self, time_bins, channels, rank=None,
                  gaussian=False, nonlinearity='DoubleExponential',
-                 nl_kwargs=None, **model_init_kwargs):
+                 nl_kwargs=None, regularizer=None, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -70,22 +71,27 @@ class LN_STRF(Model):
             self.add_layers(fir)
         else:
             wc_class = WeightChannelsGaussian if gaussian else WeightChannels
-            wc = wc_class(shape=(channels, rank))
+            wc = wc_class(shape=(channels, rank), regularizer=regularizer)
             fir = FiniteImpulseResponse(shape=(time_bins, rank))
             self.add_layers(wc, fir)
 
+        # Add static nonlinearity
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
             nl_class = DoubleExponential
         elif nonlinearity in ['RectifiedLinear', 'relu', 'ReLU']:
             nl_class = RectifiedLinear
+        elif nonlinearity in ['LevelShift', 'lvl']:
+            nl_class = LevelShift
+        elif nonlinearity in ['', None]:
+            nl_class = None
         else:
             raise ValueError(
                 f'Unrecognized nonlinearity for LN model:  {nonlinearity}.')
-        
-        if nl_kwargs is None: nl_kwargs = {}
-        nonlinearity = nl_class(shape=(1,), **nl_kwargs)
-        self.add_layers(nonlinearity)
+        if nl_class is not None:
+            if nl_kwargs is None: nl_kwargs = {}
+            nonlinearity = nl_class(shape=(1,), **nl_kwargs)
+            self.add_layers(nonlinearity)
         self.out_range = [[-1], [3]]
 
     @classmethod
@@ -163,22 +169,44 @@ class LN_STRF(Model):
         return f
 
     # TODO
-    # @module('LNSTRF')
+    @layer('LN')
     def from_keyword(keyword):
-        # Return a list of module instances matching this pre-built Model?
-        # That way these models can be used with kw system as well, e.g.
-        # model = Model.from_keywords('LNSTRF')
+        # Return a subclass of Model rather than a layer
         #
-        # But would need the .from_keywords method to check for list vs single
-        # module returned.
-        pass
+        # requires Model.from_keywords method to check for Layer vs. Model
+        options = keyword.split('.')
+        shape = pop_shape(options)
+
+        d={}
+        if (shape is None):
+            raise ValueError("shape must be TxC or TxCxR")
+        elif len(shape)==2:
+            d['time_bins']=shape[0]
+            d['channels']=shape[1]
+        elif len(shape)==3:
+            d['time_bins']=shape[0]
+            d['channels']=shape[1]
+            d['rank']=shape[2]
+        else:
+            raise ValueError("shape must be TxC or TxCxR")
+            
+        for op in options:
+            if op=='g':
+                d['gaussian']=True
+            elif op in ['lvl','dexp','relu']:
+                d['nonlinearity']=op
+                if op=='relu':
+                    d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+            elif op.startswith('l2'):
+                d['regularizer']=op
+        return LN_STRF(**d)
 
 
 class LN_pop(Model):
 
-    def __init__(self, time_bins, channels_in, channels_out, rank=None,
+    def __init__(self, time_bins, channels_in, channels_out, rank=None, share_tuning=True,
                  gaussian=False, nonlinearity='DoubleExponential',
-                 nl_kwargs=None, **model_init_kwargs):
+                 nl_kwargs=None, regularizer=None, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -200,8 +228,13 @@ class LN_pop(Model):
             Number of "taps" in FIR filter. We have found that a 150-250ms filter
             typically sufficient for modeling A1 responses, or 15-25 bins for
             a 100 Hz sampling rate.
-        channels : int.
+        channels_in : int.
             Number of spectral channels in spectrogram.
+        channels_out : int.
+            Number of output channels (neurons) to predict activity
+        share_tuning : bool; optional.
+            If True (default), project channels_in to intermediate space of size rank then FIR, then channels_out
+            If False, separate STRFs for each channel (full or partial rank depending on rank parameter)
         rank : int; optional.
             Number of spectral weightings used as input to a reduced-rank filter.
             For example, `rank=1` indicates a frequency-time separable STRF.
@@ -222,29 +255,38 @@ class LN_pop(Model):
         super().__init__(**model_init_kwargs)
 
         # Add STRF
+        wc_class = WeightChannelsGaussian if gaussian else WeightChannels
+
         if rank is None:
-            # Full-rank finite impulse response
+            # Full-rank finite impulse response, one per output channel
             fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out))
             self.add_layers(fir)
-        else:
-            wc_class = WeightChannelsGaussian if gaussian else WeightChannels
-            wc = wc_class(shape=(channels_in, 1, rank))
+        elif share_tuning:
+            wc = wc_class(shape=(channels_in, 1, rank), regularizer=regularizer)
             fir = FiniteImpulseResponse(shape=(time_bins, 1, rank))
-            wc2 = wc_class(shape=(rank, channels_out))
+            wc2 = wc_class(shape=(rank, channels_out), regularizer=regularizer)
             self.add_layers(wc, fir, wc2)
+        else:
+            wc = wc_class(shape=(channels_in, rank, channels_out), regularizer=regularizer)
+            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out))
+            self.add_layers(wc, fir)
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
             nl_class = DoubleExponential
         elif nonlinearity in ['RectifiedLinear', 'relu', 'ReLU']:
             nl_class = RectifiedLinear
+        elif nonlinearity in ['LevelShift', 'lvl']:
+            nl_class = LevelShift
+        elif nonlinearity in ['', None]:
+            nl_class = None
         else:
             raise ValueError(
                 f'Unrecognized nonlinearity for LN model:  {nonlinearity}.')
-
-        if nl_kwargs is None: nl_kwargs = {}
-        nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
-        self.add_layers(nonlinearity)
+        if nl_class is not None:
+            if nl_kwargs is None: nl_kwargs = {}
+            nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
+            self.add_layers(nonlinearity)
         self.out_range = [[-1]*channels_out, [3]*channels_out]
 
     @classmethod
@@ -291,21 +333,46 @@ class LN_pop(Model):
         return strf
 
     def get_strf(self, **opts):
-        return LN_get_strf(self, **opts)
+        return LNpop_get_strf(self, **opts)
 
     def plot_strf(self, **opts):
-        return LN_plot_strf(self, **opts)
+        return LNpop_plot_strf(self, **opts)
 
-    # TODO
-    # @module('LNSTRF')
+    @layer('LNpop')
     def from_keyword(keyword):
-        # Return a list of module instances matching this pre-built Model?
-        # That way these models can be used with kw system as well, e.g.
-        # model = Model.from_keywords('LNSTRF')
+        # Return a subclass of Model rather than a layer
         #
-        # But would need the .from_keywords method to check for list vs single
-        # module returned.
-        pass
+        # requires Model.from_keywords method to check for Layer vs. Model
+        options = keyword.split('.')
+        shape = pop_shape(options)
+
+        d={}
+        if (shape is None):
+            raise ValueError("shape must be TxCINxCOUT or TxCINxCOUTxRANK")
+        elif len(shape)==3:
+            d['time_bins']=shape[0]
+            d['channels_in']=shape[1]
+            d['channels_out']=shape[2]
+        elif len(shape)==4:
+            d['time_bins']=shape[0]
+            d['channels_in']=shape[1]
+            d['channels_out']=shape[2]
+            d['rank']=shape[3]
+        else:
+            raise ValueError("shape must be TxCINxCOUT or TxCINxCOUTxRANK")
+            
+        for op in options:
+            if op=='g':
+                d['gaussian']=True
+            elif op=='i':
+                d['share_tuning']=False
+            elif op in ['lvl','dexp','relu']:
+                d['nonlinearity']=op
+                if op=='relu':
+                    d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+            elif op.startswith('l2'):
+                d['regularizer']=op
+        return LN_pop(**d)
 
 
 class LN_reconstruction(Model):
@@ -549,7 +616,7 @@ class CNN_reconstruction(Model):
 # helper functions
 #
 
-def LN_get_strf(model, channels=None, layer=2):
+def LNpop_get_strf(model, channels=None, layer=2):
     wc = model.layers[0].coefficients
     fir = model.layers[1].coefficients
     wc2 = model.layers[2].coefficients
@@ -563,8 +630,8 @@ def LN_get_strf(model, channels=None, layer=2):
         strf2 = strf2[:, :, channels]
     return strf2
 
-def LN_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, merge=None):
-    strf2 = LN_get_strf(model, channels=channels, layer=layer)
+def LNpop_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, merge=None):
+    strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
 
     hcontra = strf2[:18, :, :]
     hipsi = strf2[18:, :, :]
