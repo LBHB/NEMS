@@ -13,6 +13,7 @@ from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
 from nems.visualization import plot_model, plot_model_outputs, plot_model_list
+from nems.tools.lookup import lookup_fn_at
 from nems.tools.arrays import one_or_more_nan
 from nems.models.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
@@ -64,7 +65,7 @@ class Model:
     """
 
     def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
-                 fs=None):
+                 fs=None, from_saved=False):
         """
         Parameters
         ----------
@@ -116,7 +117,6 @@ class Model:
 
         if layers is not None:
             self.add_layers(*layers)
-            
 
         self._name = None
         self.name = name if name is not None else 'UnnamedModel'
@@ -126,13 +126,13 @@ class Model:
         # about the model. Any type can be stored here as long as it can be
         # encoded by `json.dumps`.
         if meta is None: meta = {}
+        meta['subclass'] = str(self.__class__).split("'")[1]
         self.meta = meta
-
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
         self.dstrf_backend = None  # backend for model with output NL removed
         self.fs = fs
-
+        
     @property
     def layers(self):
         """Get all Model Layers. Supports integer or string indexing."""
@@ -1465,8 +1465,14 @@ class Model:
         `nems.tools.json`
 
         """
-        model = cls(layers=json['layers'], name=json['name'], 
-                    dtype=getattr(np, json['dtype']), meta=json['meta'])
+        if 'subclass' in json['meta']:
+            print("INITIALIZING AS" , json['meta']['subclass'])
+            fn = lookup_fn_at(json['meta']['subclass'])
+            model = fn(from_saved=True, layers=json['layers'], name=json['name'], 
+                       dtype=getattr(np, json['dtype']), meta=json['meta'])
+        else:
+            model = cls(layers=json['layers'], name=json['name'], 
+                        dtype=getattr(np, json['dtype']), meta=json['meta'])
         model.results = json['results']
         return model
 

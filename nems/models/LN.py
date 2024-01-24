@@ -19,9 +19,9 @@ log = logging.getLogger(__name__)
 #
 class LN_STRF(Model):
 
-    def __init__(self, time_bins, channels, rank=None,
+    def __init__(self, time_bins=None, channels=None, rank=None,
                  gaussian=False, nonlinearity='DoubleExponential',
-                 nl_kwargs=None, regularizer=None, **model_init_kwargs):
+                 nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -63,7 +63,10 @@ class LN_STRF(Model):
         """
 
         super().__init__(**model_init_kwargs)
-
+        if from_saved:
+           self.out_range = [[-1], [3]]
+           return
+            
         # Add STRF
         if rank is None:
             # Full-rank finite impulse response
@@ -204,9 +207,9 @@ class LN_STRF(Model):
 
 class LN_pop(Model):
 
-    def __init__(self, time_bins, channels_in, channels_out, rank=None, share_tuning=True,
+    def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, share_tuning=True,
                  gaussian=False, nonlinearity='DoubleExponential',
-                 nl_kwargs=None, regularizer=None, **model_init_kwargs):
+                 nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -253,6 +256,10 @@ class LN_pop(Model):
         """
 
         super().__init__(**model_init_kwargs)
+        if from_saved:
+            channels_out = self.layers[-1].shape[0]
+            self.out_range = [[-1]*channels_out, [3]*channels_out]
+            return
 
         # Add STRF
         wc_class = WeightChannelsGaussian if gaussian else WeightChannels
@@ -379,7 +386,7 @@ class LN_reconstruction(Model):
 
     def __init__(self, time_bins, channels, out_channels, rank=None,
                  nonlinearity='RectifiedLinear',
-                 nl_kwargs=None, **model_init_kwargs):
+                 nl_kwargs=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -423,6 +430,8 @@ class LN_reconstruction(Model):
         """
 
         super().__init__(**model_init_kwargs)
+        if from_saved:
+            return
 
         # Add STRF
         if rank is None:
@@ -493,7 +502,7 @@ class CNN_reconstruction(Model):
 
     def __init__(self, time_bins=11, channels=None, out_channels=None, L1=10, L2=0,
                  nonlinearity='RectifiedLinear',
-                 nl_kwargs=None, **model_init_kwargs):
+                 nl_kwargs=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -537,6 +546,8 @@ class CNN_reconstruction(Model):
         """
 
         super().__init__(**model_init_kwargs)
+        if from_saved:
+            return
 
         wc1 = WeightChannels(shape=(channels, 1, L1))
         fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
@@ -630,11 +641,14 @@ def LNpop_get_strf(model, channels=None, layer=2):
         strf2 = strf2[:, :, channels]
     return strf2
 
-def LNpop_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, merge=None):
+def LNpop_plot_strf(model, labels=None, channels=None,
+                    layer=2, plot_nl=False, merge=None,
+                    binaural=False):
     strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
 
-    hcontra = strf2[:18, :, :]
-    hipsi = strf2[18:, :, :]
+    m = int(strf2.shape[0]/2)
+    hcontra = strf2[:m, :, :]
+    hipsi = strf2[m:, :, :]
 
     norm = strf2.std(axis=(0,1), keepdims=True)
     if merge=='sum':
@@ -652,39 +666,73 @@ def LNpop_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, m
     wc2std=wc2.std(axis=0,keepdims=True)
     wc2std[wc2std==0]=1
     wc2 /= wc2std
+
     channels_out = strf2.shape[-1]
-    colcount=int(np.ceil(channels_out/10))
-    rowcount=np.min([channels_out,10])
     if plot_nl:
         col_mult=2
     else:
         col_mult=1
-    f, ax = plt.subplots(rowcount, colcount*col_mult, figsize=(colcount*col_mult,rowcount*0.75),
-                         sharex='col', sharey='col')
+    if channels_out>16:
+        rowcount=np.min([channels_out,10])
+
+        colcount=int(np.ceil(channels_out/10))
+        f, ax = plt.subplots(rowcount, colcount*col_mult, figsize=(colcount*col_mult,rowcount*0.75),
+                             sharex='col', sharey='col')
+    else:
+        rowcount = np.min([channels_out, 4])
+        colcount = int(np.ceil(channels_out / 4))
+
+        f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=(colcount * col_mult *2, rowcount * 1.5),
+                             sharex='col', sharey='col')
+
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
     for c in range(channels_out):
-        rr = c % 10
-        cc = int(np.floor(c/10))
+
+        if binaural:
+            res = get_binaural_strf_tuning(strf2[:, :, c])
+            ctuning = res['ctuning']
+            ituning = res['ctuning']
+            tlist=[ctuning,ituning]
+        else:
+            ctuning = get_strf_tuning(strf2[:, :, c])
+            tlist=[ctuning]
+        #print(b0, np.round(lat0,3), np.round(dur0,3))
+
+        rr = c % rowcount
+        cc = int(np.floor(c/rowcount))
         #mm = np.max(np.abs(strf2[:,:,c]))
         mm=norm[0,0,c]*6
         extent = [0, strf2.shape[1]/fs, 0, strf2.shape[0]]
         ax[rr, cc*col_mult].imshow(strf2[:, :, c], aspect='auto', cmap='bwr',
                         origin='lower', interpolation='none', extent=extent,
                         vmin=-mm, vmax=mm)
+        for t in tlist:
+            b0 = t['bfidx']+0.5
+            ax[rr, cc * col_mult].plot(t['lat'],b0,'.', color='black')
+            ax[rr, cc * col_mult].plot(t['offlat'],b0,'.', color='black')
+            mlat = (t['lat'] + t['offlat'])/2
+            ax[rr, cc * col_mult].plot(mlat,t['bloidx']+0.5,'.', color='black')
+            ax[rr, cc * col_mult].plot(mlat,t['bhiidx']+0.5,'.', color='black')
+
         if plot_nl:
             if (layer==2):
                 xmin, xmax = modelmodel.out_range[0][c], model.out_range[1][c]
                 plot_nl(model.layers[-1], range=[xmin, xmax], channel=c, ax=ax[rr, cc*2+1])
-            else:
+            elif binaural:
                 ax[rr, cc*2+1].plot(wc2[c])
                 ax[rr, cc*2+1].axhline(y=0, ls='--', color='black')
             ax[rr, cc * 2+1].set_ylabel('')
             ax[rr, cc * 2+1].set_yticklabels([])
             ax[rr, cc * 2+1].set_xlabel('')
 
+        if binaural:
+            ax[rr, cc*col_mult].axhline(y=res['ipsi_offset'], ls='--', color='black')
+
         if labels is not None:
             ax[rr, cc*col_mult].text(extent[0],extent[3],labels[c],va='bottom')
+        elif binaural:
+            ax[rr, cc*col_mult].text(extent[0],extent[3],f"bdi={res['bdi']:.2f} mcs={res['mcs']:.2f}",va='bottom')
         if cc>0:
             ax[rr,cc*col_mult].set_yticklabels([])
 
@@ -693,3 +741,140 @@ def LNpop_plot_strf(model, labels=None, channels=None, layer=2, plot_nl=False, m
     plt.tight_layout()
 
     return f
+
+
+import numpy as np
+import scipy as sp
+from matplotlib import pyplot as plt
+
+
+def interpft(x,ny,dim=0):
+    '''
+    Function to interpolate using FT method, based on matlab interpft()
+    :param x: array for interpolation
+    :param ny: length of returned vector post-interpolation
+    :param dim: performs interpolation along dimension DIM, default 0
+    :return: interpolated data
+    '''
+
+    if dim >= 1:                                         #if interpolating along columns, dim = 1
+        x = np.swapaxes(x,0,dim)                         #temporarily swap axes so calculations are universal regardless of dim
+    if len(x.shape) == 1:                                #interpolation should always happen along same axis ultimately
+        x = np.expand_dims(x,axis=1)
+
+    siz = x.shape
+    [m, n] = x.shape
+
+    a = np.fft.fft(x,m,0)
+    nyqst = int(np.ceil((m+1)/2))
+    b = np.concatenate((a[0:nyqst,:], np.zeros(shape=(ny-m,n)), a[nyqst:m, :]),0)
+
+    if np.remainder(m,2)==0:
+        b[nyqst,:] = b[nyqst,:]/2
+        b[nyqst+ny-m,:] = b[nyqst,:]
+
+    y = np.fft.irfft(b,b.shape[0],0)
+    y = y * ny / m
+    y = np.reshape(y, [y.shape[0],siz[1]])
+    y = np.squeeze(y)
+
+    if dim >= 1:                                        #switches dimensions back here to get desired form
+        y = np.swapaxes(y,0,dim)
+
+    return y
+
+
+def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
+
+    # figure out some tuning properties
+    maxoct = int(np.log2(fmax/fmin))
+    fs=1000
+
+
+    smooth = [100,strf.shape[1]]
+    strfsmooth = interpft(strf, smooth[0], 0)
+    ss=strfsmooth.std()
+    ff = np.exp(np.linspace(np.log(fmin),np.log(fmax),strfsmooth.shape[0]))
+
+    mm = np.mean(strfsmooth[:,:7] * (1*(strfsmooth[:,:7] > 0)), 1)
+    mmneg = -np.mean(strfsmooth[:,:7] * (1*(strfsmooth[:,:7] < 0)), 1)
+
+    if (mm.max()<mmneg.max()):
+        mm=mmneg
+        bfpos=False
+    else:
+        bfpos=True
+
+    if sum(np.abs(mm)) > 0:
+        bfidx = np.argwhere(mm==mm.max())[0][0]
+        bf = np.round(ff[bfidx])
+        blo = np.min(np.argwhere(mm>mm.max()/2))
+        bhi = np.max(np.argwhere(mm>mm.max()/2))
+        #print(bfidx, blo,bhi)
+    else:
+        bfidx = 1
+        bf = 0
+
+    strfsmooth2=interpft(strfsmooth, 250, dim=1)
+    ss = strfsmooth2.std()
+    mb = 0
+    irsmooth=np.abs(strfsmooth2[bfidx,:])-mb
+
+    # Find significantly modulated time bins
+    sigmod = irsmooth > ss*3
+    sigmod[:7]=False
+    if sigmod.sum()>3:
+        latbin=np.where(sigmod)[0].min()/250*strf.shape[1]
+        lat=latbin*timestep
+        durbin=np.sum(sigmod)/250*strf.shape[1]
+        offlat=np.where(sigmod)[0].max()/250*strf.shape[1]*timestep
+        #print(latbin, lat, durbin, offlat)
+    else:
+        latbin = 0
+        lat = 0
+        durbin = 0
+        offlat = 0
+        print('no significant onset latency\n')
+
+    res={}
+    stepsize = maxoct / strf.shape[0]
+    # bw in octaves
+    res['bf'] = bf # in Hz
+    res['lat'] = lat # lat in sec
+    res['offlat'] = offlat # offlat in sec
+    res['bfidx'] = bfidx*strf.shape[0]/100  # in STRF bins
+    res['latbin'] = latbin # lat in bins
+    res['offlatbin'] = latbin+durbin
+    res['bfpos'] = bfpos
+    res['bloidx'] = blo*strf.shape[0]/100
+    res['bhiidx'] = bhi*strf.shape[0]/100
+    res['bw']= (res['bhiidx'] - res['bloidx']) * stepsize
+    res['stepsize'] = stepsize
+
+
+    return res
+
+def get_binaural_strf_tuning(strf, **kwargs):
+
+    # figure out some tuning properties
+
+    if int(strf.shape[0]/2) != strf.shape[0]/2:
+        raise ValueError('Binaural strf must have even shape[0]')
+    m=int(strf.shape[0]/2)
+    contra=strf[:m,:]
+    ipsi=strf[m:,:]
+
+    res={}
+    res['ctuning'] = get_strf_tuning(contra, **kwargs)
+    res['ituning'] = get_strf_tuning(ipsi, **kwargs)
+
+    res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
+    res['mcs'] = ipsi.mean() / np.abs(ipsi).mean()
+    res['ipsi_offset']=m
+
+    return res
+
+
+
+
+
