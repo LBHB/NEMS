@@ -103,9 +103,14 @@ class StateGain(Layer):
         """
         # TODO: other options from old NEMS
         options = keyword.split('.')
-        shape = pop_shape(options)
+        kwargs = {}
+        kwargs['shape'] = pop_shape(options)
 
-        return StateGain(shape=shape)
+        for op in options:
+            if op.startswith('l2'):
+                kwargs['regularizer'] = op
+
+        return StateGain(**kwargs)
 
     def as_tensorflow_layer(self, input_shape=None, **kwargs):
         """TODO: docs"""

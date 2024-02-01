@@ -1,6 +1,8 @@
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.ndimage import zoom, gaussian_filter1d
 
 from .base import Model
 from nems.registry import layer
@@ -170,6 +172,14 @@ class LN_STRF(Model):
         plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
         plt.tight_layout()
         return f
+
+    def get_tuning(self, binaural=None, **tuningargs):
+        strf=self.get_strf()
+        if binaural is None:
+            binaural=is_binaural(self)
+        res = {'cellid': self.meta['cellid']}
+        res.update(get_strf_tuning(strf, binaural=binaural, **tuningargs))
+        return res
 
     # TODO
     @layer('LN')
@@ -344,6 +354,9 @@ class LN_pop(Model):
 
     def plot_strf(self, **opts):
         return LNpop_plot_strf(self, **opts)
+
+    def get_tuning(self, **opts):
+        return LNpop_get_tuning(self, **opts)
 
     @layer('LNpop')
     def from_keyword(keyword):
@@ -628,23 +641,79 @@ class CNN_reconstruction(Model):
 #
 
 def LNpop_get_strf(model, channels=None, layer=2):
+
+    if model.layers[2].name.startswith("WeightChannels")==False:
+        layer=1
+
     wc = model.layers[0].coefficients
     fir = model.layers[1].coefficients
-    wc2 = model.layers[2].coefficients
     filter_count = fir.shape[2]
     strf1 = np.stack([wc[:, :, i] @ fir[:, :, i].T for i in range(filter_count)], axis=2)
     if layer==1:
-        return strf1
+        return strf1[:, :, channels]
 
+    wc2 = model.layers[2].coefficients
     strf2 = np.tensordot(strf1, wc2, axes=(2, 0))
     if channels is not None:
         strf2 = strf2[:, :, channels]
     return strf2
 
+def LN_plot_strf(model=None, channels=None, strf=None,
+                 binaural=None, ax=None, fs=100, **tuningkwargs):
+    if channels is None:
+        channels=[0]
+    if strf is None:
+        strf = model.get_strf(channels=channels)
+    if model is not None:
+        rtest=model.meta['r_test'][channels[0],0]
+        if binaural is None:
+            binaural=is_binaural(model)
+    if binaural is None:
+        binaural=False
+    if ax is None:
+        f, ax = plt.subplots()
+
+    if binaural:
+        res = get_binaural_strf_tuning(strf, **tuningkwargs)
+        prelist = ['c', 'i']
+    else:
+        res = get_strf_tuning(strf, **tuningkwargs)
+        res['ipsi_offset']=0
+        prelist = ['']
+
+    # mm = np.max(np.abs(strf))
+    extent = [0, strf.shape[1] / fs, 0, strf.shape[0]]
+    mm = np.max(np.abs(strf))
+    ax.imshow(strf, aspect='auto', cmap='bwr',
+            origin='lower', interpolation='none', extent=extent,
+            vmin=-mm, vmax=mm)
+    for ci, p in enumerate(prelist):
+        os = ci * res['ipsi_offset'] + 0.5
+        b0 = res[p + 'bfidx'] + os
+        ax.plot(res[p + 'lat'], b0, '.', color='black')
+        ax.plot(res[p + 'offlat'], b0, '.', color='black')
+        mlat = (res[p + 'lat'] + res[p + 'offlat']) / 2
+        ax.plot(mlat, res[p + 'bloidx'] + os, '.', color='black')
+        ax.plot(mlat, res[p + 'bhiidx'] + os, '.', color='black')
+
+    if binaural:
+        ax.axhline(y=res['ipsi_offset'], lw=0.5, ls='--', color='gray')
+        ax.text(extent[0], extent[3],
+                f"r={rtest:.2f} bdi={res['bdi']:.2f} mcs={res['mcs']:.2f}",
+                va='bottom')
+    ax.set_xlabel('Time lag')
+
+
 def LNpop_plot_strf(model, labels=None, channels=None,
                     layer=2, plot_nl=False, merge=None,
-                    binaural=False):
+                    binaural=None):
     strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
+    if binaural is None:
+        binaural=is_binaural(model)
+
+    channels_out = strf2.shape[-1]
+    if channels is None:
+        channels=np.arange(channels_out)
 
     m = int(strf2.shape[0]/2)
     hcontra = strf2[:m, :, :]
@@ -659,44 +728,53 @@ def LNpop_plot_strf(model, labels=None, channels=None,
         strf2 = np.concatenate(((hcontra+hipsi), (hcontra-hipsi)),axis=0)
 
     if model.fs is None:
-        fs=1
+        fs=100
     else:
         fs=model.fs
-    wc2 = model.layers[2].coefficients
-    wc2std=wc2.std(axis=0,keepdims=True)
-    wc2std[wc2std==0]=1
-    wc2 /= wc2std
+    #wc2 = model.layers[2].coefficients
+    #wc2std=wc2.std(axis=0,keepdims=True)
+    #wc2std[wc2std==0]=1
+    #wc2 /= wc2std
 
-    channels_out = strf2.shape[-1]
     if plot_nl:
         col_mult=2
     else:
         col_mult=1
-    if channels_out>16:
+    if channels_out>25:
         rowcount=np.min([channels_out,10])
 
         colcount=int(np.ceil(channels_out/10))
         f, ax = plt.subplots(rowcount, colcount*col_mult, figsize=(colcount*col_mult,rowcount*0.75),
                              sharex='col', sharey='col')
+    elif channels_out > 16:
+        rowcount = np.min([channels_out, 5])
+        colcount = int(np.ceil(channels_out / 5))
+
+        f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=(8, 6),
+                             sharex='col', sharey='col')
     else:
         rowcount = np.min([channels_out, 4])
         colcount = int(np.ceil(channels_out / 4))
 
-        f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=(colcount * col_mult *2, rowcount * 1.5),
+        f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=(8, 6),
                              sharex='col', sharey='col')
 
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
     for c in range(channels_out):
-
+        rr = c % rowcount
+        cc = int(np.floor(c/rowcount))
+        LN_plot_strf(model=model, channels=[c], strf=strf2[:, :, c],
+                     binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs)
+        """
         if binaural:
             res = get_binaural_strf_tuning(strf2[:, :, c])
-            ctuning = res['ctuning']
-            ituning = res['ctuning']
-            tlist=[ctuning,ituning]
+            prelist=['c','i']
+            ioffset=res['ipsi_offset']
         else:
-            ctuning = get_strf_tuning(strf2[:, :, c])
-            tlist=[ctuning]
+            res = get_strf_tuning(strf2[:, :, c])
+            prelist=['']
+            ioffset=0
         #print(b0, np.round(lat0,3), np.round(dur0,3))
 
         rr = c % rowcount
@@ -707,17 +785,18 @@ def LNpop_plot_strf(model, labels=None, channels=None,
         ax[rr, cc*col_mult].imshow(strf2[:, :, c], aspect='auto', cmap='bwr',
                         origin='lower', interpolation='none', extent=extent,
                         vmin=-mm, vmax=mm)
-        for t in tlist:
-            b0 = t['bfidx']+0.5
-            ax[rr, cc * col_mult].plot(t['lat'],b0,'.', color='black')
-            ax[rr, cc * col_mult].plot(t['offlat'],b0,'.', color='black')
-            mlat = (t['lat'] + t['offlat'])/2
-            ax[rr, cc * col_mult].plot(mlat,t['bloidx']+0.5,'.', color='black')
-            ax[rr, cc * col_mult].plot(mlat,t['bhiidx']+0.5,'.', color='black')
+        for ci,p in enumerate(prelist):
+            os = ci*ioffset+0.5
+            b0 = res[p+'bfidx']+os
+            ax[rr, cc * col_mult].plot(res[p+'lat'],b0,'.', color='black')
+            ax[rr, cc * col_mult].plot(res[p+'offlat'],b0,'.', color='black')
+            mlat = (res[p+'lat'] + res[p+'offlat'])/2
+            ax[rr, cc * col_mult].plot(mlat,res[p+'bloidx']+os,'.', color='black')
+            ax[rr, cc * col_mult].plot(mlat,res[p+'bhiidx']+os,'.', color='black')
 
         if plot_nl:
             if (layer==2):
-                xmin, xmax = modelmodel.out_range[0][c], model.out_range[1][c]
+                xmin, xmax = modelmodel.out_range[0][channels[c]], model.out_range[1][channels[c]]
                 plot_nl(model.layers[-1], range=[xmin, xmax], channel=c, ax=ax[rr, cc*2+1])
             elif binaural:
                 ax[rr, cc*2+1].plot(wc2[c])
@@ -727,15 +806,16 @@ def LNpop_plot_strf(model, labels=None, channels=None,
             ax[rr, cc * 2+1].set_xlabel('')
 
         if binaural:
-            ax[rr, cc*col_mult].axhline(y=res['ipsi_offset'], ls='--', color='black')
+            ax[rr, cc*col_mult].axhline(y=res['ipsi_offset'], lw=0.5, ls='--', color='gray')
 
         if labels is not None:
             ax[rr, cc*col_mult].text(extent[0],extent[3],labels[c],va='bottom')
         elif binaural:
-            ax[rr, cc*col_mult].text(extent[0],extent[3],f"bdi={res['bdi']:.2f} mcs={res['mcs']:.2f}",va='bottom')
+            rtest=model.meta['r_test'][channels[c],0]
+            ax[rr, cc*col_mult].text(extent[0],extent[3],f"r={rtest:.2f} bdi={res['bdi']:.2f} mcs={res['mcs']:.2f}",va='bottom')
         if cc>0:
             ax[rr,cc*col_mult].set_yticklabels([])
-
+        """
     ax[-1,0].set_xlabel('Time lag')
     plt.suptitle(model.name[:30])
     plt.tight_layout()
@@ -743,61 +823,20 @@ def LNpop_plot_strf(model, labels=None, channels=None,
     return f
 
 
-import numpy as np
-import scipy as sp
-from matplotlib import pyplot as plt
-
-
-def interpft(x,ny,dim=0):
-    '''
-    Function to interpolate using FT method, based on matlab interpft()
-    :param x: array for interpolation
-    :param ny: length of returned vector post-interpolation
-    :param dim: performs interpolation along dimension DIM, default 0
-    :return: interpolated data
-    '''
-
-    if dim >= 1:                                         #if interpolating along columns, dim = 1
-        x = np.swapaxes(x,0,dim)                         #temporarily swap axes so calculations are universal regardless of dim
-    if len(x.shape) == 1:                                #interpolation should always happen along same axis ultimately
-        x = np.expand_dims(x,axis=1)
-
-    siz = x.shape
-    [m, n] = x.shape
-
-    a = np.fft.fft(x,m,0)
-    nyqst = int(np.ceil((m+1)/2))
-    b = np.concatenate((a[0:nyqst,:], np.zeros(shape=(ny-m,n)), a[nyqst:m, :]),0)
-
-    if np.remainder(m,2)==0:
-        b[nyqst,:] = b[nyqst,:]/2
-        b[nyqst+ny-m,:] = b[nyqst,:]
-
-    y = np.fft.irfft(b,b.shape[0],0)
-    y = y * ny / m
-    y = np.reshape(y, [y.shape[0],siz[1]])
-    y = np.squeeze(y)
-
-    if dim >= 1:                                        #switches dimensions back here to get desired form
-        y = np.swapaxes(y,0,dim)
-
-    return y
-
-
 def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
-
+    if binaural:
+        return get_binaural_strf_tuning(strf, fmin=fmin, fmax=fmax, timestep=timestep)
     # figure out some tuning properties
     maxoct = int(np.log2(fmax/fmin))
     fs=1000
 
-
-    smooth = [100,strf.shape[1]]
-    strfsmooth = interpft(strf, smooth[0], 0)
-    ss=strfsmooth.std()
+    sf=4
+    strfsmooth = zoom(strf,sf)
     ff = np.exp(np.linspace(np.log(fmin),np.log(fmax),strfsmooth.shape[0]))
 
-    mm = np.mean(strfsmooth[:,:7] * (1*(strfsmooth[:,:7] > 0)), 1)
-    mmneg = -np.mean(strfsmooth[:,:7] * (1*(strfsmooth[:,:7] < 0)), 1)
+    onsetbins = int(0.1/timestep*sf)
+    mm = np.mean(strfsmooth[:,:onsetbins] * (1*(strfsmooth[:,:onsetbins] > 0)), 1)
+    mmneg = -np.mean(strfsmooth[:,:onsetbins] * (1*(strfsmooth[:,:onsetbins] < 0)), 1)
 
     if (mm.max()<mmneg.max()):
         mm=mmneg
@@ -805,36 +844,54 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     else:
         bfpos=True
 
-    if sum(np.abs(mm)) > 0:
+    if 1:
+        mm = np.mean(np.abs(strfsmooth[:,:onsetbins]),axis=1)
+        msum=np.cumsum(mm)/np.sum(mm)
+        bfidx = np.argwhere(msum>=0.5)[0][0]
+        blo = np.argwhere(msum>=0.25)[0][0]
+        bhi = np.argwhere(msum>=0.75)[0][0]
+        bf = np.round(ff[bfidx])
+
+        tt = np.mean(np.abs(strfsmooth[blo:(bhi+1):,:]),axis=0)
+        tsum = np.cumsum(tt)/np.sum(tt)
+        latbin = np.argwhere(tsum>=0.25)[0][0]/sf
+        offlatbin = np.argwhere(tsum>=0.75)[0][0]/sf
+        lat=latbin*timestep
+        offlat=offlatbin*timestep
+
+
+    elif sum(np.abs(mm)) > 0:
         bfidx = np.argwhere(mm==mm.max())[0][0]
         bf = np.round(ff[bfidx])
         blo = np.min(np.argwhere(mm>mm.max()/2))
         bhi = np.max(np.argwhere(mm>mm.max()/2))
         #print(bfidx, blo,bhi)
     else:
-        bfidx = 1
-        bf = 0
-
-    strfsmooth2=interpft(strfsmooth, 250, dim=1)
-    ss = strfsmooth2.std()
+        bfidx = 0
+        bf, blo, bhi = 0, 0, 0
+    """
+    ss = strfsmooth.std()
+    #print(ss,strfsmooth[bfidx,:])
     mb = 0
-    irsmooth=np.abs(strfsmooth2[bfidx,:])-mb
+    irsmooth=np.abs(strfsmooth[bfidx,:]-mb)
 
     # Find significantly modulated time bins
     sigmod = irsmooth > ss*3
-    sigmod[:7]=False
+    #sigmod[:7]=False
     if sigmod.sum()>3:
-        latbin=np.where(sigmod)[0].min()/250*strf.shape[1]
+        latbin=np.where(sigmod)[0].min()/sf
         lat=latbin*timestep
-        durbin=np.sum(sigmod)/250*strf.shape[1]
-        offlat=np.where(sigmod)[0].max()/250*strf.shape[1]*timestep
+        durbin=np.sum(sigmod)/sf
+        #print(sigmod)
+        offlat=np.where(sigmod)[0].max()/sf*timestep
         #print(latbin, lat, durbin, offlat)
     else:
         latbin = 0
         lat = 0
         durbin = 0
         offlat = 0
-        print('no significant onset latency\n')
+        #print('no significant onset latency')
+    """
 
     res={}
     stepsize = maxoct / strf.shape[0]
@@ -842,15 +899,14 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     res['bf'] = bf # in Hz
     res['lat'] = lat # lat in sec
     res['offlat'] = offlat # offlat in sec
-    res['bfidx'] = bfidx*strf.shape[0]/100  # in STRF bins
+    res['bfidx'] = bfidx/sf  # in STRF bins
     res['latbin'] = latbin # lat in bins
-    res['offlatbin'] = latbin+durbin
+    res['offlatbin'] = offlatbin
     res['bfpos'] = bfpos
-    res['bloidx'] = blo*strf.shape[0]/100
-    res['bhiidx'] = bhi*strf.shape[0]/100
+    res['bloidx'] = blo/sf
+    res['bhiidx'] = bhi/sf
     res['bw']= (res['bhiidx'] - res['bloidx']) * stepsize
     res['stepsize'] = stepsize
-
 
     return res
 
@@ -865,8 +921,12 @@ def get_binaural_strf_tuning(strf, **kwargs):
     ipsi=strf[m:,:]
 
     res={}
-    res['ctuning'] = get_strf_tuning(contra, **kwargs)
-    res['ituning'] = get_strf_tuning(ipsi, **kwargs)
+    ctuning = get_strf_tuning(contra, **kwargs)
+    for k in ctuning:
+        res['c'+k] = ctuning[k]
+    ituning = get_strf_tuning(ipsi, **kwargs)
+    for k in ituning:
+        res['i'+k] = ituning[k]
 
     res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
     res['mcs'] = ipsi.mean() / np.abs(ipsi).mean()
@@ -874,7 +934,25 @@ def get_binaural_strf_tuning(strf, **kwargs):
 
     return res
 
+def LNpop_get_tuning(model, channels=None, layer=2, binaural=None, **tuningargs):
+    strf = LNpop_get_strf(model, channels=channels, layer=layer)
+    if channels is None:
+        channels = np.arange(len(model.meta['cellids']))
+    if binaural is None:
+        binaural = is_binaural(model)
+    dlist=[]
+    for i,c in enumerate(channels):
+        res = {'cellid': model.meta['cellids'][c]}
+        res.update(get_strf_tuning(strf[:,:,i], binaural=binaural, **tuningargs))
 
+        dlist.append(res)
+    df = pd.DataFrame(dlist)
+    df = df.set_index('cellid')
+    return df
 
-
-
+def is_binaural(model):
+    loadkey0 = model.meta['loader'].split("-")[0]
+    if '.bin' in loadkey0:
+        return True
+    else:
+        return False
