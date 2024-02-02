@@ -1466,7 +1466,7 @@ class Model:
 
         """
         if 'subclass' in json['meta']:
-            print("INITIALIZING AS" , json['meta']['subclass'])
+            #print("INITIALIZING AS" , json['meta']['subclass'])
             fn = lookup_fn_at(json['meta']['subclass'])
             model = fn(from_saved=True, layers=json['layers'], name=json['name'], 
                        dtype=getattr(np, json['dtype']), meta=json['meta'])

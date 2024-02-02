@@ -1,7 +1,6 @@
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from scipy.ndimage import zoom, gaussian_filter1d
 
 from .base import Model
@@ -148,36 +147,30 @@ class LN_STRF(Model):
 
         return strf1
 
-    def plot_strf(self, labels=None):
-        strf1 = self.get_strf()
+    def plot_strf(self, ax=None, labels=None):
+        #strf1 = self.get_strf()
 
-        channels_out = strf1.shape[-1]
-        f, ax = plt.subplots(1, 2, figsize=(4, 2))
-
-        mm = np.nanmax(abs(strf1))
-        if self.fs is not None:
-            extent = [0, strf1.shape[0] / self.fs, 0, strf1.shape[1]]
+        #channels_out = strf1.shape[-1]
+        if ax is None:
+            f, ax = plt.subplots(1, 2, figsize=(4, 2))
+        elif type(ax) is list:
+            pass
         else:
-            extent = [0, strf1.shape[0], 0, strf1.shape[1]]
-        ax[0].imshow(strf1, aspect='auto', interpolation='none', origin='lower',
-                     cmap='bwr', vmin=-mm, vmax=mm, extent=extent)
+            ax=[ax]
 
-        if self.fs is not None:
-            ax[0].set_xlabel('Time lag (s)')
-        else:
-            ax[0].set_xlabel('Time lag (bins)')
-        ax[0].set_ylabel('Input channel')
+        LN_plot_strf(self, ax=ax[0])
+        if len(ax)>1:
+            ymin, ymax = self.out_range[0][0], self.out_range[1][0]
+            plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
+            plt.tight_layout()
+        return ax[0].figure
 
-        ymin, ymax = self.out_range[0][0], self.out_range[1][0]
-        plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
-        plt.tight_layout()
-        return f
 
     def get_tuning(self, binaural=None, **tuningargs):
         strf=self.get_strf()
         if binaural is None:
             binaural=is_binaural(self)
-        res = {'cellid': self.meta['cellid']}
+        res = {'cellid': self.meta.get('cellid','cell')}
         res.update(get_strf_tuning(strf, binaural=binaural, **tuningargs))
         return res
 
@@ -665,7 +658,9 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if strf is None:
         strf = model.get_strf(channels=channels)
     if model is not None:
-        rtest=model.meta['r_test'][channels[0],0]
+        rtest=model.meta.get('r_test',np.zeros((1,1)))
+        if type(rtest) is not float:
+            rtest=rtest[0,0]
         if binaural is None:
             binaural=is_binaural(model)
     if binaural is None:
@@ -855,7 +850,7 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
         tt = np.mean(np.abs(strfsmooth[blo:(bhi+1):,:]),axis=0)
         tsum = np.cumsum(tt)/np.sum(tt)
         latbin = np.argwhere(tsum>=0.25)[0][0]/sf
-        offlatbin = np.argwhere(tsum>=0.75)[0][0]/sf
+        offlatbin = np.argwhere(tsum>=0.65)[0][0]/sf
         lat=latbin*timestep
         offlat=offlatbin*timestep
 
@@ -935,6 +930,7 @@ def get_binaural_strf_tuning(strf, **kwargs):
     return res
 
 def LNpop_get_tuning(model, channels=None, layer=2, binaural=None, **tuningargs):
+    import pandas as pd
     strf = LNpop_get_strf(model, channels=channels, layer=layer)
     if channels is None:
         channels = np.arange(len(model.meta['cellids']))
@@ -951,7 +947,9 @@ def LNpop_get_tuning(model, channels=None, layer=2, binaural=None, **tuningargs)
     return df
 
 def is_binaural(model):
-    loadkey0 = model.meta['loader'].split("-")[0]
+    loadkey0 = model.meta.get('loader',None)
+    if loadkey0 is None:
+        loadkey0 = model.meta.get('loadkey',model.name)
     if '.bin' in loadkey0:
         return True
     else:

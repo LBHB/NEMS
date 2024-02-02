@@ -5,8 +5,6 @@ Functions for computing and analyzing dSTRFs from NEMS model fits
 import numpy as np
 import logging
 
-from sklearn.decomposition import PCA
-
 log = logging.getLogger(__name__)
 
 def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=False,
@@ -29,7 +27,9 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
         as_dict==True: dict with keys pcs, pc_mag, projection
         as_dict==False: tuple: (pcs, pc_mag)
     """
-    
+
+    from sklearn.decomposition import PCA
+
     if type(dstrf) is not dict:
         # convert to dict format for compatibility
         dstrf = {'input': dstrf}
