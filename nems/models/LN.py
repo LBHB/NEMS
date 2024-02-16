@@ -635,7 +635,8 @@ class CNN_reconstruction(Model):
 
 def LNpop_get_strf(model, channels=None, layer=2):
 
-    if model.layers[2].name.startswith("WeightChannels")==False:
+    if (model.layers[2].name.startswith("WeightChannels")==False) and \
+       (model.layers[2].name.startswith("wc")==False):
         layer=1
 
     wc = model.layers[0].coefficients

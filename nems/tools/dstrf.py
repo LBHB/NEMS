@@ -8,7 +8,7 @@ import logging
 log = logging.getLogger(__name__)
 
 def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=False,
-                 as_dict=False):
+                 as_dict=False, flip_sign=True):
     """
     Perform PCA on 4D dstrf matrix, separately for each output channel
     dstrf matrix is [output X time X input channel X time lag]
@@ -108,11 +108,12 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
             #mean_dstrf = input_dstrf[c, :, :, :].mean(axis=0)
             #if np.sum(mean_dstrf * pcs[c, 0, :, :]) < 0:
             #    pcs[c, 0, :, :] = -pcs[c, 0, :, :]
-            for oi in range(pc_count):
-                if pcs[c, oi].sum()<0:
-                    log.info(f"Flipping sign of c={c}, pc={oi}, projection oi=dim2, shape={transformed_pca.shape}")
-                    pcs[c, oi] = -pcs[c,oi]
-                    projection[c, :, oi] = -projection[c, :, oi]
+            if flip_sign:
+                for oi in range(pc_count):
+                    if pcs[c, oi].sum()<0:
+                        log.info(f"Flipping sign of c={c}, pc={oi}, projection oi=dim2, shape={transformed_pca.shape}")
+                        pcs[c, oi] = -pcs[c,oi]
+                        projection[c, :, oi] = -projection[c, :, oi]
         return_dict[input_name] = {'pcs': pcs, 'pc_mag': pc_mag, 'projection': projection, 'mean': dmean}
 
     if as_dict:
