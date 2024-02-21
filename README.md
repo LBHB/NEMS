@@ -27,20 +27,19 @@ git clone https://github.com/LBHB/NEMS.git
 ```
     
 2. **Set up Virtual Environment Anaconda | Venv**
-    - 2a. Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
+- 2a. Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
 
 ```bash
 conda create -n nems python=3.9 ipython
 conda activate nems
 ```
 
-    - 2b. Or using `venv`:
+- 2b. Or using `venv`:
 
 ```bash
 python -m venv ./nems-env
 source nems-env/bin/activate
 ```
-
 
 3. **Install NEMS in editable modes.**
 Include development tools to permit testing.
@@ -49,12 +48,12 @@ Include development tools to permit testing.
 pip install -e NEMS[dev]
 ```
 
-    - 3a. **Optional** Install Tensorflow and CUDA drivers 
-        This may take a while to download all the requisite TF-related libraries.
+- 3a. **Optional** Install along with Tensorflow and GPU support
+This may take a while to download all the required libraries. But it appears to work without requiring separate CUDA configuration.
         
-        ```console
-        pip install -e NEMS[dev,tf]
-        ```
+```console
+pip install -e NEMS[dev,tf]
+```
         
 4. **Optional.** If using the development installation, run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
 
