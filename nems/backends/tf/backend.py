@@ -4,11 +4,12 @@ import tensorflow.keras as keras
 from tensorflow.keras import Input
 from tensorflow.python.keras import regularizers
 import logging
-log = logging.getLogger(__name__)
 
 from ..base import Backend, FitResults
 from .cost import get_cost
 from .cost import pearson as pearsonR
+
+log = logging.getLogger(__name__)
 
 class TensorFlowBackend(Backend):
 
@@ -72,15 +73,25 @@ class TensorFlowBackend(Backend):
         for layer in self.nems_model.layers:
             if layer.regularizer is not None:
                 reg = layer.regularizer
-                log.info(f"Applying regularizer {reg} to {layer.name}")
-                if reg.startswith('l2'):
-                    if len(reg)==2:
-                        p = 0.001
-                    else:
-                        p = 10**(-float(reg[2:]))
+                reg_ops = reg.split(':')[1:]
+                p = 0.001
+                p2 = 0.001
+                if len(reg_ops)>=2:
+                    p=10 ** (-float(reg_ops[0]))
+                    p2=10 ** (-float(reg_ops[1]))
+                elif len(reg_ops)>=1:
+                    p=10 ** (-float(reg_ops[0]))
+                elif len(reg)>2:
+                    p = 10 ** (-float(reg[2:]))
+                if reg.startswith('l1l2'):
+                    tf_kwargs = {'regularizer': regularizers.l1_l2(l1=p,l2=p2)}
+                elif reg.startswith('l2'):
+                    tf_kwargs = {'regularizer': regularizers.l2(l2=p)}
+                elif reg.startswith('l1'):
+                    tf_kwargs = {'regularizer': regularizers.l1(l1=p)}
                 else:
-                    raise ValueError(f"unknown regularizer {reg}")
-                tf_kwargs = {'regularizer': regularizers.l2(p)}
+                    raise ValueError(f"Unknown regularizer {reg}")
+                log.info(f"Applying regularizer {reg} (p={p}) to {layer.name}")
 
             else:
                 tf_kwargs = {}  # TODO, regularizer etc.
@@ -293,9 +304,25 @@ class TensorFlowBackend(Backend):
             layer for layer in self.model.layers
             if not layer.name in [x.name for x in self.model.inputs]
             ]
-        layer_iter = zip(self.nems_model.layers, tf_model_layers)
-        for nems_layer, tf_layer in layer_iter:
-            nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+        
+        # SVD fix to allow tf layer order to change randomly (can't force it to match?)
+        for nems_layer in self.nems_model.layers:
+            for tf_layer in tf_model_layers:
+                if nems_layer.name==tf_layer.name:
+                    #log.info(f"fixed order: {nems_layer.name}, {tf_layer.name}")
+                    nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+
+        # OLD
+        #layer_iter = zip(self.nems_model.layers, tf_model_layers)
+        #for nems_layer, tf_layer in layer_iter:
+        #    if nems_layer.name==tf_layer.name:
+        #        log.info(f"worked in order: {nems_layer.name}, {tf_layer.name}")
+        #        nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
+        #    else:
+        #        for tfl in tf_model_layers:
+        #            if nems_layer.name==tfl.name:
+        #                log.info(f"fixed order: {nems_layer.name}, {tfl.name}")
+        #                nems_layer.set_parameter_values(tfl.weights_to_values(), ignore_bounds=True)
 
         final_parameters = self.nems_model.get_parameter_vector()
         final_error = np.nanmin(history.history[loss_name])
@@ -495,6 +522,7 @@ class TensorFlowBackend(Backend):
         with tf.GradientTape(persistent=True) as g:
             g.watch(tensor)
             z = self.model(tensor)
+
             # assume we only care about first output (think this is NEMS standard)
             if type(z) is list:
                 z = z[-1][0, -1, out_channel]
@@ -502,7 +530,9 @@ class TensorFlowBackend(Backend):
                 z = z[0, -1, out_channel]
 
             res = g.jacobian(z, tensor)
+
         return res
+
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):
     """Early stopper that waits before kicking in."""

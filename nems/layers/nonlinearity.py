@@ -548,3 +548,91 @@ class RectifiedLinear(StaticNonlinearity):
 # Optional alias
 class ReLU(RectifiedLinear):
     pass
+
+
+class ZeroHinge(StaticNonlinearity):
+    """TODO: doc here? maybe just copy .evaluate?"""
+
+    # inherited
+    #def __init(self)__:
+    def initial_parameters(self):
+        """Get initial values for `RectifiedLinear.parameters`.
+
+        Layer parameters
+        ----------------
+        alpha : slope of negative portion
+
+        """
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+        alpha_prior = {'mean': one / 10, 'sd': one / 10}
+        phi = Phi(
+            Parameter('alpha', shape=self.shape, prior=Normal(**alpha_prior))
+        )
+
+        return phi
+
+    def nonlinearity(self, input):
+        """Implements `y = offset + gain * rectify(x - shift)`.
+
+        By default, `offset=0, shift=0, gain=1` and this is equivalent to
+        standard linear rectification: `y = 0 if x < 0, else x`.
+
+        Notes
+        -----
+        The negative of `shift` is used so that its interpretation in
+        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+
+        """
+
+        alpha = self.get_parameter_values() / 10
+        neg = input*(input<0)
+        pos = input*(input>0)
+
+        return neg*alpha + pos
+
+    @layer('prelu')
+    def from_keyword(keyword):
+        """Construct RectifiedLinear from a keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+
+        Returns
+        -------
+        ZeroHinge
+
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        options = keyword.split('.')
+        shape = pop_shape(options)
+
+        for op in options[1:]:
+            if op == 'z':
+                raise NotImplementedError('zero prior not implemented')
+
+        prelu = ZeroHinge(shape=shape)
+
+        return prelu
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        if self._skip_nonlinearity:
+            return super().as_tensorflow_layer(**kwargs)
+        else:
+            class PReLUTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return tf.maximum(0.0, inputs) + self.alpha/10 * tf.minimum(0.0, inputs)
+
+        return PReLUTF(self, **kwargs)
+
+# Optional alias
+class PReLU(ZeroHinge):
+    pass

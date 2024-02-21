@@ -32,7 +32,7 @@ class TestEvaluate:
 
         conv = Conv2d(shape=(4, 4, 4))
         out = conv.evaluate(x)
-        assert out.shape == (1000, 28)
+        assert out.shape == (2, 1000, 28)
 
     def test_4d(self):
         input_shape = (2, 1000, 28, 4)
@@ -40,27 +40,29 @@ class TestEvaluate:
 
         conv = Conv2d(shape=(4, 4, 4))
         out = conv.evaluate(x)
-        assert out.shape == (1000, 28)
+        assert out.shape == (2, 1000, 28)
 
     def test_filter_single(self):
         input_shape = (3, 5)
         input = tf.random.normal(input_shape)
-
+        
         conv = Conv2d(shape=(3, 5, 1))
+        coef=np.zeros((3,5,1))
+        coef[0,2,0]=1
+        conv['coefficients']=coef
         output = conv.evaluate(input)
-        assert output == input
+        assert np.std(output-input)==0
 
     def test_filter_multi(self):
         input_shape = (5, 3)
         input = np.ones(input_shape)
 
-        conv = Conv2d(shape=(5, 3, 1), pool_type='SUM')
-        conv2 = Conv2d(shape=(5, 3, 1), pool_type='SUM')
-        conv.coefficients = np.ones((5,3,1))
-        conv2.coefficients = np.ones((5,3,1))
+        conv = Conv2d(shape=(5, 3, 2), pool_type='SUM')
+        coef=np.zeros((5,3,2))
+        coef[0,1,:]=1
+        conv['coefficients'] = coef
         conv_output = conv.evaluate(input)
-        conv2_output = conv_output + conv2.evaluate(conv_output)
-        assert conv2_output == input*2
+        assert np.all(conv_output == input*2)
         pass
 
     def test_tf_vs_scipy(self):

@@ -1,4 +1,5 @@
 """Tools for looking up python objects from strings."""
+import importlib
 from functools import partial
 
 
@@ -102,3 +103,41 @@ def case_insensitive_lookup(_dict, key, return_none=False):
             raise KeyError('key')
 
     return v
+
+def split_to_api_and_fn(mystring):
+    '''
+    Returns (api, fn_name) given a string that would be used to import
+    a function from a package.
+    '''
+    matches = mystring.split(sep='.')
+    api = '.'.join(matches[:-1])
+    fn_name = matches[-1]
+    return api, fn_name
+
+lookup_table = {}  # TODO: Replace with real memoization/joblib later
+
+def lookup_fn_at(fn_path, ignore_table=False):
+    '''
+    Private function that returns a function handle found at a
+    given module. Basically, a way to import a single function.
+    e.g.
+        myfn = _lookup_fn_at('nems0.modules.fir.fir_filter')
+        myfn(data)
+        ...
+    '''
+
+    # default is nems0.xforms.<fn_path>
+    if not '.' in fn_path:
+        fn_path = 'nems0.xforms.' + fn_path
+
+    if (not ignore_table) and (fn_path in lookup_table):
+        fn = lookup_table[fn_path]
+    else:
+        api, fn_name = split_to_api_and_fn(fn_path)
+        api_obj = importlib.import_module(api)
+        if ignore_table:
+            importlib.reload(api_obj)  # force overwrite old imports
+        fn = getattr(api_obj, fn_name)
+        if not ignore_table:
+            lookup_table[fn_path] = fn
+    return fn

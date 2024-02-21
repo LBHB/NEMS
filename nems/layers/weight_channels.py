@@ -137,6 +137,8 @@ class WeightChannels(Layer):
                 kwargs['regularizer'] = op
 
         wc = wc_class(**kwargs)
+        if 'i' in options:
+            wc.input = 'input'
 
         return wc
 

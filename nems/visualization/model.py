@@ -11,6 +11,7 @@ from .tools import ax_remove_box, ax_bins_to_seconds
 from nems import metrics
 from nems import preprocessing
 from nems.tools.dstrf import compute_dpcs
+from nems.metrics import correlation
 
 _DEFAULT_PLOT_OPTIONS = {
     'skip_plot_options': False,
@@ -261,11 +262,16 @@ def plot_model_outputs(model, input, target=None, target_name=None, n=None,
 
     return figure
 
+def compact_label(ax, text, va='top', **textargs):
+    x_pos = ax.get_xlim()[0]
+    y_pos = ax.get_ylim()[1]
+    ax.text(x_pos, y_pos, text, bbox=_TEXT_BBOX, va=va, **textargs)
+
 
 def plot_model(model, input, target=None, target_name=None, n=None,
                select_layers=None, n_columns=1, show_titles=True,
                figure_kwargs=None, sampling_rate=None, time_axis='x',
-               conversion_factor=1, decimals=2, plot_input=True,
+               conversion_factor=1, decimals=2, plot_input=True, T_max=1000,
                **eval_kwargs):
     """TODO: revise doc.
 
@@ -358,9 +364,13 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         n_rows = len(layers)+1
     else:
         n_rows = len(layers)
+    if target is not None:
+        n_rows += 1
 
     # Setting up our layout for plotting layers and parameters
-    spec = figure.add_gridspec(n_rows, 3)
+    spec = figure.add_gridspec(n_rows, 3,
+                               left=0.05, right=0.95, top=0.95, bottom=0.05,
+                               wspace=0.1, hspace=0.15)
     subaxes = [figure.add_subplot(spec[n, 1:]) for n in range(n_rows)]
     parmaxes = [figure.add_subplot(spec[n+1, 0]) for n in range(n_rows-1)]
     last_ax = subaxes[-1]
@@ -394,22 +404,31 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                     plot_strf(layer, wc_layer=layers[index-1], ax=pax)
                 else:
                     plot_strf(layer, ax=pax)
+                pax.set_xticklabels([])
+
+            # Plot i-o if nonlinearity
+            elif 'nonlinearity' in str(type(layer)):
+                plot_nl(layer, [previous_output.min(), previous_output.max()],
+                        ax=pax, showlabels=False)
+                compact_label(pax, f'nl')
+                pax.set_xticklabels([])
 
             # Plotting coefficients of specific layers
             elif 'coefficients' in parameters:
                 if len(layer.coefficients.shape)==2:
-                    pax.plot(layer.coefficients, lw=0.5)
+                    pax.imshow(layer.coefficients, aspect='auto', interpolation='none', origin='lower')
+                    #pax.plot(layer.coefficients, lw=0.5)
                 else:
-                    pax.imshow(layer.coefficients[:,0,:],
-                            aspect='auto', interpolation='none', origin='lower')
-                x_pos = pax.get_xlim()[0]
-                y_pos = pax.get_ylim()[1]
-                title = f'coefficients'
-                pax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower')
+                compact_label(pax, f'coefficients')
+                pax.set_xticklabels([])
 
-            # Plot if non-linear
-            elif 'nonlinearity' in str(type(layer)):
-                plot_nl(layer, [previous_output.min(), previous_output.max()], ax=pax)
+            # Plotting coefficients of specific layers
+            elif 'gain' in parameters:
+                pax.imshow(layer.parameters['gain'].values, aspect='auto', interpolation='none', origin='lower')
+                compact_label(pax, f'gain')
+                pax.set_xticklabels([])
+
             else:
                 pax.set_visible(False)
 
@@ -417,14 +436,10 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         plot_args = layer.plot_kwargs
         plot_args['lw'] = '0.5'
         layer.plot_options['legend'] = False
-        layer.plot(output, ax=ax, **plot_args)
+        layer.plot(output[:T_max], ax=ax, **plot_args)
 
         if show_titles:
-            x_pos = ax.get_xlim()[0]
-            y_pos = ax.get_ylim()[1]
-            name = layer.name
-            title = f'({model.get_layer_index(name)}) {name}'
-            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
+            compact_label(ax, f'({model.get_layer_index(layer.name)}) {layer.name}')
 
         set_plot_options(ax, layer.plot_options, time_kwargs=time_kwargs)
         previous_output = output
@@ -432,18 +447,17 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     # Plot input info as well
     if plot_input:
         ax = subaxes[0]
-        if isinstance(input, dict) or len(input.shape)>2:
-            pass
-        elif (len(input.shape)>1) & (input.shape[1]>1):
-            ax.imshow(input.T, origin='lower', aspect='auto', interpolation='none')
+        if isinstance(input, dict):
+            _input = input['input'][:T_max]
+        else:
+            _input = input[:T_max]
+        if (len(_input.shape)>1) & (_input.shape[1]>1):
+            ax.imshow(_input.T, origin='lower', aspect='auto', interpolation='none')
         else:
             ax.plot(input)
+
         if show_titles:
-            title = 'input'
-            x_pos = ax.get_xlim()[0]
-            y_pos = ax.get_ylim()[1]
-            ax.text(x_pos, y_pos, title, va='top', bbox=_TEXT_BBOX)
-        ax.set_xlim(subaxes[-1].get_xlim())
+            compact_label(ax, 'input')
         ax.xaxis.set_visible(False)
 
     # Final x-axis of the final layer in each column is always visible
@@ -457,46 +471,33 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         else:
             target_name = 'Target'
         if not isinstance(target, list):
-            target = [target]
-        if len(target)>3:
-            target=np.concatenate(target, axis=1)
-            last_ax.imshow(target, aspect='auto', interpolation='none', origin='lower')
-        else:
-            # If our given targets is greater than 3, we want to replace graphs with heatmaps
-            if len(target[0][0]) > 3:
-                second_last_ax = subaxes[-2]
-                last_ax.clear()
-                second_last_ax.clear()
-
-                last_ax.imshow(target[0].T, aspect='auto', interpolation='none', origin='lower')
-                second_last_ax.imshow(output.T, aspect='auto', interpolation='none', origin='lower')
-
-                last_ax.set_xlim(subaxes[0].get_xlim())
-                x_pos = last_ax.get_xlim()[0]
-                y_pos = last_ax.get_ylim()[1]
-                last_ax.text(x_pos, y_pos, 'Target', va='top', bbox=_TEXT_BBOX)
-
-                second_last_ax.set_xlim(subaxes[0].get_xlim())
-                x_pos = second_last_ax.get_xlim()[0]
-                y_pos = second_last_ax.get_ylim()[1]
-                second_last_ax.text(x_pos, y_pos, 'Output', bbox=_TEXT_BBOX)
-
-                return figure
+            second_last_ax = subaxes[-2]
+            if target.shape[1]>2:
+                last_ax.imshow(target[:T_max].T, aspect='auto', interpolation='none', origin='lower')
+                second_last_ax.imshow(output[:T_max].T, aspect='auto', interpolation='none', origin='lower')
             else:
-                for i, y in enumerate(target):
-                    last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
-            #last_ax.legend(**_DEFAULT_PLOT_OPTIONS['legend_kwargs'])
-        last_ax.autoscale()
-        cc = np.corrcoef(target[0][:,0], output[:,0])[0,1]
+                last_ax.plot(target[:T_max])
+                second_last_ax.plot(output[:T_max])
+
+            compact_label(last_ax, 'Target')
+            compact_label(second_last_ax, 'Output')
+        else:
+            for i, y in enumerate(target):
+                last_ax.plot(y, label=f'{target_name} {i}', lw=0.5, zorder=-1)
+
+        cc = correlation(output, target)
+        last_px.plot(cc)
+        compact_label(last_px, f'CC ({cc.mean():.3f})')
+        figure.suptitle(f"{model.name}", fontsize=10)
+
     else:
         cc = model.meta.get('r_test',[0])[0]
-
-    figure.suptitle(f"{model.name} cc={cc:.3f}", fontsize=10)
-    plt.tight_layout()
+        figure.suptitle(f"{model.name} cc={cc:.3f}", fontsize=10)
+    #plt.tight_layout()
 
     return figure
 
-def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
+def plot_nl(layer, range=None, channel=None, ax=None, fig=None, showlabels=True):
 
     if ax is not None:
         fig = ax.figure
@@ -509,15 +510,15 @@ def plot_nl(layer, range=None, channel=None, ax=None, fig=None):
     else:
         x = range
     outcount=layer.shape[0]
-    if outcount>1:
-        x=np.broadcast_to(x[:,np.newaxis],[x.shape[0],outcount])
+    x=np.broadcast_to(x[:, np.newaxis], [x.shape[0], outcount])
     y = layer.evaluate(x)
     if channel is None:
         ax.plot(x, y, lw=0.5)
     else:
         ax.plot(x, y[:,channel])
-    ax.set_xlabel('NL input')
-    ax.set_ylabel('NL output')
+    if showlabels:
+        ax.set_xlabel('NL input')
+        ax.set_ylabel('NL output')
 
 
 def simple_strf(model, fir_idx=1, wc_idx=0, fs=None, title=None, ax=None, fig=None):
@@ -630,12 +631,12 @@ def plot_strf(fir_layer, wc_layer=None, fs=1, ax=None, fig=None):
     vline_spacing = (lag_count+1)/fs
     for i in range(vlines):
         ax.axvline((i+1)*vline_spacing-0.5/fs, color='black', lw=0.5)
-    plt.tight_layout()
+    #plt.tight_layout()
     
     return fig
 
 
-def plot_layer(output, fig=None, ax=None, **plot_kwargs):
+def plot_layer(output, max_lines=5, fig=None, ax=None, **plot_kwargs):
     """Default Layer plot, displays all outputs on a single 2D line plot.
     
     Parameters
@@ -669,9 +670,12 @@ def plot_layer(output, fig=None, ax=None, **plot_kwargs):
         if all_outputs[0].ndim > 2:
             # TODO: Do something more useful here.
             print("Too many dimensions to plot")
-        else:
+        elif len(all_outputs)<=max_lines:
             for output in all_outputs:
                 ax.plot(output, **plot_kwargs)
+        else:
+            all_outputs = np.reshape(output, (output.shape[0],-1))
+            ax.imshow(all_outputs.T, origin='lower', interpolation='none', aspect='auto')
     else:
         print("One of the outputs is a single integer and could not be plotted")
     return fig

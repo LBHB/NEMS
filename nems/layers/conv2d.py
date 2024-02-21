@@ -118,11 +118,14 @@ class Conv2d(Layer):
 
         # shape output-- remove dimensions that were added by shape_input()
         if input.ndim == 2:
-            return pooled_array[0, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
-        elif input.ndim == 3:
-            return pooled_array[:, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+            return pooled_array[0, ::self.stride[1], ::self.stride[2]]  # input channel axis
         else:
-            return pooled_array[:,::self.stride[1],::self.stride[2],:]
+            return pooled_array[:,::self.stride[1],::self.stride[2]]
+        #    return pooled_array[0, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+        #elif input.ndim == 3:
+        #    return pooled_array[:, ::self.stride[1], ::self.stride[2], 0]  # input channel axis
+        #else:
+        #    return pooled_array[:,::self.stride[1],::self.stride[2],:]
 
     def shape_filter(self, coefficients):
         '''
@@ -181,8 +184,21 @@ class Conv2d(Layer):
         '''
         input_convolutions = []
         for batchidx in range(input_array.shape[0]):
-            input_convolutionsb = [scipy.signal.convolve2d(input_array[batchidx, :, :, 0], filter_array[:, :, 0, idx], mode='valid')[np.newaxis,..., np.newaxis]
-                                  for idx in range(filter_array.shape[-1])]
+            if (input_array.shape[3] > 1) & (filter_array.shape[3] > 1):
+                assert input_array.shape[3]==filter_array.shape[3]
+                input_convolutionsb = [scipy.signal.convolve2d(input_array[batchidx, :, :, idx],
+                                                               filter_array[:, :, 0, idx], mode='valid')[np.newaxis,..., np.newaxis]
+                                       for idx in range(filter_array.shape[-1])]
+            elif (input_array.shape[3] > 1):
+                input_convolutionsb = [scipy.signal.convolve2d(input_array[batchidx, :, :, idx],
+                                                               filter_array[:, :, 0, 0], mode='valid')[
+                                           np.newaxis, ..., np.newaxis]
+                                       for idx in range(filter_array.shape[-1])]
+            else:
+                input_convolutionsb = [scipy.signal.convolve2d(input_array[batchidx, :, :, 0],
+                                                               filter_array[:, :, 0, idx], mode='valid')[np.newaxis,..., np.newaxis]
+                                       for idx in range(filter_array.shape[-1])]
+
             input_convolutions.append(np.stack(input_convolutionsb, axis=-1))
         input_convolutions=np.concatenate(input_convolutions, axis=0)
 
@@ -225,14 +241,21 @@ class Conv2d(Layer):
         elif pool_type == 'SUM':
             pooled_array = np.sum(input_array, axis=-1, keepdims=False)
         elif pool_type == 'STACK':
+            pooled_array = input_array[:,:,:,0,:]
+        elif pool_type == 'CAT':
             input_array=input_array.transpose((0,1,4,2,3))
             x_shape = list(input_array.shape)
             pooled_array = np.reshape(input_array, x_shape[:2]+[x_shape[2]*x_shape[3], x_shape[4]])
         elif pool_type == 'NONE':
             pass
         else:
+            # default to MEAN
             pooled_array = np.mean(input_array, axis=-1, keepdims=False)
-        return pooled_array
+
+        if pooled_array.shape[-1]>1:
+            return pooled_array
+        else:
+            return pooled_array[:,:,:,0]
 
     
     def pad(self, input_array):
@@ -314,8 +337,18 @@ class Conv2d(Layer):
         pool_type   = self.pool_type
         pad_axes    = self.pad_axes
 
-        filters     = self.as_tf_shape_filter(self.coefficients)
-        shape_input, shape_coeff = self.as_tf_shape_tensor(input_shape, filters)
+        cdims = self.coefficients.ndim
+
+        # reshape coefficients to align with input dims
+        #filters_     = self.as_tf_shape_filter(self.coefficients)
+        if cdims == 2:
+            filters_ = self.coefficients[..., np.newaxis, np.newaxis]
+        elif (cdims==3) & (len(input_shape)>3):
+            filters_ = self.coefficients[..., np.newaxis]
+        else:
+            filters_ = self.coefficients[:, :, np.newaxis, :]
+
+        shape_input, shape_coeff = self.as_tf_shape_tensor(input_shape, filters_)
         convolve    = self.as_tf_convolution()
         pool        = self.as_tf_pool(pool_type)
         _pad_indices, pad = self.as_tf_pad(input_shape, pad_type, pad_axes)
@@ -326,8 +359,15 @@ class Conv2d(Layer):
                 return {'coefficients': c}
 
             def call(self, inputs):
+                if cdims == 2:
+                    filters = tf.expand_dims(tf.expand_dims(self.coefficients, axis=2), axis=3)
+                elif cdims == 3:
+                    filters = tf.expand_dims(self.coefficients, axis=2)
+                else:
+                    filters = self.coefficients
                 input_tensor = shape_input(inputs)
-                filter_tensor = shape_coeff(filters)
+                filter_tensor = shape_coeff(filters) # flip time
+                #print(filter_tensor.shape)
                 pad_indices = [0, input_tensor.shape[1], 0, input_tensor.shape[2]]
                 if pad_type != 'None':
                     input_tensor = pad(input_tensor)
@@ -337,12 +377,9 @@ class Conv2d(Layer):
                 #print(input_tensor.shape, trimmed_tensor.shape)
                 pooled_tensor = pool(trimmed_tensor)
                 if len(input_shape)==2:
-                    return pooled_tensor[0,:,:,0]
-                elif len(input_shape)==3:
-                    return pooled_tensor[:,:,:,0]
+                    return pooled_tensor[0,:,:]
                 else:
                     return pooled_tensor
-
 
         return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
     
@@ -383,13 +420,14 @@ class Conv2d(Layer):
         else:
             @tf.function
             def convolve(input_tensor, filter_tensor, stride):
-                print(input_tensor.shape, filter_tensor.shape)
+                #print(input_tensor.shape, filter_tensor.shape)
                 input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride, padding='VALID')
                 return input_convolutions
         return convolve
     
     def as_tf_shape_filter(self, coefficients):
         '''
+        DEPRECATED?
         Checking existing dimensions and adding new ones if needed
         to create 4-D array filter. 
 
@@ -441,10 +479,11 @@ class Conv2d(Layer):
         else:
             @tf.function()
             def expand_input(input_tensor): return input_tensor
-    
+
         broad_fake_input, broad_coeff = self.broadcast_arrays(fake_input, coefficients)
         fake_input_shape = fake_input.shape
         coeff_shape = coefficients.shape
+        #print("as_shape_tensor (in, coef, fake in):", input_shape, coefficients.shape, fake_input.shape)
 
         if broad_fake_input.shape[-1] > fake_input_shape[-1]:
             @tf.function()
@@ -457,9 +496,12 @@ class Conv2d(Layer):
             def shape_input(input_tensor): return expand_input(input_tensor)
             
         if broad_coeff.shape[-2] > coeff_shape[-2]:
+            #print("broad_coef:", broad_coeff.shape)
+
             @tf.function()
             def shape_coeff(coefficients):
-                return tf.reverse(tf.broadcast_to(coefficients, broad_coeff), axis=[0])
+                return tf.reverse(tf.broadcast_to(coefficients, broad_coeff.shape), axis=[0])
+
         else:
             @tf.function()
             def shape_coeff(coefficients): return tf.reverse(coefficients, axis=[0])
@@ -493,37 +535,45 @@ class Conv2d(Layer):
         if pool_type == 'MAX':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_max(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_max(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'MIN':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_min(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_min(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'PROD':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'STD':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_std(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_std(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'SUM':
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'STACK':
+            @tf.function
+            def pool(input_tensor):
+                if input_tensor.shape[3]==1:
+                    return input_tensor[:,:,:,0]
+                else:
+                    return input_tensor
+
+        elif pool_type == 'CAT':
             @tf.function
             def pool(input_tensor):
                 #print(input_tensor.shape)
                 input_tensor = tf.transpose(input_tensor, perm=(0, 1, 3, 2))
                 x_shape = list(input_tensor.shape)
-
-                new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3], 1]
+                new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3]]
 
                 return tf.reshape(input_tensor, new_shape)
         else:
             @tf.function
             def pool(input_tensor):
-                return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=True)
+                return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
+
         return pool
     
     def as_tf_pad(self, input_shape, pad_type, pad_axes):
@@ -602,8 +652,8 @@ class Conv2d(Layer):
         '''
         # Removing batch layer, to set both arrays in_channels to [-2]
         fake_input = input_array[0,..., np.newaxis]
-
-        if input_array.shape[-2] < coefficients.shape[-2]:
+        #print(input_array.shape, coefficients.shape, fake_input.shape)
+        if input_array.shape[-1] < coefficients.shape[-2]:
             try:
                 input_array = broadcast_axes(fake_input, coefficients, axis=-2)
             except ValueError:
@@ -611,7 +661,7 @@ class Conv2d(Layer):
                     "Last dimension of FIR input must match last dimension of "
                     "coefficients, or one must be broadcastable to the other."
                     )
-        elif coefficients.shape[-2] < input_array.shape[-2]:
+        elif coefficients.shape[-2] < input_array.shape[-1]:
             try:
                 coefficients = broadcast_axes(coefficients, fake_input, axis=-2)
             except ValueError:

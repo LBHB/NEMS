@@ -2,7 +2,7 @@
 
 The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical model to time series data, plotting the model predictions, and comparing the predictive accuracy of multiple models. We use it to [develop and test computational models of how sound is encoded in the brains of behaving mammals](https://hearingbrain.org/), but it will work with many different types of timeseries data.
 
-* **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). *This refactor is still very much a work in progress, and is likely to contain bugs, missing documentation, and a lot of TODOs.*.
+* **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). Some previously published datasets (e.g., [https://zenodo.org/records/8044773]) require NEMS0 tools that have not yet migrated to NEMS.
 
 ## Table of Contents & Relevant Links
 ### [Install](#installation) &middot; [Visualization](#visualization) &middot; [Examples](#examples) &middot; [Documentation](#documentation) &middot; [Upcoming](#upcoming)   
@@ -18,41 +18,52 @@ The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical mo
 # Installation
 ## Recommended: `Install from source`
 ### Prerequisites: Python 3.9/3.10 | Anaconda or Venv
-NEMS is still under rapid development, so this is the best way to ensure you're using the most up-to-date version.
+NEMS is still under development, so this is the best way to ensure you're using the most up-to-date version.
 
 1. **Download source code**
-```console
+
+```bash
 git clone https://github.com/LBHB/NEMS.git
 ```
+    
 2. **Set up Virtual Environment Anaconda | Venv**
-    - 2a. Create and activate a new virtual environment using your preferred environment manager (example for `venv` below).   
-    ```console
-    python -m venv ./nems-env
-    source nems-env/bin/activate
-    ```   
-    - 2b. Install frozen dependencies. This will install the exact versions used during development.   
-    ```console
-    pip install -r ./NEMS/requirements.txt
-    ```   
-    - 2c. Alternatively, use `conda` to replace both step 2a and step 2b.  
-    ```console
-    conda env create -f NEMS/environment.yml
-    conda activate nems-env
-    ```    
-3. **Install NEMS in editable mode along with optional development tools.**
+- 2a. Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
+
+```bash
+conda create -n nems python=3.9 ipython
+conda activate nems
+```
+
+- 2b. Or using `venv`:
+
+```bash
+python -m venv ./nems-env
+source nems-env/bin/activate
+```
+
+3. **Install NEMS in editable modes.**
+Include development tools to permit testing.
+
 ```console
 pip install -e NEMS[dev]
-```   
-- 3a. **Optional** Install Tensorflow     
-    ```console
-    pip install -e NEMS[tf]
-    ```
-4. **Run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.**
+```
+
+- 3a. **Optional** Install along with Tensorflow and GPU support
+This may take a while to download all the required libraries. But it appears to work without requiring separate CUDA configuration.
+        
 ```console
+pip install -e NEMS[dev,tf]
+```
+        
+4. **Optional.** If using the development installation, run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
+
+```bash
 pytest NEMS
 ```
 
-## Alternative: `PyPI (pip)`
+## Alternative: `PyPI (pip)` (Beta)
+Install the latest stable version of NEMS.
+
 **Create a new environment using your preferred environment manager, then use `pip install`.**
 ```console
 conda create -n nems-env python=3.9 pip  # note that python=3.9 is currently required
@@ -92,7 +103,7 @@ py -m pytest
 ## Alternative: `conda install`.
 **Coming soon.**
 
-Note: the `mkl` library for `numpy` does not play well with `tensorflow`.
+(Possibly out of date) Note: the `mkl` library for `numpy` does not play well with `tensorflow`.
 If using `conda` to install dependencies manually, and you want to use the `tensorflow` backend, use `conda-forge` for `numpy` (which uses `openblas` instead of `mkl`):
 ```console
 conda install -c conda-forge numpy

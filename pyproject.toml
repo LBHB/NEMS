@@ -22,13 +22,15 @@ dependencies = [
     "scipy>=1.9.0",
     "matplotlib>=3.5.2",
     "numexpr>=2.8.3",
-    "numba>=0.57.0"
+    "numba"
 ]
+# temp removed
+#    "numba>=0.57.0"
 requires-python = ">=3.9"
 
 [project.optional-dependencies]
 dev = ["build", "twine", "pytest"]
-tf = ["tensorflow >= 2.9"]
+tf = ["tensorflow[and-cuda] >= 2.9"]
 
 [project.urls]
 Homepage = "https://github.com/LBHB/NEMS"
