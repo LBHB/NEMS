@@ -992,7 +992,9 @@ class Model:
         dstrf = {key: np.zeros((len(out_channels), len(t_indexes), data.shape[2], D)) for key, data in input.items()}
         for outidx, out_channel in enumerate(out_channels):
             if ('cellids' in self.meta.keys()) & ('r_test' in self.meta.keys()):
-                log.info(f"{self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
+                log.info(f"dSTRF for {self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
+            elif ('cellids' in self.meta.keys()):
+                log.info(f"dSTRF for {self.meta['cellids'][out_channel]}")
             else:
                 log.info(f'dSTRF for out channel {out_channel}')
 

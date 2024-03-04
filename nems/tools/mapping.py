@@ -139,12 +139,13 @@ def project(modelspec, wavfilename=None, w=None, fs=None,
         pass
     elif (wavfilename is not None):
         fs, w = wavfile.read(wavfilename)
-        if fs<f_max*2:
-            stimlen=len(w)/fs
-            finalsamples = int(stimlen*fs_out)
-            print(f"Upsampling from {fs} to {fs_out} ({len(w)} to {finalsamples} samples)")
-            w = scipy.signal.resample(w, finalsamples)
         w = w / np.iinfo(w.dtype).max
+        if fs < f_max*3:
+            stimlen = len(w) / fs
+            finalsamples = int(stimlen * f_max * 3)
+            print(f"stimlen={stimlen:.3f} sec. Upsampling from {fs} to {f_max*3} ({len(w)} to {finalsamples} samples)")
+            w = scipy.signal.resample(w, finalsamples)
+            fs = f_max * 3
         if raw_scale is not None:
             w *= raw_scale
         else:
@@ -164,7 +165,7 @@ def project(modelspec, wavfilename=None, w=None, fs=None,
     log_compress = modelspec.meta['log_compress']
     smin = modelspec.meta['smin']
     smax = modelspec.meta['smax']
-
+    w = w + np.random.randn(*w.shape)*np.std(w)/100
     s = gammagram(np.pad(w,[padbins, padbins]), fs, window_time, hop_time, channels, f_min, f_max)
     s = dlog(s, -log_compress)
     s -= smin.T
