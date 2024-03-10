@@ -74,7 +74,10 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
                 #    ax[1,i].imshow(np.reshape(m*mproj[i],(s[2],s[3])), vmin=-mm, vmax=mm)
                 #    ax[2,i].imshow(np.reshape(fit_features[i,:]-m*mproj[i],(s[2],s[3])), vmin=-mm, vmax=mm)
                 pca = PCA(n_components=pc_count-1)
-                pca = pca.fit(fit_features1)
+                try:
+                    pca = pca.fit(fit_features1)
+                except:
+                    log.info(f"Error on pca.fit: {fit_features.shape} -> {fit_features1.shape}")
                 transformed_pca = np.concatenate([mproj_all, pca.transform(features1)], axis=1)
                 components = np.concatenate([m,pca.components_], axis=0)
 
