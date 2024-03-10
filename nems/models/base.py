@@ -953,14 +953,15 @@ class Model:
         :param backend_options: pass-through options for backend initialization
         :param verbose: future support for verbosity control
         :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
-        :return:
+        :return:  dstrf : dict, each k,v pair is a [unit X t_index X lag X input_channel] array
+                          typically dstrf['input'][cellid, t_index, :, :] is the spectro-temporal filter 
+                          for one cell at one time. other keys exist for models with multiple inputs.
         """
         if out_channels is None: out_channels=[0]
         if t_indexes is None: t_indexes = np.arange(D,D*10,D)
         if backend_options is None: backend_options = {}
         if not isinstance(stim, dict):
             stim = {'input': stim}
-        # input = stim.copy()
         input = {key: stim[key][np.newaxis, :D, :] for key in stim.keys()}
 
         # Get Backend subclass if not running in place on the same backend
@@ -990,19 +991,28 @@ class Model:
                 **backend_options )
             
         dstrf = {key: np.zeros((len(out_channels), len(t_indexes), data.shape[2], D)) for key, data in input.items()}
-        for outidx, out_channel in enumerate(out_channels):
-            if ('cellids' in self.meta.keys()) & ('r_test' in self.meta.keys()):
-                log.info(f"dSTRF for {self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
-            elif ('cellids' in self.meta.keys()):
-                log.info(f"dSTRF for {self.meta['cellids'][out_channel]}")
-            else:
-                log.info(f'dSTRF for out channel {out_channel}')
+        log.info(f"dSTRF for {len(out_channels)} out channels")
 
-            for timeidx, time in enumerate(t_indexes):
-                s = [stim[key][np.newaxis, (time - D + 1):(time+1), :] for key in stim.keys()]
-                jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channel)
-                for idx, key in enumerate(dstrf.keys()):
-                    dstrf[key][outidx, timeidx, :, :] = jacobian_matrix[idx][0, :, :].numpy().T
+        # SVD 2024-03-10 - Vectorized out_channels loop. Duh. Unclear why this wasn't happening before!
+        for timeidx, time in enumerate(t_indexes):
+            s = [stim[key][np.newaxis, (time - D + 1):(time+1), :] for key in stim.keys()]
+            jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channels)
+            for idx, key in enumerate(dstrf.keys()):
+                dstrf[key][:, timeidx, :, :] = np.moveaxis(jacobian_matrix[idx][:, 0, :, :].numpy(), [1,2], [2,1])
+
+        #for outidx, out_channel in enumerate(out_channels):
+        #    if ('cellids' in self.meta.keys()) & ('r_test' in self.meta.keys()):
+        #        log.info(f"dSTRF for {self.meta['cellids'][out_channel]}, predxc={self.meta['r_test'][out_channel, 0]:.3f}")
+        #    elif ('cellids' in self.meta.keys()):
+        #        log.info(f"dSTRF for {self.meta['cellids'][out_channel]}")
+        #    else:
+        #        log.info(f'dSTRF for out channel {out_channel}')
+
+        #    for timeidx, time in enumerate(t_indexes):
+        #        s = [stim[key][np.newaxis, (time - D + 1):(time+1), :] for key in stim.keys()]
+        #        jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channel)
+        #        for idx, key in enumerate(dstrf.keys()):
+        #            dstrf[key][outidx, timeidx, :, :] = jacobian_matrix[idx][0, :, :].numpy().T
 
         return dstrf
 
