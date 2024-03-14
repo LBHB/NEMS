@@ -158,11 +158,11 @@ def project(modelspec, wav=None, w=None, fs=None,
         ax[0].set_ylabel('Waveform')
         ts = s.shape[0] / rasterfs
         im = ax[1].imshow(s.T, origin='lower', extent=[0, ts, -0.5, s.shape[1] + 0.5],
-                          cmap='gray_r')
+                          cmap='gray_r', aspect='auto')
         ax[1].set_xticklabels([])
         ax[1].set_ylabel('Spectrogram')
         ax[2].imshow(projection.T, origin='lower', interpolation='none',
-                     extent=[0, ts, -0.5, projection.shape[1] + 0.5])
+                     extent=[0, ts, -0.5, projection.shape[1] + 0.5], aspect='auto')
         ax[2].set_ylabel('Model output')
         ax[2].set_xlabel('Time (s)')
         if wav is not None:
