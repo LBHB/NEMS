@@ -67,6 +67,7 @@ class TestEvaluate:
         out = wcg.evaluate(spectrogram)
         assert out.shape == (time, 5)
 
+"""
 import matplotlib.pyplot as plt
 import importlib
 from nems.layers import weight_channels
@@ -93,3 +94,4 @@ print(out.shape)
 
 f,ax=plt.subplots()
 ax.imshow(out.T,origin='lower')
+"""

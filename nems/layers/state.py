@@ -1,10 +1,13 @@
 import numpy as np
 import numexpr as ne
+import logging
 
 from nems.registry import layer
 from nems.distributions import Normal
 from .base import Layer, Phi, Parameter
 from .tools import require_shape, pop_shape
+
+log = logging.getLogger(__name__)
 
 
 class StateGain(Layer):
@@ -70,7 +73,17 @@ class StateGain(Layer):
         """
 
         gain, offset = self.get_parameter_values()
-        return np.matmul(state, gain) * input + np.matmul(state, offset)
+        #log.info(f"{state.shape}, {input.shape}, {gain.shape}")
+        if gain.shape[0]==state.shape[1]:
+            with_gain = np.matmul(state, gain) * input
+        else:
+            with_gain = (np.matmul(state, gain[1:,]) + gain [0,:]) * input
+        if offset.shape[0]==state.shape[1]:
+            with_offset = with_gain + np.matmul(state, offset)
+        else:
+            with_offset = with_gain + offset[[0],:] + np.matmul(state, offset[1:,])
+            
+        return with_offset
 
     @layer('stategain')
     def from_keyword(keyword):
@@ -90,15 +103,26 @@ class StateGain(Layer):
         """
         # TODO: other options from old NEMS
         options = keyword.split('.')
-        shape = pop_shape(options)
+        kwargs = {}
+        kwargs['shape'] = pop_shape(options)
 
-        return StateGain(shape=shape)
+        for op in options:
+            if op.startswith('l2'):
+                kwargs['regularizer'] = op
 
-    def as_tensorflow_layer(self, **kwargs):
+        return StateGain(**kwargs)
+
+    def as_tensorflow_layer(self, input_shape=None, **kwargs):
         """TODO: docs"""
         import tensorflow as tf
         from nems.backends.tf.layer_tools import NemsKerasLayer
-
+        if input_shape is None:
+            raise ValueError(f"input_shape=[input.shape, staet.shape] required")
+        stim_shape=input_shape[0]
+        state_shape=input_shape[1]
+        gain_len=self['gain'].shape[0]
+        offset_len=self['offset'].shape[0]
+        
         class StateGainTF(NemsKerasLayer):
 
             def call(self, inputs):
@@ -106,10 +130,15 @@ class StateGain(Layer):
                 # TODO: Use tensor names to not require this arbitrary order.
                 input = inputs[0]
                 state = inputs[1]
+                if gain_len==state_shape[1]:
+                    with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                else:
+                    with_gain = tf.multiply(tf.slice(self.gain,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.gain,[1,0],[-1,-1])), input)
+                if offset_len==state_shape[1]:
+                    with_offset = with_gain + tf.matmul(state, self.offset)
+                else:
+                    with_offset = with_gain + tf.slice(self.offset,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.offset,[1,0],[-1,-1]))
 
-                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
-                with_offset = with_gain + tf.matmul(state, self.offset)
-                
                 return with_offset
 
         return StateGainTF(self, **kwargs)
@@ -490,3 +519,152 @@ class StateHinge(Layer):
         return StateGainTF(self, **kwargs)
 
 
+class HRTF(Layer):
+
+    # TODO fix this.. currenty defaulting to aerd breaks pytest
+    state_arg = 'state'  # azimuth, elevation, tilt, distance
+    #state_arg = 'aerd'  # azimuth, elevation, tilt, distance
+
+    def __init__(self, speaker_count=2, **kwargs):
+        """Docs TODO.
+
+        Parameters
+        ----------
+        shape : 2-tuple of int.
+            (size of last dimension of aerd, number of spectral channels per source)
+            eg, 6 x 18 means 6 aerd channels, 18-channel spectrogram
+        speaker_count : number of sound sources (default 2)
+
+        Examples
+        --------
+        TODO
+
+        """
+        require_shape(self, kwargs, minimum_ndim=1)
+
+        from nems_lbhb.projects.freemoving.free_tools import load_hrtf
+
+        self.speaker_count=speaker_count
+        self.num_freqs = kwargs['shape'][1]
+        self.L, self.R, self.c, self.A, self.E = load_hrtf(
+            format='az_el', fmin=200, fmax=20000,
+            num_freqs=self.num_freqs)
+
+        super().__init__(**kwargs)
+
+    #def initial_parameters(self):
+    #    pass
+
+    def evaluate(self, input, state):
+        """Multiply and shift input(s) by weighted sums of state channels.
+
+        Parameters
+        ----------
+        input : ndarray
+            Data to be modulated by state, typically the output of a previous
+            Layer.
+        state : ndarray
+            State data to modulate input with.
+
+        """
+        pass
+        return input
+        #gain, offset = self.get_parameter_values()
+        #return np.matmul(state, gain) * input + np.matmul(state, offset)
+
+    @layer('hrtf')
+    def from_keyword(keyword):
+        """Construct StateGain from keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit} : specifies shape, (n state channels, n stim channels)
+            n stim channels can also be 1, in which case the same weighted
+            channel will be broadcast to all stim channels (if there is more
+            than 1).
+
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        # TODO: other options from old NEMS
+        options = keyword.split('.')
+        shape = pop_shape(options)
+        kwargs = {}
+        for op in options[1:]:
+            if op[0]=='c':
+                kwargs['speaker_count']=int(op[1:])
+
+        return HRTF(shape=shape, **kwargs)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class hrtfTF(NemsKerasLayer):
+
+            def call(self, inputs):
+
+                geometry = inputs[0]
+
+                # stub from ChatGPT
+
+                def generate_tensor_and_select_values(numpy_array_3d, index_matrix_3_by_T):
+                    # Convert NumPy array to TensorFlow constant tensor
+                    tf_tensor = tf.constant(numpy_array_3d, dtype=tf.float32)
+
+                    # Get the dimensions of the input arrays
+                    depth, height, width = numpy_array_3d.shape
+                    _, T = index_matrix_3_by_T.shape
+
+                    # Round values to the nearest integer and clip to valid index range
+                    rounded_indices = tf.clip_by_value(tf.round(index_matrix_3_by_T), 0,
+                                                       tf.constant([depth - 1, height - 1, width - 1],
+                                                                   dtype=tf.float32))
+
+                    # Convert to integer indices
+                    flattened_indices = tf.cast(tf.reshape(rounded_indices, [-1]), dtype=tf.int32)
+
+                    # Generate indices for tf.gather_nd
+                    indices = tf.transpose(tf.reshape(flattened_indices, [T, -1]))
+
+                    # Use tf.gather_nd to select values from the 3D tensor
+                    selected_values = tf.gather_nd(tf_tensor, indices)
+
+                    return selected_values
+
+                # Example usage:
+                # Create a random 3D NumPy array
+                numpy_array_3d = np.random.rand(2, 3, 4)
+
+                # Create a random 3-by-T index matrix with continuous values
+                index_matrix_3_by_T = np.array([[0.3, 1.6], [1.1, 2.8], [0.9, 2.4]])
+
+                # Call the function
+                result = generate_tensor_and_select_values(numpy_array_3d, index_matrix_3_by_T)
+
+                # Start a TensorFlow session and evaluate the result
+                with tf.Session() as sess:
+                    result_value = sess.run(result)
+
+                print("Original 3D Tensor:")
+                print(numpy_array_3d)
+                print("\nIndex Matrix (continuous values):")
+                print(index_matrix_3_by_T)
+                print("\nSelected Values:")
+                print(result_value)
+
+
+                # Assume inputs is a list of two tensors, with state second.
+                # TODO: Use tensor names to not require this arbitrary order.
+                input = inputs[0]
+                state = inputs[1]
+
+                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                with_offset = with_gain + tf.matmul(state, self.offset)
+
+                return with_offset
+
+        return hrtfTF(self, **kwargs)

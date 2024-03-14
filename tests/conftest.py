@@ -36,6 +36,12 @@ def state():
     return np.random.rand(100, 2)
 
 @pytest.fixture
+def aerd():
+    """100 time bins, 2 state channels."""
+    np.random.seed(state_seed)
+    return np.random.rand(100, 6)
+
+@pytest.fixture
 def spectrogram_with_samples():
     """2 samples, 100 time bins, 18 spectral channels."""
     np.random.seed(spectrogram_seed)

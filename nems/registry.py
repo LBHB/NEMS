@@ -101,7 +101,7 @@ class KeywordRegistry:
         if (self.set_obj_name):
             # Type check is done this way to avoid circular import issues.
             inheritance_list = inspect.getmro(type(obj))
-            checks = [cls.__name__.split('.')[-1] != 'Layer'
+            checks = [cls.__name__.split('.')[-1] not in ['Layer', 'Model']
                       for cls in inheritance_list]
             if all(checks):
                 raise TypeError(

@@ -1,3 +1,8 @@
+import logging
+
+log = logging.getLogger(__name__)
+
+
 class DataMap:
     def __init__(self, layer):
         self.layer = layer
