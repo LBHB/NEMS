@@ -124,4 +124,3 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
 
 def dpc_project(dpcs, X):
     pass
-

@@ -334,7 +334,7 @@ class WeightChannelsGaussian(WeightChannels):
         coefficients = np.exp(-0.5*((x-mean)/sd)**2)  # (rank, ..., outputs, T)
         reordered = np.moveaxis(coefficients, -1, 0)  # (T, rank, ..., outputs)
         # Normalize by the cumulative sum for each channel
-        cumulative_sum = np.sum(reordered, axis=-1, keepdims=True)
+        cumulative_sum = np.sum(reordered, axis=0, keepdims=True)
         # If all coefficients for a channel are 0, skip normalization
         cumulative_sum[cumulative_sum == 0] = 1
         normalized = reordered/cumulative_sum
@@ -367,7 +367,7 @@ class WeightChannelsGaussian(WeightChannels):
                 temp = tf.transpose((temp-mean)/sd, sh)
 
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
-                norm = tf.math.reduce_sum(temp, axis=-1, keepdims=True)
+                norm = tf.math.reduce_sum(temp, axis=0, keepdims=True)
                 kernel = temp / norm
                 return tf.tensordot(inputs, kernel, axes=[[2], [0]])
 
