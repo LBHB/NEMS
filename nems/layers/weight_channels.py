@@ -57,13 +57,13 @@ class WeightChannels(Layer):
         # Mean and sd for priors were chosen mostly arbitrarily, to start
         # with most weights near zero (but not exactly at 0).
         s = np.prod(self.shape)
-        v = np.linspace(0.00, 0.05, s)
-        mean = np.reshape(v, self.shape)
-        mean[:, ::2] = np.flip(mean[:, ::2], axis=0)
-        if len(self.shape) > 2:
-            mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
+        #v = np.linspace(0.00, 0.05, s)
+        #mean = np.reshape(v, self.shape)
+        #mean[:, ::2] = np.flip(mean[:, ::2], axis=0)
+        #if len(self.shape) > 2:
+        #    mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
 
-        #mean = np.full(shape=self.shape, fill_value=0.01)
+        mean = np.full(shape=self.shape, fill_value=0.01)
         sd = np.full(shape=self.shape, fill_value=0.05)
         prior = Normal(mean, sd)
 
