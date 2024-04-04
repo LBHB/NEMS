@@ -282,7 +282,8 @@ class FiniteImpulseResponse(Layer):
 
             def call(self, inputs):
                 # This will add an extra dim if there is no output dimension.
-                input_width = inputs.shape[1] # tf.shape(inputs)[1]
+                # input_width = inputs.shape[1] # tf.shape(inputs)[1]
+                input_width = tf.shape(inputs)[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
                 coefficients = broadcast_coefficients(self.coefficients)
