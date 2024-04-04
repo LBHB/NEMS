@@ -74,7 +74,10 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
                 #    ax[1,i].imshow(np.reshape(m*mproj[i],(s[2],s[3])), vmin=-mm, vmax=mm)
                 #    ax[2,i].imshow(np.reshape(fit_features[i,:]-m*mproj[i],(s[2],s[3])), vmin=-mm, vmax=mm)
                 pca = PCA(n_components=pc_count-1)
-                pca = pca.fit(fit_features1)
+                try:
+                    pca = pca.fit(fit_features1)
+                except:
+                    log.info(f"Error on pca.fit: {fit_features.shape} -> {fit_features1.shape}")
                 transformed_pca = np.concatenate([mproj_all, pca.transform(features1)], axis=1)
                 components = np.concatenate([m,pca.components_], axis=0)
 
@@ -104,14 +107,11 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
             #print(projection.shape, transformed_pca.shape)
             projection[c, :, :] = transformed_pca
 
-            # flip sign of first PC so that mean is positive
-            #mean_dstrf = input_dstrf[c, :, :, :].mean(axis=0)
-            #if np.sum(mean_dstrf * pcs[c, 0, :, :]) < 0:
-            #    pcs[c, 0, :, :] = -pcs[c, 0, :, :]
             if flip_sign:
+                # if pc is net negative, flip sign so that mean is positive
                 for oi in range(pc_count):
                     if pcs[c, oi].sum()<0:
-                        log.info(f"Flipping sign of c={c}, pc={oi}, projection oi=dim2, shape={transformed_pca.shape}")
+                        #log.info(f"Flipping sign of c={c}, pc={oi}, projection oi=dim2, shape={transformed_pca.shape}")
                         pcs[c, oi] = -pcs[c,oi]
                         projection[c, :, oi] = -projection[c, :, oi]
         return_dict[input_name] = {'pcs': pcs, 'pc_mag': pc_mag, 'projection': projection, 'mean': dmean}
@@ -124,4 +124,3 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
 
 def dpc_project(dpcs, X):
     pass
-

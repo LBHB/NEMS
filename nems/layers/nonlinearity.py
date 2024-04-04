@@ -550,12 +550,30 @@ class ReLU(RectifiedLinear):
     pass
 
 
-class ZeroHinge(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+class Hinge(StaticNonlinearity):
+    """
+    Hinge nonlinearity
+    y(x) = (x+shift)          if x+shift>0
+    y(x) = alpha * (x+shift)  if x+shift<0
+    """
 
-    # inherited
-    #def __init(self)__:
+    def __init__(self, shift=True, **kwargs):
+        """
+        :param shift: bool (default True) if false, freeze shift parameter at 0
+        :param kwargs: pass-through to parent init
+        """
+        super().__init__(**kwargs)
+        fixed_parameters = {}
+        self.shift = shift
+        pshift, alpha = self.get_parameter_values()
+        if shift == False:
+            fixed_parameters['shift'] = np.full_like(pshift, 0)
+            self.set_permanent_values(**fixed_parameters)
+
     def initial_parameters(self):
+        """
+        :return: phi, nems.layer.base.parameter.Parameter with values for shift and alpha
+        """
         """Get initial values for `RectifiedLinear.parameters`.
 
         Layer parameters
@@ -565,9 +583,11 @@ class ZeroHinge(StaticNonlinearity):
         """
         zero = np.zeros(shape=self.shape)
         one = np.ones(shape=self.shape)
-        alpha_prior = {'mean': one / 10, 'sd': one / 10}
+        shift_prior = {'mean': zero+0.05, 'sd': one/100}
+        alpha_prior = {'mean': one/10, 'sd': one/20}
         phi = Phi(
-            Parameter('alpha', shape=self.shape, prior=Normal(**alpha_prior))
+            Parameter('shift', shape=self.shape, prior=Normal(**shift_prior)),
+            Parameter('alpha', shape=self.shape, prior=Normal(**alpha_prior), bounds=(0,np.inf))
         )
 
         return phi
@@ -584,12 +604,12 @@ class ZeroHinge(StaticNonlinearity):
         `StaticNonlinearity.evaluate` is the same as for other subclasses.
 
         """
+        shift, alpha = self.get_parameter_values()
+        ins = input+shift
+        neg = ins*(ins<0)
+        pos = ins*(ins>0)
 
-        alpha = self.get_parameter_values() / 10
-        neg = input*(input<0)
-        pos = input*(input>0)
-
-        return neg*alpha + pos
+        return neg*alpha/10 + pos
 
     @layer('prelu')
     def from_keyword(keyword):
@@ -601,7 +621,7 @@ class ZeroHinge(StaticNonlinearity):
 
         Returns
         -------
-        ZeroHinge
+        Hinge
 
         See also
         --------
@@ -615,7 +635,7 @@ class ZeroHinge(StaticNonlinearity):
             if op == 'z':
                 raise NotImplementedError('zero prior not implemented')
 
-        prelu = ZeroHinge(shape=shape)
+        prelu = Hinge(shape=shape)
 
         return prelu
 
@@ -629,10 +649,10 @@ class ZeroHinge(StaticNonlinearity):
         else:
             class PReLUTF(NemsKerasLayer):
                 def call(self, inputs):
-                    return tf.maximum(0.0, inputs) + self.alpha/10 * tf.minimum(0.0, inputs)
+                    return tf.maximum(0.0, inputs+self.shift) + self.alpha/10 * tf.minimum(0.0, inputs+self.shift)
 
         return PReLUTF(self, **kwargs)
 
 # Optional alias
-class PReLU(ZeroHinge):
+class PReLU(Hinge):
     pass

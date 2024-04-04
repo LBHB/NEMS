@@ -56,6 +56,13 @@ class WeightChannels(Layer):
         """
         # Mean and sd for priors were chosen mostly arbitrarily, to start
         # with most weights near zero (but not exactly at 0).
+        s = np.prod(self.shape)
+        #v = np.linspace(0.00, 0.05, s)
+        #mean = np.reshape(v, self.shape)
+        #mean[:, ::2] = np.flip(mean[:, ::2], axis=0)
+        #if len(self.shape) > 2:
+        #    mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
+
         mean = np.full(shape=self.shape, fill_value=0.01)
         sd = np.full(shape=self.shape, fill_value=0.05)
         prior = Normal(mean, sd)
@@ -298,16 +305,12 @@ class WeightChannelsGaussian(WeightChannels):
         mean_bounds = (-0.1, 1.1)
         sd_bounds = (0.05, np.inf)
 
-        rank = self.shape[1]
-        other_dims = self.shape[2:]
-        shape = (rank,) + other_dims
-        # Pick means so that the centers of the gaussians are spread across the 
-        # available frequencies.
-        channels = np.arange(rank + 1)[1:]
-        tiled_means = channels / (rank*2 + 2) + 0.25
-        for dim in other_dims:
-            # Repeat tiled gaussian structure for other dimensions.
-            tiled_means = tiled_means[...,np.newaxis].repeat(dim, axis=-1)
+        shape = self.shape[1:]
+
+        tiled_means = np.zeros(shape)
+        total_chans = np.prod(shape)
+        channels = np.arange(total_chans + 1)[1:] / (total_chans*2 + 2) + 0.25
+        tiled_means = np.reshape(channels, tiled_means.shape)
 
         mean_prior = Normal(tiled_means, np.full_like(tiled_means, 0.2))
         sd_prior = HalfNormal(np.full_like(tiled_means, 0.4))
@@ -334,7 +337,7 @@ class WeightChannelsGaussian(WeightChannels):
         coefficients = np.exp(-0.5*((x-mean)/sd)**2)  # (rank, ..., outputs, T)
         reordered = np.moveaxis(coefficients, -1, 0)  # (T, rank, ..., outputs)
         # Normalize by the cumulative sum for each channel
-        cumulative_sum = np.sum(reordered, axis=-1, keepdims=True)
+        cumulative_sum = np.sum(reordered, axis=0, keepdims=True)
         # If all coefficients for a channel are 0, skip normalization
         cumulative_sum[cumulative_sum == 0] = 1
         normalized = reordered/cumulative_sum
@@ -367,7 +370,7 @@ class WeightChannelsGaussian(WeightChannels):
                 temp = tf.transpose((temp-mean)/sd, sh)
 
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
-                norm = tf.math.reduce_sum(temp, axis=-1, keepdims=True)
+                norm = tf.math.reduce_sum(temp, axis=0, keepdims=True)
                 kernel = temp / norm
                 return tf.tensordot(inputs, kernel, axes=[[2], [0]])
 

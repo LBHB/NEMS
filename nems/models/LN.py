@@ -266,18 +266,23 @@ class LN_pop(Model):
 
         # Add STRF
         wc_class = WeightChannelsGaussian if gaussian else WeightChannels
-
+        if gaussian:
+            wc_class1 = WeightChannelsGaussian
+            reg1 = None
+        else:
+            wc_class1 = WeightChannels
+            reg1 = regularizer
         if rank is None:
             # Full-rank finite impulse response, one per output channel
-            fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out))
+            fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out), regularizer=regularizer)
             self.add_layers(fir)
         elif share_tuning:
-            wc = wc_class(shape=(channels_in, 1, rank), regularizer=regularizer)
+            wc = wc_class1(shape=(channels_in, 1, rank), regularizer=reg1)
             fir = FiniteImpulseResponse(shape=(time_bins, 1, rank))
-            wc2 = wc_class(shape=(rank, channels_out), regularizer=regularizer)
+            wc2 = WeightChannels(shape=(rank, channels_out), regularizer=regularizer)
             self.add_layers(wc, fir, wc2)
         else:
-            wc = wc_class(shape=(channels_in, rank, channels_out), regularizer=regularizer)
+            wc = wc_class1(shape=(channels_in, rank, channels_out), regularizer=reg1)
             fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out))
             self.add_layers(wc, fir)
 
@@ -653,7 +658,8 @@ def LNpop_get_strf(model, channels=None, layer=2):
     return strf2
 
 def LN_plot_strf(model=None, channels=None, strf=None,
-                 binaural=None, ax=None, fs=100, **tuningkwargs):
+                 binaural=None, ax=None, fs=100,
+                 show_tuning=True, **tuningkwargs):
     if channels is None:
         channels=[0]
     if strf is None:
@@ -669,13 +675,14 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if ax is None:
         f, ax = plt.subplots()
 
-    if binaural:
-        res = get_binaural_strf_tuning(strf, **tuningkwargs)
-        prelist = ['c', 'i']
-    else:
-        res = get_strf_tuning(strf, **tuningkwargs)
-        res['ipsi_offset']=0
-        prelist = ['']
+    if show_tuning:
+        if binaural:
+            res = get_binaural_strf_tuning(strf, **tuningkwargs)
+            prelist = ['c', 'i']
+        else:
+            res = get_strf_tuning(strf, **tuningkwargs)
+            res['ipsi_offset']=0
+            prelist = ['']
 
     # mm = np.max(np.abs(strf))
     extent = [0, strf.shape[1] / fs, 0, strf.shape[0]]
@@ -683,14 +690,15 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     ax.imshow(strf, aspect='auto', cmap='bwr',
             origin='lower', interpolation='none', extent=extent,
             vmin=-mm, vmax=mm)
-    for ci, p in enumerate(prelist):
-        os = ci * res['ipsi_offset'] + 0.5
-        b0 = res[p + 'bfidx'] + os
-        ax.plot(res[p + 'lat'], b0, '.', color='black')
-        ax.plot(res[p + 'offlat'], b0, '.', color='black')
-        mlat = (res[p + 'lat'] + res[p + 'offlat']) / 2
-        ax.plot(mlat, res[p + 'bloidx'] + os, '.', color='black')
-        ax.plot(mlat, res[p + 'bhiidx'] + os, '.', color='black')
+    if show_tuning:
+        for ci, p in enumerate(prelist):
+            os = ci * res['ipsi_offset'] + 0.5
+            b0 = res[p + 'bfidx'] + os
+            ax.plot(res[p + 'lat'], b0, '.', color='black')
+            ax.plot(res[p + 'offlat'], b0, '.', color='black')
+            mlat = (res[p + 'lat'] + res[p + 'offlat']) / 2
+            ax.plot(mlat, res[p + 'bloidx'] + os, '.', color='black')
+            ax.plot(mlat, res[p + 'bhiidx'] + os, '.', color='black')
 
     if binaural:
         ax.axhline(y=res['ipsi_offset'], lw=0.5, ls='--', color='gray')
@@ -702,7 +710,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
 
 def LNpop_plot_strf(model, labels=None, channels=None,
                     layer=2, plot_nl=False, merge=None,
-                    binaural=None):
+                    binaural=None, show_tuning=True):
     strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
     if binaural is None:
         binaural=is_binaural(model)
@@ -736,12 +744,11 @@ def LNpop_plot_strf(model, labels=None, channels=None,
         col_mult=2
     else:
         col_mult=1
-    if channels_out>25:
-        rowcount=np.min([channels_out,10])
-
-        colcount=int(np.ceil(channels_out/10))
+    if channels_out>4:
+        rowcount = int(np.ceil(np.sqrt(channels_out)))
+        colcount = int(np.ceil(channels_out/rowcount))
         f, ax = plt.subplots(rowcount, colcount*col_mult, figsize=(colcount*col_mult,rowcount*0.75),
-                             sharex='col', sharey='col')
+                             sharex=True, sharey=True)
     elif channels_out > 16:
         rowcount = np.min([channels_out, 5])
         colcount = int(np.ceil(channels_out / 5))
@@ -757,11 +764,19 @@ def LNpop_plot_strf(model, labels=None, channels=None,
 
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
-    for c in range(channels_out):
+    for c, ch in enumerate(channels):
         rr = c % rowcount
         cc = int(np.floor(c/rowcount))
         LN_plot_strf(model=model, channels=[c], strf=strf2[:, :, c],
-                     binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs)
+                     binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs,
+                     show_tuning=show_tuning)
+        yl = ax[rr,cc*col_mult].get_ylim()
+        if labels is not None:
+            ax[rr, cc * col_mult].text(0,yl[1],labels[c], fontsize=8)
+        else:
+            ax[rr, cc * col_mult].text(0, yl[1], f"ch{ch}", fontsize=8)
+        if rr<rowcount-1:
+            ax[rr,cc*col_mult].set_xlabel('')
         """
         if binaural:
             res = get_binaural_strf_tuning(strf2[:, :, c])
