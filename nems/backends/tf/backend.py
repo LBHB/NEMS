@@ -45,11 +45,11 @@ class TensorFlowBackend(Backend):
         if batch_size == 0:
             data = data.prepend_samples()
             batch_size = None
-        elif batch_size is not None:
-            raise NotImplementedError(
-                "tf.tensordot is failing for multiple batches b/c the axis "
-                "numbers shift. Need to fix that before this will work."
-            )
+        #elif batch_size is not None:
+        #    raise NotImplementedError(
+        #        "tf.tensordot is failing for multiple batches b/c the axis "
+        #        "numbers shift. Need to fix that before this will work."
+        #    )
         inputs = data.inputs
         if data.data_format=='array':
 
@@ -121,11 +121,13 @@ class TensorFlowBackend(Backend):
             if len(layer_inputs) == 1:
                 layer_inputs = layer_inputs[0]
                 input_shape = input_shape[0]
-            #print("INPUT SHAPE:", input_shape)
+            #log.info(f"INPUT SHAPE: {input_shape}")
+            #log.info(f"batch size: {batch_size}")
 
             tf_layer = layer.as_tensorflow_layer(
                 input_shape=input_shape, **tf_kwargs
                 )
+            #log.info(tf_layer.name)
             last_output = tf_layer(layer_inputs)
 
             if isinstance(last_output, (list, tuple)):
@@ -258,7 +260,7 @@ class TensorFlowBackend(Backend):
             else:
                 target = list(data.targets.values())[0]
 
-            initial_error = self.model.evaluate(inputs, target, return_dict=False, verbose=False)
+            initial_error = self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False)
             if type(initial_error) is float:
                 initial_error = np.array([initial_error])
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")

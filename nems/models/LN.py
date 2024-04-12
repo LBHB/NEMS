@@ -421,19 +421,18 @@ def LNpop_get_strf(model, channels=None, layer=2):
 
 def LN_plot_strf(model=None, channels=None, strf=None,
                  binaural=None, ax=None, fs=100,
-                 show_tuning=True, **tuningkwargs):
+                 show_tuning=True, label="", **tuningkwargs):
     if channels is None:
         channels=[0]
     if strf is None:
         strf = model.get_strf(channels=channels)
     if model is not None:
-        rtest=model.meta.get('r_test',np.zeros((1,1)))
-        if type(rtest) is not float:
-            rtest=rtest[0,0]
+        rtest = model.meta.get('r_test', np.zeros((np.array(channels).max(), 1)))
+        rtest = rtest[channels[0], 0]
         if binaural is None:
-            binaural=is_binaural(model)
+            binaural = is_binaural(model)
     if binaural is None:
-        binaural=False
+        binaural = False
     if ax is None:
         f, ax = plt.subplots()
 
@@ -465,7 +464,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if binaural:
         ax.axhline(y=res['ipsi_offset'], lw=0.5, ls='--', color='gray')
         ax.text(extent[0], extent[3],
-                f"r={rtest:.2f} bdi={res['bdi']:.2f} mcs={res['mcs']:.2f}",
+                f"{label} r={rtest:.2f} bdi:{res['bdi']:.2f} mcs:{res['mcs']:.2f}",
                 va='bottom')
     ax.set_xlabel('Time lag')
 
@@ -520,8 +519,7 @@ def LNpop_plot_strf(model, labels=None, channels=None,
     if figsize is None:
         figsize = (colcount*col_mult*1.0, rowcount*0.75)
 
-    f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=figsize,
-                         sharex='col', sharey='col')
+    f, ax = plt.subplots(rowcount, colcount * col_mult, figsize=figsize, sharex=True, sharey=True)
 
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
@@ -529,16 +527,16 @@ def LNpop_plot_strf(model, labels=None, channels=None,
         rr = c % rowcount
         cc = int(np.floor(c/rowcount))
         # call single-STRF plotter to actually generate the plot
+        if labels is not None:
+            lbl = labels[ch]
+        else:
+            lbl = f"ch{ch}"
         LN_plot_strf(model=model, channels=[c], strf=strf2[:, :, c],
                      binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs,
-                     show_tuning=show_tuning)
+                     show_tuning=show_tuning, label=lbl)
         yl = ax[rr,cc*col_mult].get_ylim()
-        if labels is not None:
-            ax[rr, cc * col_mult].text(0,yl[1],labels[c], fontsize=8)
-        else:
-            ax[rr, cc * col_mult].text(0, yl[1], f"ch{ch}", fontsize=8)
-        if rr<rowcount-1:
-            ax[rr,cc*col_mult].set_xlabel('')
+        #if rr<rowcount-1:
+        #    ax[rr,cc*col_mult].set_xlabel('')
 
     ax[-1,0].set_xlabel('Time lag')
     plt.suptitle(model.name[:30])
