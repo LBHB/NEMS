@@ -355,7 +355,7 @@ class WeightChannelsGaussian(WeightChannels):
         sd, = self.get_parameter_values('sd')
         sd_lower, sd_upper = self.parameters['sd'].bounds
         new_values = {'sd': sd*10}
-        new_bounds = {'sd': (sd_lower, sd_upper*10)}
+        new_bounds = {'sd': (sd_lower*10, sd_upper*10)}
 
         class WeightChannelsGaussianTF(NemsKerasLayer):
             def call(self, inputs):
