@@ -302,8 +302,9 @@ class WeightChannelsGaussian(WeightChannels):
 
         """
 
+        # bounds on parameter values. 0.01 is very skinny for sd, but it seems to help
         mean_bounds = (-0.1, 1.1)
-        sd_bounds = (0.05, np.inf)
+        sd_bounds = (0.01, np.inf)
 
         shape = self.shape[1:]
 
