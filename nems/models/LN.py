@@ -466,6 +466,8 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         ax.text(extent[0], extent[3],
                 f"{label} r={rtest:.2f} bdi:{res['bdi']:.2f} mcs:{res['mcs']:.2f}",
                 va='bottom')
+    else:
+        ax.text(extent[0], extent[3], f"{label} r={rtest:.2f}")
     ax.set_xlabel('Time lag')
 
 
