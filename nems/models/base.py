@@ -995,7 +995,7 @@ class Model:
 
         # SVD 2024-03-10 - Vectorized out_channels loop. Duh. Unclear why this wasn't happening before!
         for timeidx, time in enumerate(t_indexes):
-            s = [stim[key][np.newaxis, (time - D + 1):(time+1), :] for key in stim.keys()]
+            s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
             jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channels)
             for idx, key in enumerate(dstrf.keys()):
                 dstrf[key][:, timeidx, :, :] = np.moveaxis(jacobian_matrix[idx][:, 0, :, :].numpy(), [1,2], [2,1])
