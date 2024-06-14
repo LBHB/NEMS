@@ -77,12 +77,15 @@ class FiniteImpulseResponse(Layer):
 
         """
         mean = np.full(shape=self.shape, fill_value=0.0)
-        sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
+        #sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
+        sd = np.full(shape=self.shape, fill_value=1/self.shape[0])
         # TODO: May be more appropriate to make this a hard requirement, but
         #       for now this should stop tiny filter sizes from causing errors.
         if mean.shape[0] > 2:
-            mean[1, :] = 2/np.prod(self.shape)
-            mean[2, :] = -1/np.prod(self.shape)
+            #mean[1, :] = 2/np.prod(self.shape)
+            #mean[2, :] = -1/np.prod(self.shape)
+            mean[1, :] = 2 / self.shape[0]
+            mean[2, :] = -1 / self.shape[0]
         prior = Normal(mean, sd)
 
         coefficients = Parameter(name='coefficients', shape=self.shape,

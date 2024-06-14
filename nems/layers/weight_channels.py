@@ -35,8 +35,10 @@ class WeightChannels(Layer):
     (10000, 1)
 
     """
-    def __init__(self, **kwargs):
+    def __init__(self, norm_coefficients=False, **kwargs):
         require_shape(self, kwargs, minimum_ndim=2)
+        self.norm_coefficients = norm_coefficients
+
         super().__init__(**kwargs)
 
     def initial_parameters(self):
@@ -64,7 +66,9 @@ class WeightChannels(Layer):
         #    mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
 
         mean = np.full(shape=self.shape, fill_value=0.01)
-        sd = np.full(shape=self.shape, fill_value=0.05)
+        # temp comment out
+        #sd = np.full(shape=self.shape, fill_value=0.05)
+        sd = np.full(shape=self.shape, fill_value=0.1)
         prior = Normal(mean, sd)
 
         coefficients = Parameter(
@@ -104,7 +108,15 @@ class WeightChannels(Layer):
         """
 
         try:
-            output = np.tensordot(input, self.coefficients, axes=(1, 0))
+            if self.norm_coefficients:
+                s = np.mean(self.coefficients**2) ** 0.5
+                if s > 0:
+                    c = self.coefficients / s
+                else:
+                    c = self.coefficients
+                output = np.tensordot(input, c, axes=(1, 0))
+            else:
+                output = np.tensordot(input, self.coefficients, axes=(1, 0))
         except ValueError as e:
             # Check for dimension swap, to give more informative error message.
             if 'shape-mismatch for sum' in str(e):
@@ -140,6 +152,8 @@ class WeightChannels(Layer):
                 wc_class = WeightChannelsGaussian
             elif op == 'b':
                 wc_class = WeightChannelsMulti
+            elif op == 'n':
+                kwargs['norm_coefficients']=True
             elif op.startswith('l2'):
                 kwargs['regularizer'] = op
 
@@ -159,11 +173,17 @@ class WeightChannels(Layer):
         """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
+        norm_coefficients = self.norm_coefficients
 
         class WeightChannelsTF(NemsKerasLayer):
             @tf.function
             def call(self, inputs):
-                out = tf.tensordot(inputs, self.coefficients, axes=[[2], [0]])
+                if norm_coefficients:
+                    n = tf.math.reduce_mean(self.coefficients**2)**0.5
+                    c = tf.math.divide_no_nan(self.coefficients, n)
+                    out = tf.tensordot(inputs, c, axes=[[2], [0]])
+                else:
+                    out = tf.tensordot(inputs, self.coefficients, axes=[[2], [0]])
                 return out
         
         return WeightChannelsTF(self, **kwargs)
