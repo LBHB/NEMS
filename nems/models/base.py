@@ -941,7 +941,7 @@ class Model:
 
     def dstrf(self, stim, D=25, out_channels=None, t_indexes=None,
               backend='tf', reset_backend=False, method='jacobian', backend_options=None,
-              verbose=1, **eval_kwargs):
+              remove_nl=False, verbose=1, **eval_kwargs):
         """
         :param stim: input stimulus used to compute jacobian --> dSTRF
         :param D: memory of dSTRF (in time bins)
@@ -971,7 +971,7 @@ class Model:
             data = DataSet(input, target=None, **eval_kwargs)
             data = data.as_broadcasted_samples()
 
-            if self.layers[-1].is_nonlinearity:
+            if remove_nl & self.layers[-1].is_nonlinearity:
                 #ll = dstrf_model.layers.pop()
                 layers = list(self.layers.values())
                 log.info(f"Removing last layer for dstrf: {layers[-1].name}")
@@ -995,7 +995,7 @@ class Model:
 
         # SVD 2024-03-10 - Vectorized out_channels loop. Duh. Unclear why this wasn't happening before!
         for timeidx, time in enumerate(t_indexes):
-            s = [stim[key][np.newaxis, (time - D + 1):(time+1), :] for key in stim.keys()]
+            s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
             jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channels)
             for idx, key in enumerate(dstrf.keys()):
                 dstrf[key][:, timeidx, :, :] = np.moveaxis(jacobian_matrix[idx][:, 0, :, :].numpy(), [1,2], [2,1])
