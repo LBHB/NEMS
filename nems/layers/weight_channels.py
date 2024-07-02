@@ -4,7 +4,6 @@ from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
 from .base import Layer, Phi, Parameter, ShapeError
 from .tools import require_shape, pop_shape
-from tensorflow.python.keras import regularizers
 
 
 # TODO: double check all shape references after dealing w/ data order etc,
