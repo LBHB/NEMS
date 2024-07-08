@@ -8,7 +8,7 @@ import logging
 log = logging.getLogger(__name__)
 
 def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=False,
-                 as_dict=False, flip_sign=True):
+                 as_dict=False, flip_sign=True, method='pca'):
     """
     Perform PCA on 4D dstrf matrix, separately for each output channel
     dstrf matrix is [output X time X input channel X time lag]
@@ -28,7 +28,7 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
         as_dict==False: tuple: (pcs, pc_mag)
     """
 
-    from sklearn.decomposition import PCA
+    from sklearn.decomposition import PCA, FactorAnalysis
 
     if type(dstrf) is not dict:
         # convert to dict format for compatibility
@@ -88,19 +88,35 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
                     # Do we really want sqrt??
                     variance = variance ** 0.5
             else:
-                pca = PCA(n_components=pc_count)
-                pca = pca.fit(fit_features)
-                transformed_pca = pca.transform(features)
-                components = pca.components_
-                #_u, _s, _v = np.linalg.svd(d.T @ d)
-                # print(d.shape, _v.shape)
-                # _s = np.sqrt(_s)
+                if method == 'pca':
+                    p = PCA(n_components=pc_count)
+                    p = p.fit(fit_features)
+                    transformed_pca = p.transform(features)
+                    components = p.components_
+                    if norm_mag:
+                        variance = np.sqrt(p.explained_variance_ratio_)
+                    else:
+                        variance = np.sqrt(p.explained_variance_)
 
-                if norm_mag:
-                    variance = np.sqrt(pca.explained_variance_ratio_)
-                else:
-                    variance = np.sqrt(pca.explained_variance_)
-            
+                elif method == 'fa':
+                    p = FactorAnalysis(n_components=pc_count)
+                    p = p.fit(fit_features)
+                    transformed_pca = p.transform(features)
+
+                    # evar = p.explained_variance_ratio_
+                    pcoefs = p.components_
+                    evar = (pcoefs ** 2).mean(axis=1)
+                    #evar = 1 / (evar + (evar == 0) * 10000)
+                    evar = evar / evar.sum()
+
+                    ii = np.argsort(-evar)
+                    variance = evar[ii]
+                    components = p.components_[ii]
+                    components = components / components.std(axis=1, keepdims=True)
+                    transformed_pca = transformed_pca[:, ii]
+
+                    #log.info(f"Sorted dim variance: {variance}")
+
             dmean[c] = np.reshape(features.mean(axis=0), [s[2], s[3]])
             pcs[c, :, :, :] = np.reshape(components, [pc_count, s[2], s[3]])
             pc_mag[:, c] = variance[:pc_count]

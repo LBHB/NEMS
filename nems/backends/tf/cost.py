@@ -102,8 +102,7 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
      tensor is of shape (), else tensor if of shape (n_cells,) (i.e. last dimension of the resp/pred tensor)
     """
     # hardcoded to use 10 jackknifes for error estimate
-    s = response.get_shape().as_list()
-    
+    s = prediction.get_shape().as_list()
     n_drop = s[1] % 10
     n_per = int(s[1]/10)
     if n_drop:
