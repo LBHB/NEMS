@@ -113,7 +113,7 @@ class FiniteImpulseResponse(Layer):
         # Flip rank, any other dimensions except time & number of outputs.
         coefficients = self._reshape_coefficients()
         # Match number of outputs in input and coefficients by broadcasting.
-        input, coefficients = self._broadcast(input, coefficients)
+        input, coefficients, _ = self._broadcast(input, coefficients)
 
         # Prepend zeros. (and append, if include_anticausal)
         padding = self._get_filter_padding(input, coefficients)
@@ -161,8 +161,15 @@ class FiniteImpulseResponse(Layer):
         # NOTE: This will only catch a missing output dimension for 2D data.
         #       For higher-dimensional data, the output dimension needs to be
         #       specified by users.
+        insert_dim = None
+
         if input.ndim < 3:
-            input = input[..., np.newaxis]
+            if input.shape[1] == coefficients.shape[2]:
+                input = input[:, np.newaxis, :]
+                insert_dim = 1
+            else:
+                input = input[..., np.newaxis]
+                insert_dim = -1
 
         if input.shape[-1] < coefficients.shape[-1]:
             try:
@@ -181,7 +188,7 @@ class FiniteImpulseResponse(Layer):
                     "coefficients, or one must be broadcastable to the other."
                     )
         
-        return input, coefficients
+        return input, coefficients, insert_dim
 
     def _get_filter_padding(self, input, coefficients):
         """Get zeros of correct shape to prepend to input on time axis."""
@@ -325,7 +332,7 @@ class FiniteImpulseResponse(Layer):
         # TODO: This might mess up with multiple batches similar to WC?
         #       Need to check if list?
         fake_inputs = np.empty(shape=input_shape[1:])
-        new_inputs, broadcast_c = self._broadcast(fake_inputs, new_c)
+        new_inputs, broadcast_c, insert_dim = self._broadcast(fake_inputs, new_c)
         new_coefs_shape = list(new_c.shape[:-1]) + [broadcast_c.shape[-1]]
         new_inputs_shape = list(new_inputs.shape)
         n_outputs = new_coefs_shape[-1]
@@ -361,7 +368,9 @@ class FiniteImpulseResponse(Layer):
                 # if needed. Then broadcast outputs.
                 batch_size = tf.keras.backend.shape(inputs)[0]
                 shape = [batch_size] + new_inputs_shape
-                return tf.broadcast_to(tf.expand_dims(inputs, axis=-1), shape)
+                # insert_dim is where a dummy dimension was added to the inputs
+                # so that the summing occurs (or not) across the appropriate dims
+                return tf.broadcast_to(tf.expand_dims(inputs, axis=insert_dim+1), shape)
 
         else:
             # Otherwise, don't need to do anything to inputs.

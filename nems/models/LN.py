@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 class LN_STRF(Model):
 
     def __init__(self, time_bins=None, channels=None, rank=None,
-                 gaussian=False, nonlinearity='DoubleExponential',
+                 gaussian=False, nonlinearity='DoubleExponential', final_stride=1,
                  nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
@@ -97,6 +97,7 @@ class LN_STRF(Model):
             nonlinearity = nl_class(shape=(1,), **nl_kwargs)
             self.add_layers(nonlinearity)
         self.out_range = [[-1], [3]]
+        self.final_stride = final_stride
 
     @classmethod
     def from_data(cls, input, filter_duration, sampling_rate=1000, **kwargs):
@@ -105,7 +106,8 @@ class LN_STRF(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_STRF(time_bins, channels, **kwargs)
 
-    def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf'):
+    def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance = 1e-4):
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -114,14 +116,14 @@ class LN_STRF(Model):
         """
 
         fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': 1e-3,
+                          'early_stopping_tolerance': early_stopping_tolerance*10,
                           'validation_split': 0,
-                          'learning_rate': 1e-2, 'epochs': 3000
+                          'learning_rate': learning_rate*10, 'epochs': int(epochs/2)
                           }
         fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 1e-4,
+                           'early_stopping_tolerance': early_stopping_tolerance,
                            'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000
+                           'learning_rate': learning_rate, 'epochs': epochs
                            }
 
         strf = self.sample_from_priors()
@@ -210,8 +212,8 @@ class LN_STRF(Model):
 
 class LN_pop(Model):
 
-    def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, share_tuning=True,
-                 gaussian=False, nonlinearity='DoubleExponential',
+    def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, L1=None, L2=None, share_tuning=True,
+                 gaussian=False, nonlinearity='DoubleExponential', final_stride=1,
                  nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
@@ -263,6 +265,8 @@ class LN_pop(Model):
             channels_out = self.layers[-1].shape[0]
             self.out_range = [[-1]*channels_out, [3]*channels_out]
             return
+        if rank is None:
+            rank = L1
 
         # Add STRF
         wc_class = WeightChannelsGaussian if gaussian else WeightChannels
@@ -298,11 +302,20 @@ class LN_pop(Model):
         else:
             raise ValueError(
                 f'Unrecognized nonlinearity for LN model:  {nonlinearity}.')
+
         if nl_class is not None:
             if nl_kwargs is None: nl_kwargs = {}
             nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
             self.add_layers(nonlinearity)
+
+        if final_stride > 1:
+            agg = FiniteImpulseResponse(shape=(final_stride, 1, channels_out), stride=final_stride)
+            agg['coefficients'] = np.ones(agg.shape)/final_stride
+            agg.freeze_parameters('coefficients')
+            self.add_layers(agg)
+
         self.out_range = [[-1]*channels_out, [3]*channels_out]
+        self.final_stride = final_stride
 
     @classmethod
     def from_data(cls, input, output, filter_duration, sampling_rate=1000, **kwargs):
@@ -312,31 +325,41 @@ class LN_pop(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
-    def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf'):
-        """2-stage fit with freezing/unfreezing NL
-        :param Y:
+    def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4):
+        """
+        2-stage fit with freezing/unfreezing NL
+        :param X: (T, channels_in) or (batch, T, channels_in) input
+        :param Y: (T, channels_out) or (batch, T, channels_out) ouput
         :param cost_function:
-        :param fitter:
+        :param fitter: default is tf
+        :param learning_rate:
+        :param epochs:
+        :param early_stopping_tolerance:
         :return:
         """
 
         fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': 1e-3,
+                          'early_stopping_tolerance': early_stopping_tolerance*10,
                           'validation_split': 0,
-                          'learning_rate': 1e-2, 'epochs': 3000
+                          'learning_rate': learning_rate*10, 'epochs': int(epochs/2)
                           }
         fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 1e-4,
+                           'early_stopping_tolerance': early_stopping_tolerance,
                            'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000
+                           'learning_rate': learning_rate, 'epochs': epochs
                            }
 
         strf = self.sample_from_priors()
+        if self.final_stride > 1:
+            nl_layer = -2
+        else:
+            nl_layer = -1
 
-        strf.layers[-1].skip_nonlinearity()
+        strf.layers[nl_layer].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         fitter_options=fitter_options, batch_size=None)
-        strf.layers[-1].unskip_nonlinearity()
+        strf.layers[nl_layer].unskip_nonlinearity()
         log.info('Fit stage 2: with static output nonlinearity')
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         verbose=0, fitter_options=fitter_options2, batch_size=None)
@@ -414,6 +437,8 @@ def LNpop_get_strf(model, channels=None, layer=2):
             return strf1
 
     wc2 = model.layers[2].coefficients
+    if len(wc2.shape) > 2:
+        wc2 = np.squeeze(wc2)
     strf2 = np.tensordot(strf1, wc2, axes=(2, 0))
     if channels is not None:
         strf2 = strf2[:, :, channels]
@@ -427,7 +452,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if strf is None:
         strf = model.get_strf(channels=channels)
     if model is not None:
-        rtest = model.meta.get('r_test', np.zeros((np.array(channels).max(), 1)))
+        rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
         rtest = rtest[channels[0], 0]
         if binaural is None:
             binaural = is_binaural(model)
@@ -480,7 +505,7 @@ def LNpop_plot_strf(model, labels=None, channels=None,
 
     channels_out = strf2.shape[-1]
     if channels is None:
-        channels=np.arange(channels_out)
+        channels = np.arange(channels_out)
 
     m = int(strf2.shape[0]/2)
     hcontra = strf2[:m, :, :]
@@ -495,20 +520,20 @@ def LNpop_plot_strf(model, labels=None, channels=None,
         strf2 = np.concatenate(((hcontra+hipsi), (hcontra-hipsi)),axis=0)
 
     if model.fs is None:
-        fs=100
+        fs = 100
     else:
-        fs=model.fs
+        fs = model.fs
     #wc2 = model.layers[2].coefficients
     #wc2std=wc2.std(axis=0,keepdims=True)
     #wc2std[wc2std==0]=1
     #wc2 /= wc2std
 
     if plot_nl:
-        col_mult=2
+        col_mult = 2
     else:
-        col_mult=1
+        col_mult = 1
 
-    if channels_out>3:
+    if channels_out > 3:
         rowcount = int(np.ceil(np.sqrt(channels_out)))
         colcount = int(np.ceil(channels_out/rowcount))
     elif channels_out > 16:
@@ -526,19 +551,19 @@ def LNpop_plot_strf(model, labels=None, channels=None,
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
     for c, ch in enumerate(channels):
-        rr = c % rowcount
-        cc = int(np.floor(c/rowcount))
+        cc = c % colcount
+        rr = int(np.floor(c/colcount))
         # call single-STRF plotter to actually generate the plot
         if labels is not None:
-            lbl = labels[ch]
+            lbl = labels[c]
         else:
             lbl = f"ch{ch}"
-        LN_plot_strf(model=model, channels=[c], strf=strf2[:, :, c],
+        LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
                      binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs,
                      show_tuning=show_tuning, label=lbl)
         yl = ax[rr,cc*col_mult].get_ylim()
-        #if rr<rowcount-1:
-        #    ax[rr,cc*col_mult].set_xlabel('')
+        if rr<rowcount-1:
+            ax[rr,cc*col_mult].set_xlabel('')
 
     ax[-1,0].set_xlabel('Time lag')
     plt.suptitle(model.name[:30])
@@ -552,28 +577,28 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
         return get_binaural_strf_tuning(strf, fmin=fmin, fmax=fmax, timestep=timestep)
     # figure out some tuning properties
     maxoct = int(np.log2(fmax/fmin))
-    fs=1000
 
-    sf=4
-    strfsmooth = zoom(strf,sf)
-    ff = np.exp(np.linspace(np.log(fmin),np.log(fmax),strfsmooth.shape[0]))
+    sf = 4
+    strfsmooth = zoom(strf, sf)
+    strfsmooth[np.abs(strfsmooth) < strfsmooth.std()/2] = 0
+    ff = np.exp(np.linspace(np.log(fmin), np.log(fmax), strfsmooth.shape[0]))
 
-    onsetbins = int(0.1/timestep*sf)
-    mm = np.mean(strfsmooth[:,:onsetbins] * (1*(strfsmooth[:,:onsetbins] > 0)), 1)
-    mmneg = -np.mean(strfsmooth[:,:onsetbins] * (1*(strfsmooth[:,:onsetbins] < 0)), 1)
+    onsetbins = int(0.6/timestep*sf)
+    mm = np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] > 0)), 1)
+    mmneg = -np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] < 0)), 1)
 
-    if (mm.max()<mmneg.max()):
-        mm=mmneg
-        bfpos=False
+    if (mm.max() < mmneg.max()):
+        mm = mmneg
+        bfpos = False
     else:
-        bfpos=True
+        bfpos = True
 
     if 1:
         mm = np.mean(np.abs(strfsmooth[:,:onsetbins]),axis=1)
         msum=np.cumsum(mm)/np.sum(mm)
         bfidx = np.argwhere(msum>=0.5)[0][0]
-        blo = np.argwhere(msum>=0.25)[0][0]
-        bhi = np.argwhere(msum>=0.75)[0][0]
+        blo = np.argwhere(msum>=0.3)[0][0]
+        bhi = np.argwhere(msum>=0.7)[0][0]
         bf = np.round(ff[bfidx])
 
         tt = np.mean(np.abs(strfsmooth[blo:(bhi+1):,:]),axis=0)
@@ -582,7 +607,6 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
         offlatbin = np.argwhere(tsum>=0.65)[0][0]/sf
         lat=latbin*timestep
         offlat=offlatbin*timestep
-
 
     elif sum(np.abs(mm)) > 0:
         bfidx = np.argwhere(mm==mm.max())[0][0]
@@ -593,33 +617,9 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     else:
         bfidx = 0
         bf, blo, bhi = 0, 0, 0
-    """
-    ss = strfsmooth.std()
-    #print(ss,strfsmooth[bfidx,:])
-    mb = 0
-    irsmooth=np.abs(strfsmooth[bfidx,:]-mb)
-
-    # Find significantly modulated time bins
-    sigmod = irsmooth > ss*3
-    #sigmod[:7]=False
-    if sigmod.sum()>3:
-        latbin=np.where(sigmod)[0].min()/sf
-        lat=latbin*timestep
-        durbin=np.sum(sigmod)/sf
-        #print(sigmod)
-        offlat=np.where(sigmod)[0].max()/sf*timestep
-        #print(latbin, lat, durbin, offlat)
-    else:
-        latbin = 0
-        lat = 0
-        durbin = 0
-        offlat = 0
-        #print('no significant onset latency')
-    """
 
     res={}
     stepsize = maxoct / strf.shape[0]
-    # bw in octaves
     res['bf'] = bf # in Hz
     res['lat'] = lat # lat in sec
     res['offlat'] = offlat # offlat in sec
@@ -627,9 +627,10 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     res['latbin'] = latbin # lat in bins
     res['offlatbin'] = offlatbin
     res['bfpos'] = bfpos
+    # bw in octaves
     res['bloidx'] = blo/sf
     res['bhiidx'] = bhi/sf
-    res['bw']= (res['bhiidx'] - res['bloidx']) * stepsize
+    res['bw'] = (res['bhiidx'] - res['bloidx']) * stepsize
     res['stepsize'] = stepsize
 
     return res
@@ -653,7 +654,8 @@ def get_binaural_strf_tuning(strf, **kwargs):
         res['i'+k] = ituning[k]
 
     res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
-    res['mcs'] = ipsi.mean() / np.abs(ipsi).mean()
+    res['mcs'] = contra.mean() / np.abs(contra).mean()
+    res['mis'] = ipsi.mean() / np.abs(ipsi).mean()
     res['ipsi_offset']=m
 
     return res
