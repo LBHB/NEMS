@@ -140,6 +140,7 @@ class CNN_pop(Model):
 
     def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
                  learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4):
+
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -156,6 +157,7 @@ class CNN_pop(Model):
                            'early_stopping_tolerance': early_stopping_tolerance,
                            'validation_split': 0,
                            'learning_rate': learning_rate, 'epochs': epochs
+
                            }
 
         strf = self.sample_from_priors()
@@ -184,6 +186,7 @@ class CNN_pop(Model):
         return LNpop_get_tuning(self, **opts)
 
     @layer('CNNpop')
+
     def from_keyword(keyword):
         # Return a subclass of Model rather than a layer
         #
