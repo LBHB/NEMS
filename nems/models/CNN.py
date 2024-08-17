@@ -22,11 +22,11 @@ log = logging.getLogger(__name__)
 # Currently a placeholder basd on LN pop
 
 # TODO: CNN forward models -- 1D? single cell? Pop?
-class CNN(Model):
+class CNN_pop(Model):
 
-    def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, share_tuning=True,
+    def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, L1=None, L2=None, share_tuning=True,
                  gaussian=False, nonlinearity='DoubleExponential',
-                 nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
+                 final_stride=1, nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """
         1D CNN Spectro-Temporal Receptive Field model.
 
@@ -79,27 +79,38 @@ class CNN(Model):
             self.out_range = [[-1] * channels_out, [3] * channels_out]
             return
 
-        # Add STRF
-        wc_class = WeightChannelsGaussian if gaussian else WeightChannels
+        if L1 is None:
+            L1 = rank
+
+        # Determine form of initial spectral filters
         if gaussian:
             wc_class1 = WeightChannelsGaussian
             reg1 = None
         else:
             wc_class1 = WeightChannels
             reg1 = regularizer
+
+        # layer 1
         if rank is None:
             # Full-rank finite impulse response, one per output channel
-            fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out), regularizer=regularizer)
+            fir = FiniteImpulseResponse(shape=(time_bins, channels_in, L1), regularizer=regularizer)
             self.add_layers(fir)
-        elif share_tuning:
-            wc = wc_class1(shape=(channels_in, 1, rank), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, 1, rank))
-            wc2 = WeightChannels(shape=(rank, channels_out), regularizer=regularizer)
-            self.add_layers(wc, fir, wc2)
         else:
-            wc = wc_class1(shape=(channels_in, rank, channels_out), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out))
+            wc = wc_class1(shape=(channels_in, 1, L1), regularizer=reg1)
+            fir = FiniteImpulseResponse(shape=(time_bins, 1, L1))
             self.add_layers(wc, fir)
+        relu1 = RectifiedLinear(shape=(L1,), no_offset=True, no_shift=False)
+
+        # layer(s) 2 and/or 3
+        if L2 is not None:
+            wc2 = WeightChannels(shape=(L1, L2))
+            relu2 = RectifiedLinear(shape=(L2,), no_offset=True, no_shift=False)
+            wc3 = WeightChannels(shape=(L2, channels_out))
+            self.add_layers(relu1, wc2, relu2, wc3)
+        else:
+            wc2 = WeightChannels(shape=(L1, channels_out))
+            self.add_layers(relu1, wc2)
+
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
@@ -127,7 +138,9 @@ class CNN(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4):
+
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -136,14 +149,15 @@ class CNN(Model):
         """
 
         fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': 1e-3,
+                          'early_stopping_tolerance': early_stopping_tolerance*10,
                           'validation_split': 0,
-                          'learning_rate': 1e-2, 'epochs': 3000
+                          'learning_rate': learning_rate*10, 'epochs': int(epochs/2)
                           }
         fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 1e-4,
+                           'early_stopping_tolerance': early_stopping_tolerance,
                            'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000
+                           'learning_rate': learning_rate, 'epochs': epochs
+
                            }
 
         strf = self.sample_from_priors()
@@ -171,7 +185,8 @@ class CNN(Model):
     def get_tuning(self, **opts):
         return LNpop_get_tuning(self, **opts)
 
-    @layer('LNpop')
+    @layer('CNNpop')
+
     def from_keyword(keyword):
         # Return a subclass of Model rather than a layer
         #

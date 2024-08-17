@@ -3,6 +3,7 @@
 '''
 
 from .LN import LN_STRF, LN_pop
+from .CNN import CNN_pop
 from .reconstruction import LN_reconstruction, CNN_reconstruction
 
 from .base import Model, Model_List
