@@ -77,12 +77,12 @@ class TensorFlowBackend(Backend):
                 p = 0.001
                 p2 = 0.001
                 if len(reg_ops)>=2:
-                    p=10 ** (-float(reg_ops[0]))
-                    p2=10 ** (-float(reg_ops[1]))
+                    p=10 ** (-float(reg_ops[0].replace("d", ".")))
+                    p2=10 ** (-float(reg_ops[1].replace("d", ".")))
                 elif len(reg_ops)>=1:
-                    p=10 ** (-float(reg_ops[0]))
+                    p=10 ** (-float(reg_ops[0].replace("d",".")))
                 elif len(reg)>2:
-                    p = 10 ** (-float(reg[2:]))
+                    p = 10 ** (-float(reg[2:].replace("d",".")))
                 if reg.startswith('l1l2'):
                     tf_kwargs = {'regularizer': regularizers.l1_l2(l1=p,l2=p2)}
                 elif reg.startswith('l2'):
