@@ -77,12 +77,15 @@ class FiniteImpulseResponse(Layer):
 
         """
         mean = np.full(shape=self.shape, fill_value=0.0)
-        sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
+        #sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
+        sd = np.full(shape=self.shape, fill_value=1/self.shape[0])
         # TODO: May be more appropriate to make this a hard requirement, but
         #       for now this should stop tiny filter sizes from causing errors.
         if mean.shape[0] > 2:
-            mean[1, :] = 2/np.prod(self.shape)
-            mean[2, :] = -1/np.prod(self.shape)
+            #mean[1, :] = 2/np.prod(self.shape)
+            #mean[2, :] = -1/np.prod(self.shape)
+            mean[1, :] = 2 / self.shape[0]
+            mean[2, :] = -1 / self.shape[0]
         prior = Normal(mean, sd)
 
         coefficients = Parameter(name='coefficients', shape=self.shape,
@@ -110,7 +113,7 @@ class FiniteImpulseResponse(Layer):
         # Flip rank, any other dimensions except time & number of outputs.
         coefficients = self._reshape_coefficients()
         # Match number of outputs in input and coefficients by broadcasting.
-        input, coefficients = self._broadcast(input, coefficients)
+        input, coefficients, _ = self._broadcast(input, coefficients)
 
         # Prepend zeros. (and append, if include_anticausal)
         padding = self._get_filter_padding(input, coefficients)
@@ -158,8 +161,15 @@ class FiniteImpulseResponse(Layer):
         # NOTE: This will only catch a missing output dimension for 2D data.
         #       For higher-dimensional data, the output dimension needs to be
         #       specified by users.
+        insert_dim = None
+
         if input.ndim < 3:
-            input = input[..., np.newaxis]
+            if input.shape[1] == coefficients.shape[2]:
+                input = input[:, np.newaxis, :]
+                insert_dim = 1
+            else:
+                input = input[..., np.newaxis]
+                insert_dim = -1
 
         if input.shape[-1] < coefficients.shape[-1]:
             try:
@@ -178,7 +188,7 @@ class FiniteImpulseResponse(Layer):
                     "coefficients, or one must be broadcastable to the other."
                     )
         
-        return input, coefficients
+        return input, coefficients, insert_dim
 
     def _get_filter_padding(self, input, coefficients):
         """Get zeros of correct shape to prepend to input on time axis."""
@@ -282,8 +292,7 @@ class FiniteImpulseResponse(Layer):
 
             def call(self, inputs):
                 # This will add an extra dim if there is no output dimension.
-                # input_width = inputs.shape[1] # tf.shape(inputs)[1]
-                input_width = tf.shape(inputs)[1]
+                input_width = tf.shape(inputs)[1] # tf.shape(inputs)[1] or inputs.shape[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
                 coefficients = broadcast_coefficients(self.coefficients)
@@ -323,7 +332,7 @@ class FiniteImpulseResponse(Layer):
         # TODO: This might mess up with multiple batches similar to WC?
         #       Need to check if list?
         fake_inputs = np.empty(shape=input_shape[1:])
-        new_inputs, broadcast_c = self._broadcast(fake_inputs, new_c)
+        new_inputs, broadcast_c, insert_dim = self._broadcast(fake_inputs, new_c)
         new_coefs_shape = list(new_c.shape[:-1]) + [broadcast_c.shape[-1]]
         new_inputs_shape = list(new_inputs.shape)
         n_outputs = new_coefs_shape[-1]
@@ -359,7 +368,9 @@ class FiniteImpulseResponse(Layer):
                 # if needed. Then broadcast outputs.
                 batch_size = tf.keras.backend.shape(inputs)[0]
                 shape = [batch_size] + new_inputs_shape
-                return tf.broadcast_to(tf.expand_dims(inputs, axis=-1), shape)
+                # insert_dim is where a dummy dimension was added to the inputs
+                # so that the summing occurs (or not) across the appropriate dims
+                return tf.broadcast_to(tf.expand_dims(inputs, axis=insert_dim+1), shape)
 
         else:
             # Otherwise, don't need to do anything to inputs.
