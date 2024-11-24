@@ -28,11 +28,6 @@ class CNN_pop(Model):
                  gaussian=False, nonlinearity='DoubleExponential', stride=1, L1_reps=1,
                  nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """
-
-        """
-
-
-        """
         1D CNN Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
