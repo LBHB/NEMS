@@ -28,11 +28,12 @@ class StaticNonlinearity(Layer):
     
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, normalize_output=False, **kwargs):
         require_shape(self, kwargs, minimum_ndim=1)
         super().__init__(**kwargs)
         self._skip_nonlinearity = False
         self._unfrozen_parameters = []
+        self.normalize_output = normalize_output
 
     def skip_nonlinearity(self):
         """Don't use `nonlinearity`, freeze nonlinear parameters."""
@@ -51,7 +52,7 @@ class StaticNonlinearity(Layer):
         self._skip_nonlinearity = False
 
     def evaluate(self, input):
-        """Apply `nonlinearity` to input(s). This should not be overwriten."""
+        """Apply `nonlinearity` to input(s). This should not be overwritten."""
         if not self._skip_nonlinearity:
             output = self.nonlinearity(input)
         else:
@@ -60,7 +61,16 @@ class StaticNonlinearity(Layer):
             # If there's a `shift` parameter for the subclassed nonlinearity,
             # still apply that. Otherwise, pass through inputs.
             output = input + self.parameters.get('shift', 0)
-        return output
+
+        if self.normalize_output:
+            s = np.std(output, axis=0, keepdims=True)
+            s[s==0]=1
+            output = output / s
+
+        if type(self.output) is list:
+            return [output]*len(self.output)
+        else:
+            return output
 
     def nonlinearity(self, input):
         """Pass through input(s). Subclasses should overwrite this."""
@@ -70,10 +80,17 @@ class StaticNonlinearity(Layer):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
+        norm = self.normalize_output
+
         class StaticNonlinearityTF(NemsKerasLayer):
             def call(self, inputs):
                 # TODO: why identity?
-                return tf.identity(inputs + self.shift)
+                if norm:
+                    s = tf.math.reduce_std(inputs, axis=-1, keepdims=True)
+                    s = tf.where(tf.equal(s, 0), 1, s)
+                    return tf.identity(inputs + self.shift) / s
+                else:
+                    return tf.identity(inputs + self.shift)
 
         return StaticNonlinearityTF(self, **kwargs)
 
@@ -506,6 +523,7 @@ class RectifiedLinear(StaticNonlinearity):
         no_shift = True
         no_offset = True
         no_gain = True
+        normalize_output = False
         shape = pop_shape(options)
 
         for op in options[1:]:
@@ -518,6 +536,8 @@ class RectifiedLinear(StaticNonlinearity):
                 no_offset = False
             elif op == 'g':
                 no_gain = False
+            elif op == 'n':
+                normalize_output = True
 
         relu = RectifiedLinear(
             shape=shape, no_shift=no_shift, no_offset=no_offset,
@@ -530,6 +550,11 @@ class RectifiedLinear(StaticNonlinearity):
         """TODO: docs"""
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
+
+        if type(self.output) is list:
+            output_count = len(self.output)
+        else:
+            output_count = 1
 
         if self._skip_nonlinearity:
             return super().as_tensorflow_layer(**kwargs)
