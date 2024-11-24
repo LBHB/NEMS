@@ -25,8 +25,8 @@ log = logging.getLogger(__name__)
 class CNN_pop(Model):
 
     def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, L1=None, L2=None, share_tuning=True,
-                 gaussian=False, nonlinearity='DoubleExponential',
-                 final_stride=1, nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
+                 gaussian=False, nonlinearity='DoubleExponential', stride=1, L1_reps=1,
+                 nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
         """
         1D CNN Spectro-Temporal Receptive Field model.
 
@@ -43,34 +43,36 @@ class CNN_pop(Model):
         Pennington & David (2023)
         doi: 10.1371/journal.pcbi.1004628
 
-        Parameters
-        ----------
-        time_bins : int.
-            Number of "taps" in FIR filter. We have found that a 150-250ms filter
+        :param time_bins: int.
+            Number of "taps" in L1 FIR filter. We have found that a 150-250ms filter
             typically sufficient for modeling A1 responses, or 15-25 bins for
             a 100 Hz sampling rate.
-        channels_in : int.
+        :param channels_in: int.
             Number of spectral channels in spectrogram.
-        channels_out : int.
+        :param channels_out: int.
             Number of output channels (neurons) to predict activity
-        share_tuning : bool; optional.
-            If True (default), project channels_in to intermediate space of size rank then FIR, then channels_out
-            If False, separate STRFs for each channel (full or partial rank depending on rank parameter)
-        rank : int; optional.
+        :param rank: int; optional.
             Number of spectral weightings used as input to a reduced-rank filter.
             For example, `rank=1` indicates a frequency-time separable STRF.
             If unspecified, a full-rank filter will be used.
-        nonlinearity : str; default='RectifiedLinear'.
+        :param L1: 
+        :param L2: 
+        :param share_tuning: 
+        :param gaussian: 
+        :param nonlinearity: str; default='RectifiedLinear'.
             Specifies which static nonlinearity to apply after the STRF.
             Default is the double exponential nonlinearity used in the paper
             cited above.
-        nl_kwargs : dict; optional.
+        :param stride: 
+        :param L1_reps: 
+        :param nl_kwargs: dict; optional.
             Additional keyword arguments for the nonlinearity Layer, like
             `no_shift` or `no_offset` for `RectifiedLinear`.
-        model_init_kwargs : dict; optional.
+        :param regularizer: 
+        :param from_saved: 
+        :param model_init_kwargs: dict; optional.
             Additional keyword arguments for `Model.__init__`, like `dtype`
             or `meta`.
-
         """
 
         super().__init__(**model_init_kwargs)
@@ -91,26 +93,42 @@ class CNN_pop(Model):
             reg1 = regularizer
 
         # layer 1
-        if rank is None:
-            # Full-rank finite impulse response, one per output channel
-            fir = FiniteImpulseResponse(shape=(time_bins, channels_in, L1), regularizer=regularizer)
-            self.add_layers(fir)
+        if stride > 1:
+            stride_per_layer = int(stride/L1_reps)
         else:
-            wc = wc_class1(shape=(channels_in, 1, L1), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, 1, L1))
-            self.add_layers(wc, fir)
-        relu1 = RectifiedLinear(shape=(L1,), no_offset=True, no_shift=False)
+            stride_per_layer = stride
+
+        for ll1 in range(L1_reps):
+            if ll1==0:
+                N_in = channels_in
+            else:
+                N_in = L1
+            relu1 = RectifiedLinear(shape=(L1,), no_offset=True, no_shift=False)
+            if rank is None:
+                # Full-rank finite impulse response, one per output channel
+                fir = FiniteImpulseResponse(shape=(time_bins, N_in, L1),
+                                            stride=stride, regularizer=regularizer)
+                self.add_layers(fir, relu1)
+            elif gaussian & (ll1==0):
+                wc = wc_class1(shape=(N_in, 1, L1))
+                fir = FiniteImpulseResponse(shape=(time_bins, 1, L1),
+                                            stride=stride_per_layer, regularizer=regularizer)
+                self.add_layers(wc, fir, relu1)
+            else:
+                wc = WeightChannels(shape=(N_in, 1, L1), regularizer=regularizer)
+                fir = FiniteImpulseResponse(shape=(time_bins, 1, L1),
+                                            stride=stride_per_layer)
+                self.add_layers(wc, fir, relu1)
 
         # layer(s) 2 and/or 3
         if L2 is not None:
-            wc2 = WeightChannels(shape=(L1, L2))
+            wc2 = WeightChannels(shape=(L1, L2), regularizer=regularizer)
             relu2 = RectifiedLinear(shape=(L2,), no_offset=True, no_shift=False)
-            wc3 = WeightChannels(shape=(L2, channels_out))
-            self.add_layers(relu1, wc2, relu2, wc3)
+            wc3 = WeightChannels(shape=(L2, channels_out), regularizer=regularizer)
+            self.add_layers(wc2, relu2, wc3)
         else:
-            wc2 = WeightChannels(shape=(L1, channels_out))
-            self.add_layers(relu1, wc2)
-
+            wc2 = WeightChannels(shape=(L1, channels_out), regularizer=regularizer)
+            self.add_layers(wc2)
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
@@ -122,12 +140,13 @@ class CNN_pop(Model):
         elif nonlinearity in ['', None]:
             nl_class = None
         else:
-            raise ValueError(
-                f'Unrecognized nonlinearity for LN model:  {nonlinearity}.')
+            raise ValueError(f'Unrecognized nonlinearity for CNN model: {nonlinearity}.')
+
         if nl_class is not None:
             if nl_kwargs is None: nl_kwargs = {}
             nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
             self.add_layers(nonlinearity)
+
         self.out_range = [[-1] * channels_out, [3] * channels_out]
 
     @classmethod
@@ -196,7 +215,7 @@ class CNN_pop(Model):
 
         d = {}
         if (shape is None):
-            raise ValueError("shape must be TxCINxCOUT or TxCINxCOUTxRANK")
+            raise ValueError("shape must be TxCINxCOUT or TxCINxCOUTxRANK or TxCINxCOUTxRANKxL2SIZE")
         elif len(shape) == 3:
             d['time_bins'] = shape[0]
             d['channels_in'] = shape[1]
@@ -206,6 +225,12 @@ class CNN_pop(Model):
             d['channels_in'] = shape[1]
             d['channels_out'] = shape[2]
             d['rank'] = shape[3]
+        elif len(shape) == 5:
+            d['time_bins'] = shape[0]
+            d['channels_in'] = shape[1]
+            d['channels_out'] = shape[2]
+            d['rank'] = shape[3]
+            d['L2'] = shape[4]
         else:
             raise ValueError("shape must be TxCINxCOUT or TxCINxCOUTxRANK")
 
@@ -220,7 +245,9 @@ class CNN_pop(Model):
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
             elif op.startswith('l2'):
                 d['regularizer'] = op
-        return LN_pop(**d)
+            elif op.startswith('c'):
+                d['L1_reps'] = int(op[1:])
+        return CNN_pop(**d)
 
 ##
 ## helper functions
