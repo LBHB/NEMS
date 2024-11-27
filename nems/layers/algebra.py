@@ -269,6 +269,60 @@ class MultiplySignals(Layer):
         return MultiplySignalsTF(self, **kwargs)
 
 
+class ApplyHRTF(Layer):
+
+    def __init__(self, input1='hrtf', input2='stim', input=None, **kwargs):
+        input = [input1, input2]
+        super().__init__(input=input, **kwargs)
+
+    @layer('mult')
+    def from_keyword(keyword):
+        """Construct MultiplySignals from keyword."""
+        options = keyword.split('.')
+        kwargs = {}
+        if len(options) > 1:
+            kwargs['input1'] = options[1]
+        if len(options) > 2:
+            kwargs['input2'] = options[2]
+        kwargs['output'] = 'hstim'
+        return ApplyHRTF(**kwargs)
+
+    def evaluate(self, input1, input2):
+        # All inputs are treated the same, no fitable parameters.
+        x = input1 * input2[..., np.newaxis]
+        m = int(x.shape[-2]/2)
+        x = x[..., :m, :] + x[..., m:, :]
+        x = np.reshape(np.swapaxes(x, -1, -2), [x.shape[0], x.shape[1]*x.shape[2]])
+
+        return x
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf.layer_tools import NemsKerasLayer
+
+        class ApplyHRTFTF(NemsKerasLayer):
+            def call(self, inputs):
+                # Assume inputs is a list of two tensors
+                # TODO: Use tensor names to not require this arbitrary order.
+                m = int(tf.shape(inputs[1])[-1] / 2)
+
+                # add power
+                #x = tf.math.multiply(inputs[0], tf.math.square(tf.expand_dims(inputs[1], -1)))
+                #x = tf.math.sqrt(tf.nn.relu(tf.math.add(x[...,:m,:], x[...,m:,:])))
+
+                # add raw
+                x = tf.math.multiply(inputs[0], tf.expand_dims(inputs[1], -1))
+                x = tf.math.add(x[..., :m, :], x[..., m:, :])
+
+                x_shape = tf.shape(x)
+                x = tf.reshape(tf.transpose(x, [0, 1, 3, 2]),
+                               [-1, x_shape[1], tf.reduce_prod(x_shape[2:])])
+                return x
+
+        return ApplyHRTFTF(self, **kwargs)
+
+
 class MultiplyByExp(Layer):
 
     def __init__(self, **kwargs):

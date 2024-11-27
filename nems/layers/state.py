@@ -525,52 +525,122 @@ class HRTF(Layer):
     state_arg = 'state'  # azimuth, elevation, tilt, distance
     #state_arg = 'aerd'  # azimuth, elevation, tilt, distance
 
-    def __init__(self, speaker_count=2, **kwargs):
-        """Docs TODO.
-
-        Parameters
-        ----------
-        shape : 2-tuple of int.
-            (size of last dimension of aerd, number of spectral channels per source)
-            eg, 6 x 18 means 6 aerd channels, 18-channel spectrogram
-        speaker_count : number of sound sources (default 2)
+    def __init__(self, shape, channel0=0, apply_gain=True, **kwargs):
+        """
+        Docs TODO.
+        :param shape : tuple of int
+            if 1dim -- number of stimulus channels (assume 1 lag, 2 banks)
+            if 2dim -- time lags X number of total stimulus channels (assume 2 banks)
+            if 3dim -- time lags X stim channel count X number of banks
+            channel per bank = # channels/ # banks (should be int)
+        :param channel0: index of first channel of first source (permits additional
+                         non-auditory channels either above or below acoustic channels)
+        :param apply_gain: if False, additive (since stim could be in log space)
+        :param kwargs:
 
         Examples
         --------
+        stim = np.zeros((100,36))
+        stim[25,3] = 1
+        stim[50,25] = 2
+        h = HRTF(shape=(1,36,2))
+
         TODO
 
         """
-        require_shape(self, kwargs, minimum_ndim=1)
+        require_shape(self, {'shape': shape}, minimum_ndim=1)
 
-        from nems_lbhb.projects.freemoving.free_tools import load_hrtf
+        if len(shape) == 1:
+            shape = (1, shape[0])
+        if len(shape) == 2:
+            shape = (shape[0], shape[1], 2)
+        self.speaker_count = shape[2]
+        self.channels = int(shape[1]/shape[2])
+        self.channel0 = channel0
+        self.apply_gain = apply_gain
 
-        self.speaker_count=speaker_count
-        self.num_freqs = kwargs['shape'][1]
-        self.L, self.R, self.c, self.A, self.E = load_hrtf(
-            format='az_el', fmin=200, fmax=20000,
-            num_freqs=self.num_freqs)
+        # acausal filter
+        filter_length = shape[0]
+        pre_length = int(np.floor(filter_length/2)) - 1
+        post_length = filter_length - pre_length - 1
+        self.padding = [[pre_length, post_length]] + [[0, 0]]
 
-        super().__init__(**kwargs)
+        super().__init__(shape=shape, **kwargs)
 
-    #def initial_parameters(self):
-    #    pass
 
-    def evaluate(self, input, state):
-        """Multiply and shift input(s) by weighted sums of state channels.
+    def initial_parameters(self):
+        """Get initial values for `FIR.parameters`.
 
-        Parameters
-        ----------
-        input : ndarray
-            Data to be modulated by state, typically the output of a previous
-            Layer.
-        state : ndarray
-            State data to modulate input with.
+        Layer parameters
+        ----------------
+        coefficients : ndarray
+            Shape matches `FIR.shape`.
+            Prior:  Normal(mean=0, sd=1/size)
+            Bounds: (-np.inf, np.inf)
+
+        Returns
+        -------
+        nems.layers.base.Phi
 
         """
-        pass
-        return input
-        #gain, offset = self.get_parameter_values()
-        #return np.matmul(state, gain) * input + np.matmul(state, offset)
+        mean = np.full(shape=self.shape, fill_value=0.0)
+        # sd = np.full(shape=self.shape, fill_value=1/np.prod(self.shape))
+        sd = np.full(shape=self.shape, fill_value=1 / self.shape[0])
+        # TODO: May be more appropriate to make this a hard requirement, but
+        #       for now this should stop tiny filter sizes from causing errors.
+
+        mm = int(self.shape[0]/2)
+        for bb in range(self.speaker_count):
+            mean[mm, (bb*self.channels):((bb+1)*self.channels), bb] = 1
+        prior = Normal(mean, sd)
+        bounds = (0, 2)
+        coefficients = Parameter(name='coefficients', shape=self.shape, prior=prior,
+                                 bounds=bounds)
+        return Phi(coefficients)
+
+    @property
+    def coefficients(self):
+        """Filter that will be convolved with input.
+
+        Re-parameterized subclasses should overwrite this so that `evaluate`
+        doesn't need to change.
+
+        Returns
+        -------
+        coefficients : ndarray
+            coefficients.shape = WeightChannels.shape
+
+        """
+        return self.parameters['coefficients'].values
+
+    def evaluate(self, input):
+        """Convolve `FIR.coefficients` with input."""
+
+        # Flip rank, any other dimensions except time & number of outputs.
+        coefficients = self._reshape_coefficients()
+
+        # pad with zeros, select acoustic channels
+        input_with_padding = np.pad(input[..., self.channel0:(self.channel0+self.shape[1])], self.padding)
+
+        # Convolve each filter with the corresponding input channel.
+        outputs = []
+        n_filters = coefficients.shape[-1]
+        for i in range(n_filters):
+            y = scipy.signal.convolve(
+                input_with_padding, coefficients[..., i], mode='valid'
+            )
+            outputs.append(y)
+
+        # Concatenate on n_outputs axis
+        output_ = np.stack(outputs, axis=-1)
+        # output_ = time X <totalchans> X bankcount
+        output_ = np.rehsape(output_, [-1, self.channels, self.speaker_count, self.speaker_count])
+        output_ = np.mean(output_, axis=2)
+
+        output = input.copy()
+        output[..., self.channel0:(self.channel0+self.shape[1])] = output_
+
+        return output
 
     @layer('hrtf')
     def from_keyword(keyword):

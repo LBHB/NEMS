@@ -581,14 +581,10 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     if cell_list is not None:
         channels = [i for i,c in enumerate(model.meta['cellids']) if c in cell_list]
     if channels is None:
-<<<<<<< HEAD
         strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
         channels = np.arange(strf2.shape[-1])
     strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
     channels_out = len(channels)
-=======
-        channels = np.arange(channels_out)
->>>>>>> main
 
     m = int(strf2.shape[0]/2)
     hcontra = strf2[:m, :, :]
@@ -611,14 +607,6 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     #wc2std[wc2std==0]=1
     #wc2 /= wc2std
 
-<<<<<<< HEAD
-=======
-    if plot_nl:
-        col_mult = 2
-    else:
-        col_mult = 1
-
->>>>>>> main
     if channels_out > 3:
         rowcount = int(np.ceil(np.sqrt(channels_out)))
         colcount = int(np.ceil(channels_out/rowcount))
@@ -650,6 +638,8 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     if row_mult>1:
         ax2=ax[::2]
         ax=ax[1::2]
+    else:
+        ax2 = ax
     if (colcount*col_mult)==1:
         ax=np.array([ax]).T
     for c, ch in enumerate(channels):
@@ -658,7 +648,6 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         # call single-STRF plotter to actually generate the plot
         if labels is not None:
             lbl = labels[c]
-<<<<<<< HEAD
         elif 'cellids' in model.meta.keys():
             lbl = model.meta['cellids'][ch]
         else:
@@ -666,16 +655,10 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
                      binaural=binaural, ax=ax[rr, cc*col_mult], ax2=ax2[rr, cc*col_mult], fs=fs,
                      show_tuning=show_tuning, show_gabor=show_gabor, label=lbl)
-=======
-        else:
-            lbl = f"ch{ch}"
-        LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
-                     binaural=binaural, ax=ax[rr, cc*col_mult], fs=fs,
-                     show_tuning=show_tuning, label=lbl)
+
         yl = ax[rr,cc*col_mult].get_ylim()
         if rr<rowcount-1:
             ax[rr,cc*col_mult].set_xlabel('')
->>>>>>> main
 
         #yl = ax[rr,cc*col_mult].get_ylim()
         if rr<rowcount-1:
@@ -895,7 +878,6 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
 
     sf = 4
     strfsmooth = zoom(strf, sf)
-<<<<<<< HEAD
     #strfsmooth = gaussian_filter(strfsmooth, sigma=1)
     #strfsmooth[np.abs(strfsmooth) < strfsmooth.std()/2] = 0
     ff = np.exp(np.linspace(np.log(fmin), np.log(fmax), strfsmooth.shape[0]))
@@ -904,15 +886,6 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     mm = np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] > 0)), 1)
     mmneg = -np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] < 0)), 1)
 
-=======
-    strfsmooth[np.abs(strfsmooth) < strfsmooth.std()/2] = 0
-    ff = np.exp(np.linspace(np.log(fmin), np.log(fmax), strfsmooth.shape[0]))
-
-    onsetbins = int(0.6/timestep*sf)
-    mm = np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] > 0)), 1)
-    mmneg = -np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] < 0)), 1)
-
->>>>>>> main
     if (mm.max() < mmneg.max()):
         mm = mmneg
         bfpos = False
@@ -986,15 +959,10 @@ def get_binaural_strf_tuning(strf, **kwargs):
     res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
     res['mcs'] = contra.mean() / np.abs(contra).mean()
     res['mis'] = ipsi.mean() / np.abs(ipsi).mean()
-<<<<<<< HEAD
     res['ipsi_offset'] = m
     res['fcorr'] = np.abs(np.corrcoef(res['cfcurve'],res['ifcurve'])[0,1])
     res['tcorr'] = np.abs(np.corrcoef(res['ctcurve'],res['itcurve'])[0,1])
-    
-=======
-    res['ipsi_offset']=m
 
->>>>>>> main
     return res
 
 def LNpop_get_tuning(model, channels=None, cell_list=None, layer=2, binaural=None, **tuningargs):

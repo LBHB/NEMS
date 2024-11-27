@@ -13,7 +13,7 @@ from .weight_channels import WeightChannels, WeightChannelsMulti, WeightChannels
 from .state import StateGain, StateDexp, StateHinge, HRTF
 from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
-from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp
+from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp, ApplyHRTF
 from .conv2d import Conv2d
 
 from .base import Layer, Phi, Parameter
