@@ -72,7 +72,7 @@ class LN_STRF(Model):
         # Add STRF
         if rank is None:
             # Full-rank finite impulse response
-            fir = FiniteImpulseResponse(shape=(time_bins, channels))
+            fir = FiniteImpulseResponse(shape=(time_bins, channels), regularizer=regularizer)
             self.add_layers(fir)
         else:
             wc_class = WeightChannelsGaussian if gaussian else WeightChannels
@@ -285,12 +285,13 @@ class LN_pop(Model):
             self.add_layers(fir)
         elif share_tuning:
             wc = wc_class1(shape=(channels_in, 1, rank), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, 1, rank), include_anticausal=include_anticausal)
+            fir = FiniteImpulseResponse(shape=(time_bins, 1, rank),
+                                        include_anticausal=include_anticausal, regularizer=regularizer)
             wc2 = WeightChannels(shape=(rank, channels_out), regularizer=regularizer)
             self.add_layers(wc, fir, wc2)
         else:
             wc = wc_class1(shape=(channels_in, rank, channels_out), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal)
+            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal, regularizer=regularizer)
             self.add_layers(wc, fir)
 
         # Add static nonlinearity
@@ -500,13 +501,15 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     logf = np.linspace(np.log2(fmin), np.log2(fmax), strf.shape[0] + 1)
     if binaural:
         res['ipsi_offset'] = np.mean(logf)
-    t = np.linspace(0, 1/fs*strf.shape[1], strf.shape[1] + 1)
+    tt = np.arange(strf.shape[1])/fs
     if ac:
-        t=t-t[int(len(t)/2)]
-    extent = [t[0]+x0, t[-1]+x0, logf[0]+y0, logf[-1]+y0]
+        tt=tt-tt[int(len(tt)/2)]
+    dt=(tt[1]-tt[0])/2
+    extent = [tt[0]-dt+x0, tt[-1]+dt+x0, logf[0]+y0, logf[-1]+y0]
     mm = np.max(np.abs(strf))
     if show_gabor:
-        mm=mm*2
+        mm = mm*1.2
+
     if binaural:
         m = int(strf.shape[0]/2)
         hcontra = strf[:m, :]
@@ -523,6 +526,10 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         ax.imshow(strf, aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
+        lf = np.array(ax.get_yticks())[1:-1]
+        fr = np.round(2 ** lf / 1000, 1)
+        ax.set_yticks(lf, fr)
+
     if show_tuning:
         f_ = scipy.interpolate.interp1d(np.arange(len(logf)), logf, fill_value="extrapolate")
         for ci, p in enumerate(prelist):
@@ -538,17 +545,17 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         if binaural & (ax2 is not None):
             phiopt, E = strf2gabor(hipsi,fs=fs, fmin=model.fmin, fmax=model.fmax)
             label2 = f"{label} I BF={2**phiopt[0][0]/1000:.1f}K"
-            plot_gabor(phiopt[0], ax=ax2, logf=logf, t=t, show_contours=True, x0=x0, y0=y0)
+            plot_gabor(phiopt[0], ax=ax2, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
 
             phiopt, E = strf2gabor(hcontra,fs=fs, fmin=model.fmin, fmax=model.fmax)
             label = f"{label} C BF={2**phiopt[0][0]/1000:.1f}K"
-            plot_gabor(phiopt[0], ax=ax, logf=logf, t=t, show_contours=True, x0=x0, y0=y0)
+            plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
 
         else:
             phiopt, E = strf2gabor(strf, binaural=binaural, fs=fs, fmin=model.fmin, fmax=model.fmax)
             #label = f"{label} E={E[0]:.2f}"
             label = f"{label} BF={2**phiopt[0][0]/1000:.1f}K"
-            plot_gabor(phiopt[0], ax=ax, logf=logf, t=t, show_contours=True, x0=x0, y0=y0)
+            plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
     else:
         label2 = None
     if show_label==False:

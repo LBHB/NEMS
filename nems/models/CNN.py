@@ -117,7 +117,7 @@ class CNN_pop(Model):
             else:
                 wc = WeightChannels(shape=(N_in, 1, L1), regularizer=regularizer)
                 fir = FiniteImpulseResponse(shape=(time_bins, 1, L1),
-                                            stride=stride_per_layer)
+                                            stride=stride_per_layer, regularizer=regularizer)
                 self.add_layers(wc, fir, relu1)
 
         # layer(s) 2 and/or 3

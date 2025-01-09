@@ -323,7 +323,7 @@ class WeightChannelsGaussian(WeightChannels):
 
         # bounds on parameter values. 0.01 is very skinny for sd, but it seems to help
         mean_bounds = (-0.1, 1.1)
-        sd_bounds = (0.01, np.inf)
+        sd_bounds = (0.05, np.inf)
 
         shape = self.shape[1:]
 
@@ -502,6 +502,8 @@ class WeightChannelsMultiGaussian(WeightChannels):
         """Multiply `input[...,i]` by `WeightChannels.coefficients[...,i]`."""
 
         try:
+            print(input.shape, self.coefficients.shape)
+            #output = np.matmul(input, self.coefficients)
             output = np.moveaxis(
                 np.matmul(np.rollaxis(input, 2), np.rollaxis(self.coefficients, 2)),
                 [0,1,2],[2,0,1])
@@ -526,6 +528,7 @@ class WeightChannelsMultiGaussian(WeightChannels):
             def call(self, inputs):
                 # reshape inputs and coefficients so that mult can happen on last
                 # two dimensions. Broadcasting seems to work fine this way
+                #out = tf.matmul(inputs, self.coefficients)
                 out = tf.transpose(
                     tf.matmul(
                         tf.transpose(inputs, perm=[0, 3, 1, 2]),
@@ -608,19 +611,17 @@ class WeightGaussianExpand(Layer):
         coefficients = np.exp(-0.5*((x-mean)/sd)**2)  # (rank, ..., outputs, T)
 
         # Normalize by the cumulative sum for each channel
-        #cumulative_sum = np.sum(coefficients, axis=-1, keepdims=True)
+        cumulative_sum = np.sum(coefficients, axis=-1, keepdims=True)
         # If all coefficients for a channel are 0, skip normalization
-        #cumulative_sum[cumulative_sum == 0] = 1
-        normalized = coefficients*amp # / cumulative_sum
+        cumulative_sum[cumulative_sum == 0] = 1
+        normalized = amp * coefficients / cumulative_sum
+        #normalized = coefficients*amp # / cumulative_sum
 
         reordered = np.moveaxis(normalized, -1, 1)  # (T, rank, ..., outputs)
         return reordered
 
     def evaluate(self, input):
-        """Multiply input by WeightChannels.coefficients.
-
-        Computes $y = XA$ for input $X$, where $A$ is
-        `WeightChannels.coefficients` and $y$ is the output.
+        """Multiply input by self.coefficients.
 
         Parameters
         ----------
@@ -633,8 +634,11 @@ class WeightGaussianExpand(Layer):
         """
 
         try:
-            sci = 1 / (1+np.exp(-input))
-            output = np.tensordot(sci, self.coefficients, axes=(1, 0))
+            c=self.coefficients
+            cs = list(c.shape)
+            c=np.reshape(c, [c.shape[0],-1])
+            output = np.matmul(input, c)
+            output = np.reshape(output, [-1]+cs[1:])
             #mm = np.exp(output)
             #nn = np.sum(mm, axis=1, keepdims=True)
             #output = mm/nn
@@ -662,26 +666,25 @@ class WeightGaussianExpand(Layer):
         sd, = self.get_parameter_values('sd')
         sd_lower, sd_upper = self.parameters['sd'].bounds
         new_values = {'sd': sd*10}
-        new_bounds = {'sd': (sd_lower, sd_upper*10)}
+        new_bounds = {'sd': (sd_lower*10, sd_upper*10)}
         output_channels = self.shape[1]
         class WeightGaussianExpandTF(NemsKerasLayer):
             def call(self, inputs):
-                mean = tf.expand_dims(self.mean, -1)
-                sd = tf.expand_dims(self.sd/10, -1)
-                amp = tf.expand_dims(self.amp, -1)
+                mean = tf.expand_dims(self.mean, 0)
+                sd = tf.expand_dims(self.sd/10, 0)
+                amp = tf.expand_dims(self.amp, 0)
                 output_features = tf.cast(output_channels, dtype=inputs.dtype)
-                temp = tf.expand_dims(tf.range(output_features) / output_features, 0)
+                temp = tf.range(output_features) / output_features
+                for i in mean.shape[1:]:
+                    temp = tf.expand_dims(temp,-1)
                 temp = (temp-mean)/sd
                 temp = tf.math.exp(-0.5 * tf.math.square(temp))
-                #norm = tf.math.reduce_sum(temp, axis=0, keepdims=True)
-                kernel = temp * amp
-                sci = 1 / (1+tf.math.exp(-inputs))
-                return tf.tensordot(sci, kernel, axes=[[2], [0]])
-
-                #mm = tf.math.exp(sc)
-                #nn = tf.reduce_sum(mm, axis=1, keepdims=True)
-                #return mm/nn
-                #return sc
+                norm = tf.math.reduce_sum(temp, axis=0, keepdims=True)
+                kernel = temp / norm
+                kernel = kernel * amp
+                #sci = 1 / (1+tf.math.exp(-inputs))
+                #out = tf.matmul(inputs, kernel)
+                return tf.tensordot(inputs, kernel, axes=[[2], [1]])
 
             def weights_to_values(self):
                 values = self.parameter_values
