@@ -135,9 +135,21 @@ class Model:
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
         self.dstrf_backend = None  # backend for model with output NL removed
-        self.fs = fs
-        self.fmin = fmin
-        self.fmax = fmax
+
+    @property
+    def fs(self):
+        """Sampling rate of resp"""
+        return self.meta.get('fs',None)
+
+    @property
+    def fmin(self):
+        """Low end of input spectrogram"""
+        return self.meta.get('fmin',None)
+
+    @property
+    def fmax(self):
+        """Low end of input spectrogram"""
+        return self.meta.get('fmax',None)
 
     @property
     def layers(self):
