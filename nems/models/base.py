@@ -65,7 +65,7 @@ class Model:
     """
 
     def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
-                 fs=None, fmin=200, fmax=20000, from_saved=False):
+                 fs=None, f_min=200, f_max=20000, from_saved=False):
         """
         Parameters
         ----------
@@ -127,9 +127,12 @@ class Model:
         # encoded by `json.dumps`.
         if meta is None: meta = {}
         meta['subclass'] = str(self.__class__).split("'")[1]
-        meta['fs'] = fs
-        meta['fmin'] = fmin
-        meta['fmax'] = fmax
+        if 'fs' not in meta.keys():
+            meta['fs'] = fs
+        if 'f_max' not in meta.keys():
+            meta['f_max'] = f_max
+        if 'f_min' not in meta.keys():
+            meta['f_min'] = f_min
 
         self.meta = meta
         self.results = None   # holds FitResults after Model.fit()
@@ -142,14 +145,14 @@ class Model:
         return self.meta.get('fs',None)
 
     @property
-    def fmin(self):
+    def f_min(self):
         """Low end of input spectrogram"""
-        return self.meta.get('fmin',None)
+        return self.meta.get('f_min',None)
 
     @property
-    def fmax(self):
+    def f_max(self):
         """Low end of input spectrogram"""
-        return self.meta.get('fmax',None)
+        return self.meta.get('f_max',None)
 
     @property
     def layers(self):
