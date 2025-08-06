@@ -35,7 +35,8 @@ def loss_se(response, prediction):
     r = tf.boolean_mask(response, tf.math.is_finite(response))
     p = tf.boolean_mask(prediction, tf.math.is_finite(response))
 
-    return (tf.math.reduce_mean(tf.math.square(r - p))) / (tf.math.reduce_mean(tf.math.square(r)))
+    eps = 1e-6
+    return (tf.math.reduce_mean(tf.math.square(r - p))) / (eps + tf.math.reduce_mean(tf.math.square(r)))
     #return (tf.math.reduce_mean(tf.math.square(response - prediction))) / (tf.math.reduce_mean(tf.math.square(response)))
 
 

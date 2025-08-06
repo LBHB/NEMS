@@ -65,7 +65,7 @@ class Model:
     """
 
     def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
-                 fs=None, from_saved=False):
+                 fs=None, f_min=200, f_max=20000, from_saved=False):
         """
         Parameters
         ----------
@@ -126,13 +126,35 @@ class Model:
         # about the model. Any type can be stored here as long as it can be
         # encoded by `json.dumps`.
         if meta is None: meta = {}
+        meta['engine'] = 'nems-lite'
         meta['subclass'] = str(self.__class__).split("'")[1]
+        if 'fs' not in meta.keys():
+            meta['fs'] = fs
+        if 'f_max' not in meta.keys():
+            meta['f_max'] = f_max
+        if 'f_min' not in meta.keys():
+            meta['f_min'] = f_min
+
         self.meta = meta
         self.results = None   # holds FitResults after Model.fit()
         self.backend = None # holds all previous Backends (1 per key)
         self.dstrf_backend = None  # backend for model with output NL removed
-        self.fs = fs
-        
+
+    @property
+    def fs(self):
+        """Sampling rate of resp"""
+        return self.meta.get('fs',None)
+
+    @property
+    def f_min(self):
+        """Low end of input spectrogram"""
+        return self.meta.get('f_min',None)
+
+    @property
+    def f_max(self):
+        """Low end of input spectrogram"""
+        return self.meta.get('f_max',None)
+
     @property
     def layers(self):
         """Get all Model Layers. Supports integer or string indexing."""
@@ -1433,6 +1455,16 @@ class Model:
         if any([cls.__name__.split('.')[-1] == 'Model' for cls in inheritance_list]):
             return layers[0]
         else:
+            kwdict = {}
+            for i, kw in enumerate(keywords):
+                k = kw.split(".")[0]
+                if k in kwdict.keys():
+                    kwdict[k] += 1
+                else:
+                    kwdict[k] = 1
+                layers[i]._name = f"{k}{kwdict[k]}"
+                if (layers[i].output is None) & (i < len(keywords) - 1):  # & (k=='relu'):
+                    layers[i].output = f"{k}{kwdict[k]}"
             return cls(layers=layers)
 
     # Add compatibility for saving to json

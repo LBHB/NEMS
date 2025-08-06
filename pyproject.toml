@@ -27,6 +27,7 @@ dependencies = [
 # temp removed
 #    "numba>=0.57.0"
 requires-python = ">=3.9"
+#requires-python = ">=3.8"
 
 [project.optional-dependencies]
 dev = ["build", "twine", "pytest"]
