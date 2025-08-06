@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import scipy.signal
 from scipy import interpolate
@@ -8,10 +10,12 @@ from nems.registry import layer
 from nems.distributions import Normal, HalfNormal
 from nems.tools.arrays import broadcast_axes
 
+log = logging.getLogger(__name__)
+
 
 class FiniteImpulseResponse(Layer):
 
-    def __init__(self, stride=1, include_anticausal=False, **kwargs):
+    def __init__(self, stride=1, include_anticausal=False, fshape=None, **kwargs):
         """Convolve linear filter(s) with input.
 
         Parameters
@@ -57,6 +61,10 @@ class FiniteImpulseResponse(Layer):
         require_shape(self, kwargs, minimum_ndim=2)
         self.stride = stride
         self.include_anticausal = include_anticausal
+        try:
+            x_ = self.fshape
+        except:
+            self.fshape = kwargs['shape']
 
         super().__init__(**kwargs)
 
@@ -477,12 +485,400 @@ class FiniteImpulseResponse(Layer):
 
         return convolve
 
-
-# Aliases, STRF specifically for full-rank (but not enforced)
+# Alias
 class FIR(FiniteImpulseResponse):
     pass
+    
+
 class STRF(FiniteImpulseResponse):
-    pass
+    """
+    agglomerated WeightChannels + FIR filter for low-rank STRF layer
+
+    TODO: support for activation function?
+    """
+    def __init__(self, stride=1, include_anticausal=False, activation=None,
+                 skip_alpha=0, skip_layer=None,
+                 wshape=None, fshape=None, nout=1, **kwargs):
+        """
+        Spectrotemporal filter
+
+        Parameters
+        ----------
+        shape : N-tuple
+            Determines the shape of `STRF.coefficients`. Axes should be:
+            (C, [R,] T, [N]) (C=input channels, R=rank, T=time bins, N=output channels)
+            All four dims specified:
+               wcoefficients: C x R
+               coefficients: R x T x N
+            Only Three dimensions: shape=(C,R,T): 1 output
+               wcoefficients: C x R
+               coefficients: R x T
+            Temporal filter will be applied to last dimension of input, and channel
+            weighting will be appled to second-to-last dimension [.., C, T]
+
+        See also
+        --------
+        nems.layers.base.Layer
+
+        Examples
+        --------
+        >>> strf = STRF(shape=(4,1,15,2))   # (time, input channels)
+        >>> weighted_input = np.random.rand(10000, 4)   # (time, channels)
+        >>> out = fir.evaluate(weighted_input)
+        >>> out.shape
+        (10000, 2)
+
+        """
+        require_shape(self, kwargs, minimum_ndim=2)
+        self.stride = stride
+        self.activation = activation
+        if skip_layer is not None:
+            if skip_layer:
+                skip_alpha=1
+            else:
+                skip_alpha=0
+        self.skip_alpha = skip_alpha
+        self.include_anticausal = include_anticausal
+
+        # separate shapes for spectral weighting and fir transformations
+        shape = list(kwargs['shape'])
+        self.wshape = [shape[0], shape[1]]  # compatible with WeightChannels
+        self.fshape = [shape[2], shape[1]]  # compatible with FiniteImpulseResponse
+        if len(shape)==4:
+            self.wshape.append(shape[3])
+            self.fshape.append(shape[3])
+            if self.fshape[0]>1:
+                self.nout=(1,shape[3])
+            else:
+                self.nout=(1,shape[2])
+        else:
+            if self.fshape[0]>1:
+                self.nout=(1,1)
+            else:
+                self.nout=(1,shape[1])
+
+        super().__init__(**kwargs)
+
+
+    def initial_parameters(self):
+        """Get initial values for `STRF.parameters`.
+        
+        Layer parameters
+        ----------------
+        coefficients : ndarray T x R x N or T x C x N
+            Shape matches `STRF.shape[:2]`.
+            Prior:  Normal(mean=0, sd=1/T
+            Bounds: (-np.inf, np.inf)
+        wcoefficients : ndarray C x R or empty
+            Shape matches `STRF.shape[2:]`.
+            Prior:  Normal(mean=1/(C*2), sd=1/C)
+            Bounds: (-np.inf, np.inf)
+
+        Returns
+        -------
+        tuple (wcoefficients, coefficients) of (nems.layers.base.Phi, nems.layers.base.Phi)
+
+        """
+        wshape = self.wshape  # compatible with WeightChannels
+        fshape = self.fshape  # compatible with FiniteImpulseResponse
+        nout = self.nout
+        
+        # wmean = np.full(shape=wshape, fill_value=1/wshape[0]/2)
+        wmean = np.full(shape=wshape, fill_value=0.01)
+        fmean = np.full(shape=fshape, fill_value=0.0)
+        if fshape[0]>=10:
+            # assume not that many layers with long integration time
+            fmean[1] = 2/fshape[0]
+            fmean[2] = -1/fshape[0]
+        elif fshape[0]>2:
+            # assume possibility of short integration time (ie, lag 0)
+            # TODO: May be more appropriate to make this a hard requirement, but
+            #       for now this should stop tiny filter sizes from causing errors.
+            fmean[0] = 0.5/fshape[0]
+            fmean[1] = 0.5/fshape[0]
+            fmean[2] = -0.5/fshape[0]
+
+        # wsd = np.full(shape=wshape, fill_value=1/wshape[0])
+        wsd = np.full(shape=wshape, fill_value=0.05)
+        fsd = np.full(shape=fshape, fill_value=1/fshape[0])
+            
+        wprior = Normal(wmean, wsd)
+        fprior = Normal(fmean, fsd)
+        shiftprior = Normal(np.zeros(shape=nout), np.ones(shape=nout)/100)
+        if np.abs(self.skip_alpha)>0:
+            alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
+        else:
+            alphaprior = Normal(np.array([0]), np.array([1]))
+
+        wcoefficients = Parameter(name='wcoefficients', shape=wshape, prior=wprior)
+        coefficients = Parameter(name='coefficients', shape=fshape, prior=fprior)
+        shift = Parameter('shift', shape=nout, prior=shiftprior)
+        alpha = Parameter('alpha', shape=(1,), prior=alphaprior)
+
+        return Phi(wcoefficients, coefficients, shift, alpha)
+
+    """ TODO: Make sure simply of to inherit from FiniteImpulseResponse?? """
+    # @property
+    # def coefficients(self):
+
+    @property
+    def wcoefficients(self):
+        """Filter that will weight the input into R channels input.
+        
+        Re-parameterized subclasses should overwrite this so that `evaluate`
+        doesn't need to change.
+
+        Returns
+        -------
+        wcoefficients : ndarray
+            wcoefficients.shape = WeightChannels.shape
+        
+        """
+        return self.parameters['wcoefficients'].values
+
+    @property
+    def strf(self):
+        """
+        computes effective STRF for layer by matrix multiplication
+        of w and f coefficients
+        """
+        w = self.parameters['wcoefficients'].values
+        f = self.parameters['coefficients'].values
+        w = np.moveaxis(w, 2, 0)
+        f = np.moveaxis(f, (2, 0), (0, 2))
+
+        return np.moveaxis(w @ f, 0, 2)
+
+
+    def evaluate(self, input):
+
+        wcoefficients, coefficients, shift, alpha = self.get_parameter_values()
+        
+        """Weight input with `STRF.wcoefficients`"""
+        input1 = np.tensordot(input, wcoefficients, axes=(1, 0))
+
+        """Convolve `FIR.coefficients` with weighted input."""
+        if self.fshape[0]>1:
+            # Flip rank, any other dimensions except time & number of outputs.
+            coefficients = self._reshape_coefficients()
+            # Match number of outputs in input and coefficients by broadcasting.
+            input1, coefficients, _ = self._broadcast(input1, coefficients)
+    
+            # Prepend zeros. (and append, if include_anticausal)
+            padding = self._get_filter_padding(input1, coefficients)
+            input_with_padding = np.pad(input1, padding)
+    
+            # Convolve each filter with the corresponding input channel.
+            outputs = []
+            n_filters = coefficients.shape[-1]
+            for i in range(n_filters):
+                y = scipy.signal.convolve(
+                    input_with_padding[...,i], coefficients[...,i], mode='valid'
+                    )
+                outputs.append(y)
+    
+            # Concatenate on n_outputs axis
+            output = np.stack(outputs, axis=-1)
+            # Squeeze out rank dimension
+            output = np.squeeze(output, axis=1)
+            if self.stride > 1:
+                output = output[::self.stride, ...]
+        else:
+            output = input1
+
+        output += shift
+
+        if self.skip_alpha<0:
+            if input.shape[-1]<output.shape[-1]:
+                #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
+                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
+            else:
+                #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
+                output = output + input[:, :output.shape[-1]] * alpha
+
+        if self.activation=='relu':
+            output[output<0]=0
+            
+        if self.skip_alpha>0:
+            if input.shape[-1]<output.shape[-1]:
+                #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
+                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
+            else:
+                #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
+                output = output + input[:, :output.shape[-1]] * alpha
+
+        return output
+
+    """ TODO: Make sure simply of to inherit from FiniteImpulseResponse?? """
+    #def _reshape_coefficients(self):
+
+    #def _broadcast(self, input, coefficients):
+
+    #def _get_filter_padding(self, input, coefficients):
+
+    @layer('strf')
+    def from_keyword(keyword):
+        """Construct STRF bank layer from keyword
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape.
+            (time, input channels a.k.a. rank, ..., output channels) 
+
+        See also
+        --------
+        Layer.from_keyword
+        
+        """
+        kwargs = {}
+
+        options = keyword.split('.')
+        kwargs['shape'] = pop_shape(options)
+        for op in options[1:]:
+            if op in ['lvl','dexp','relu']:
+                # default is None
+                kwargs['activation']=op
+            elif op == 'skl':
+                kwargs['skip_alpha'] = -0.5
+            elif op == 'sk':
+                kwargs['skip_alpha'] = 0.5
+            elif op.startswith('skl'):
+                kwargs['skip_alpha'] = -int(op[2:]) / 100
+            elif op.startswith('sk'):
+                kwargs['skip_alpha'] = int(op[2:]) / 100
+            elif op.startswith('s'):
+                kwargs['stride'] = int(op[1:])
+            elif op.startswith('l2'):
+                kwargs['regularizer'] = op
+
+        strf = STRF(**kwargs)
+
+        return strf
+    
+    def as_tensorflow_layer(self, input_shape, **kwargs):
+        """Convert FiniteImpulseResponse to a TensorFlow Keras Layer.
+        
+        Parameters
+        ----------
+        input_shape : tf.Tensor or np.ndarray
+            Initial input to Layer, supplied by TensorFlowBackend during model
+            building.
+        
+        Returns
+        -------
+        STRFTF
+        
+        """
+
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        old_c = self.parameters['coefficients']
+        coefficients = self.coefficients
+        if coefficients.ndim == 2:
+            # Add a dummy filter/output axis
+            coefficients = coefficients[..., np.newaxis]
+        new_c = np.flip(coefficients, axis=0)
+        filter_width, rank, _ = new_c.shape
+        if new_c.ndim > 3:
+            raise NotImplementedError(
+                "FIR TF implementation currently only works for 2D data."
+                )
+        new_values = {'coefficients': new_c}  # override Parameter.values
+
+        # Define broadcasting behavior for inputs and coefficients based on
+        # input_shape and new_c.shape.
+        broadcast_inputs, broadcast_coefficients, n_outputs = \
+            self._define_tf_broadcasting(
+                tf, input_shape, new_c
+                )
+        # Define convolution operation, depends on whether a GPU is available.
+        convolve = self._define_tf_convolution(
+            tf, filter_width, rank, n_outputs
+            )
+        activation = self.activation
+        skip_alpha = self.skip_alpha
+        fir_len = self.fshape[0]
+
+        class STRFTF(NemsKerasLayer):
+            def weights_to_values(self):
+                c = self.parameter_values['coefficients']
+                unflipped = np.flip(c, axis=0)  # Undo flip time
+                unshaped = np.reshape(unflipped, old_c.shape)
+
+                return {'coefficients': unshaped, 
+                        'wcoefficients': self.parameter_values['wcoefficients'],
+                        'shift': self.parameter_values['shift']}
+
+            def call(self, inputs):
+                #print(inputs.shape, self.wcoefficients.shape)
+                #inputs1 = inputs
+                inputs1 = tf.tensordot(inputs, self.wcoefficients, axes=[[2], [0]])
+                #print(inputs1.shape)
+                if fir_len>1:
+                    # This will add an extra dim if there is no output dimension.
+                    input_width = tf.shape(inputs1)[1] # tf.shape(inputs)[1] or inputs.shape[1]
+                    #print(input_width)
+                    # Broadcast output shape if needed.
+                    #inputs1 = broadcast_inputs(inputs1)
+                    coefficients = broadcast_coefficients(self.coefficients)
+                    # Make None shape explicit
+                    #print(inputs1.shape)
+                    rank_4 = tf.reshape(inputs1, [-1, input_width, rank, n_outputs])
+                    #print(rank_4.shape, coefficients.shape)
+                    
+                    out = convolve(rank_4, coefficients) + self.shift
+                else:
+                    out = inputs1
+                    
+                if skip_alpha < 0:
+                    if inputs.shape[-1]<out.shape[-1]:
+                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
+                        #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
+                        
+                        # Extract the slice
+                        slice_out = out[:,:,:inputs.shape[-1]]
+                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
+                        
+                        # Add the inputs to the slice
+                        updated_out = slice_out + inputs * self.alpha
+
+                        # Create the updated tensor
+                        out = tf.concat([updated_out, slice_out_remaining], axis=2)
+                    else:
+                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
+                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
+
+                if activation == 'relu':
+                    out = tf.nn.relu(out)
+                    
+                if skip_alpha>0:
+                    if inputs.shape[-1]<out.shape[-1]:
+                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
+                        #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
+                        
+                        # Extract the slice
+                        slice_out = out[:, :, :inputs.shape[-1]]
+                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
+                        
+                        # Add the inputs to the slice
+                        updated_out = slice_out + inputs * self.alpha
+
+                        # Create the updated tensor
+                        out = tf.concat([updated_out, slice_out_remaining], axis=2)
+                    else:
+                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
+                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
+
+                return out
+
+        return STRFTF(self, new_values=new_values, **kwargs)
+
+    """ TODO: Make sure simply of to inherit from FiniteImpulseResponse?? """
+    #def _define_tf_broadcasting(self, tf, input_shape, new_c):
+
+    #def _define_tf_convolution(self, tf, filter_width, rank, n_outputs):
+
 
 
 class PoleZeroFIR(FiniteImpulseResponse):

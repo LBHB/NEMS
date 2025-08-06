@@ -26,7 +26,8 @@ class CNN_pop(Model):
 
     def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, L1=None, L2=None, share_tuning=True,
                  gaussian=False, nonlinearity='DoubleExponential', stride=1, L1_reps=1,
-                 nl_kwargs=None, regularizer=None, from_saved=False, **model_init_kwargs):
+                 nl_kwargs=None, regularizer=None, regularize_fir=True,
+                 from_saved=False, **model_init_kwargs):
         """
         1D CNN Spectro-Temporal Receptive Field model.
 
@@ -91,6 +92,10 @@ class CNN_pop(Model):
         else:
             wc_class1 = WeightChannels
             reg1 = regularizer
+        if regularize_fir:
+            fir_reg1=regularizer
+        else:
+            fir_reg1=None
 
         # layer 1
         if stride > 1:
@@ -112,12 +117,12 @@ class CNN_pop(Model):
             elif gaussian & (ll1==0):
                 wc = wc_class1(shape=(N_in, 1, L1))
                 fir = FiniteImpulseResponse(shape=(time_bins, 1, L1),
-                                            stride=stride_per_layer, regularizer=regularizer)
+                                            stride=stride_per_layer, regularizer=fir_reg1)
                 self.add_layers(wc, fir, relu1)
             else:
                 wc = WeightChannels(shape=(N_in, 1, L1), regularizer=regularizer)
                 fir = FiniteImpulseResponse(shape=(time_bins, 1, L1),
-                                            stride=stride_per_layer)
+                                            stride=stride_per_layer, regularizer=fir_reg1)
                 self.add_layers(wc, fir, relu1)
 
         # layer(s) 2 and/or 3
@@ -245,6 +250,9 @@ class CNN_pop(Model):
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
             elif op.startswith('l2'):
                 d['regularizer'] = op
+            elif op.startswith('wl2'):
+                d['regularizer'] = op[1:]
+                d['regularize_fir'] = False
             elif op.startswith('c'):
                 d['L1_reps'] = int(op[1:])
         return CNN_pop(**d)

@@ -289,7 +289,14 @@ class ApplyHRTF(Layer):
 
     def evaluate(self, input1, input2):
         # All inputs are treated the same, no fitable parameters.
-        x = input1 * input2[..., np.newaxis]
+        s = list(input1.shape)
+        if s[-2]==2:
+            #s = s[:-3] + [s[-3]*s[-2], s[-1]]
+            #x = np.reshape(input1, s) * input2[..., np.newaxis]
+            x = np.concatenate((input1[...,0,:],input1[...,1,:]),axis=-2) * input2[..., np.newaxis]
+        else:
+            x = input1 * input2[..., np.newaxis]
+
         m = int(x.shape[-2]/2)
         x = x[..., :m, :] + x[..., m:, :]
         x = np.reshape(np.swapaxes(x, -1, -2), [x.shape[0], x.shape[1]*x.shape[2]])
@@ -311,8 +318,15 @@ class ApplyHRTF(Layer):
                 #x = tf.math.multiply(inputs[0], tf.math.square(tf.expand_dims(inputs[1], -1)))
                 #x = tf.math.sqrt(tf.nn.relu(tf.math.add(x[...,:m,:], x[...,m:,:])))
 
-                # add raw
-                x = tf.math.multiply(inputs[0], tf.expand_dims(inputs[1], -1))
+                # apply to input channels separately, then stack
+                s = list(inputs[0].shape)
+                if s[-2]==2:
+                    #s = [-1] + s[1:-3] + [s[-3]*s[-2], s[-1]]
+                    #in0 = tf.reshape(inputs[0], s)
+                    in0 = tf.concat((inputs[0][...,0,:],inputs[0][...,1,:]), axis=-2)
+                    x = tf.math.multiply(in0, tf.expand_dims(inputs[1], -1))
+                else:
+                    x = tf.math.multiply(inputs[0], tf.expand_dims(inputs[1], -1))
                 x = tf.math.add(x[..., :m, :], x[..., m:, :])
 
                 x_shape = tf.shape(x)

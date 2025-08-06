@@ -297,6 +297,90 @@ class DoubleExponential(StaticNonlinearity):
             return DoubleExponentialTF(self, **kwargs)
 
 
+class LogCompress(StaticNonlinearity):
+    """
+    dlog imported from old NEMS
+    
+    TODO: doc here? maybe just copy .evaluate?
+    """
+
+    def initial_parameters(self):
+        """Get initial values for `DoubleExponential.parameters`.
+        
+        Layer parameters
+        ----------------
+
+        shift s : scalar or ndarray
+            Centerpoint of the sigmoid along x axis
+            Prior:  Normal(mean=1, sd=.02)
+            Bounds: TODO
+
+        Returns
+        -------
+        nems.layers.base.Phi
+        
+        """
+        # TODO: explain choices for priors.
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+        phi = Phi(
+            Parameter('shift', shape=self.shape, prior=Normal(zero, one/50)),
+            )
+        return phi
+
+    def nonlinearity(self, input):
+        """Apply sigmoid transform to input x: $b+a*exp[-exp(-exp(k)(x-s)]$.
+        
+        See Thorson, Liénard, David (2015).
+        
+        """
+        shift, = self.get_parameter_values()
+
+        d = 10.0**shift
+
+        return np.log((input + d) / d)
+        
+    @layer('dlog')
+    def from_keyword(keyword):
+        """Construct DoubleExponential from keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+
+        Returns
+        -------
+        DoubleExponential
+
+        See also
+        --------
+        Layer.from_keyword
+        
+        """
+        options = keyword.split('.')
+        shape = pop_shape(options)
+        
+        return LogCompress(shape=shape)
+
+    def as_tensorflow_layer(self, **kwargs):
+        """TODO: docs"""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        if self._skip_nonlinearity:
+            return super().as_tensorflow_layer(**kwargs)
+        else:
+            class LogCompressTF(NemsKerasLayer):
+                def call(self, inputs):
+
+                    eb = tf.math.pow(tf.constant(10, dtype='float32'), tf.clip_by_value(self.shift, -2, 2))
+
+                    return tf.math.log((inputs + eb) / eb)
+
+            return LogCompressTF(self, **kwargs)
+
+
+
 class Sigmoid(StaticNonlinearity):
     """TODO: doc here? maybe just copy .evaluate?"""
 
