@@ -126,6 +126,7 @@ class Model:
         # about the model. Any type can be stored here as long as it can be
         # encoded by `json.dumps`.
         if meta is None: meta = {}
+        meta['engine'] = 'nems-lite'
         meta['subclass'] = str(self.__class__).split("'")[1]
         if 'fs' not in meta.keys():
             meta['fs'] = fs
