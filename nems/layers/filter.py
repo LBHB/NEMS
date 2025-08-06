@@ -547,15 +547,21 @@ class STRF(FiniteImpulseResponse):
         if len(shape)==4:
             self.wshape.append(shape[3])
             self.fshape.append(shape[3])
-            self.nout=(1,shape[3])
+            if self.fshape[0]>1:
+                self.nout=(1,shape[3])
+            else:
+                self.nout=(1,shape[2])
         else:
-            self.nout=(1,1)
+            if self.fshape[0]>1:
+                self.nout=(1,1)
+            else:
+                self.nout=(1,shape[1])
 
         super().__init__(**kwargs)
 
 
     def initial_parameters(self):
-        """Get initial values for `FIR.parameters`.
+        """Get initial values for `STRF.parameters`.
         
         Layer parameters
         ----------------
@@ -580,25 +586,40 @@ class STRF(FiniteImpulseResponse):
         # wmean = np.full(shape=wshape, fill_value=1/wshape[0]/2)
         wmean = np.full(shape=wshape, fill_value=0.01)
         fmean = np.full(shape=fshape, fill_value=0.0)
-        if fshape[0]>2:
-            # TODO: May be more appropriate to make this a hard requirement, but
-            #       for now this should stop tiny filter sizes from causing errors.
+        if fshape[0]>=10:
+            # assume not that many layers with long integration time
             fmean[1] = 2/fshape[0]
             fmean[2] = -1/fshape[0]
-            
+        elif fshape[0]>2:
+            # assume possibility of short integration time (ie, lag 0)
+            # TODO: May be more appropriate to make this a hard requirement, but
+            #       for now this should stop tiny filter sizes from causing errors.
+            fmean[0] = 0.5/fshape[0]
+            fmean[1] = 0.5/fshape[0]
+            fmean[2] = -0.5/fshape[0]
+
         # wsd = np.full(shape=wshape, fill_value=1/wshape[0])
-        wsd = np.full(shape=wshape, fill_value=0.1)
+        wsd = np.full(shape=wshape, fill_value=0.05)
         fsd = np.full(shape=fshape, fill_value=1/fshape[0])
             
         wprior = Normal(wmean, wsd)
         fprior = Normal(fmean, fsd)
         shiftprior = Normal(np.zeros(shape=nout), np.ones(shape=nout)/100)
+        if np.abs(self.skip_alpha)>0:
+            alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
+        else:
+            alphaprior = Normal(np.array([0]), np.array([1]))
 
         wcoefficients = Parameter(name='wcoefficients', shape=wshape, prior=wprior)
         coefficients = Parameter(name='coefficients', shape=fshape, prior=fprior)
         shift = Parameter('shift', shape=nout, prior=shiftprior)
+        alpha = Parameter('alpha', shape=(1,), prior=alphaprior)
 
-        return Phi(wcoefficients, coefficients, shift)
+        return Phi(wcoefficients, coefficients, shift, alpha)
+
+    """ TODO: Make sure simply of to inherit from FiniteImpulseResponse?? """
+    # @property
+    # def coefficients(self):
 
     @property
     def wcoefficients(self):
@@ -615,13 +636,23 @@ class STRF(FiniteImpulseResponse):
         """
         return self.parameters['wcoefficients'].values
 
-    """ TODO: Make sure simply of to inherit from FiniteImpulseResponse?? """
-    #@property
-    #def coefficients(self):
+    @property
+    def strf(self):
+        """
+        computes effective STRF for layer by matrix multiplication
+        of w and f coefficients
+        """
+        w = self.parameters['wcoefficients'].values
+        f = self.parameters['coefficients'].values
+        w = np.moveaxis(w, 2, 0)
+        f = np.moveaxis(f, (2, 0), (0, 2))
+
+        return np.moveaxis(w @ f, 0, 2)
+
 
     def evaluate(self, input):
 
-        wcoefficients, coefficients, shift = self.get_parameter_values()
+        wcoefficients, coefficients, shift, alpha = self.get_parameter_values()
         
         """Weight input with `STRF.wcoefficients`"""
         input1 = np.tensordot(input, wcoefficients, axes=(1, 0))
@@ -660,10 +691,10 @@ class STRF(FiniteImpulseResponse):
         if self.skip_alpha<0:
             if input.shape[-1]<output.shape[-1]:
                 #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
-                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * (-self.skip_alpha)
+                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
             else:
                 #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
-                output = output + input[:, :output.shape[-1]] * (-self.skip_alpha)
+                output = output + input[:, :output.shape[-1]] * alpha
 
         if self.activation=='relu':
             output[output<0]=0
@@ -671,10 +702,10 @@ class STRF(FiniteImpulseResponse):
         if self.skip_alpha>0:
             if input.shape[-1]<output.shape[-1]:
                 #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
-                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * self.skip_alpha
+                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
             else:
                 #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
-                output = output + input[:, :output.shape[-1]] * self.skip_alpha
+                output = output + input[:, :output.shape[-1]] * alpha
 
         return output
 
@@ -729,13 +760,13 @@ class STRF(FiniteImpulseResponse):
         
         Parameters
         ----------
-        inputs : tf.Tensor or np.ndarray
+        input_shape : tf.Tensor or np.ndarray
             Initial input to Layer, supplied by TensorFlowBackend during model
             building.
         
         Returns
         -------
-        FiniteImpulseResponseTF
+        STRFTF
         
         """
 
@@ -800,44 +831,44 @@ class STRF(FiniteImpulseResponse):
                 else:
                     out = inputs1
                     
-                if skip_alpha<0:
+                if skip_alpha < 0:
                     if inputs.shape[-1]<out.shape[-1]:
-                        print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
+                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
                         #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
                         
                         # Extract the slice
                         slice_out = out[:,:,:inputs.shape[-1]]
-                        slice_out_remaining = out[:,:,inputs.shape[-1]:]
+                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
                         
                         # Add the inputs to the slice
-                        updated_out = slice_out + inputs * (-skip_alpha)
+                        updated_out = slice_out + inputs * self.alpha
 
                         # Create the updated tensor
                         out = tf.concat([updated_out, slice_out_remaining], axis=2)
                     else:
-                        print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
-                        out = out + inputs[:, :, :out.shape[-1]] * (-skip_alpha)
+                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
+                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
 
-                if activation=='relu':
+                if activation == 'relu':
                     out = tf.nn.relu(out)
                     
                 if skip_alpha>0:
                     if inputs.shape[-1]<out.shape[-1]:
-                        print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
+                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
                         #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
                         
                         # Extract the slice
-                        slice_out = out[:,:,:inputs.shape[-1]]
-                        slice_out_remaining = out[:,:,inputs.shape[-1]:]
+                        slice_out = out[:, :, :inputs.shape[-1]]
+                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
                         
                         # Add the inputs to the slice
-                        updated_out = slice_out + inputs * skip_alpha
+                        updated_out = slice_out + inputs * self.alpha
 
                         # Create the updated tensor
                         out = tf.concat([updated_out, slice_out_remaining], axis=2)
                     else:
-                        print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
-                        out = out + inputs[:, :, :out.shape[-1]] * skip_alpha
+                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
+                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
 
                 return out
 

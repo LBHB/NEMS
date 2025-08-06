@@ -1023,6 +1023,7 @@ def get_binaural_strf_tuning(strf, **kwargs):
         res['i'+k] = ituning[k]
 
     res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
+    res['sbdi'] = res['bdi'] * np.sign((contra-ipsi).sum())
     res['mcs'] = contra.mean() / np.abs(contra).mean()
     res['mis'] = ipsi.mean() / np.abs(ipsi).mean()
     res['ipsi_offset'] = m
