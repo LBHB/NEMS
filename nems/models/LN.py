@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom, gaussian_filter
 import scipy
-import joblib
+import joblib, tempfile
 
 from .base import Model
 from nems.registry import layer
@@ -17,7 +17,8 @@ from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
 
-cachedir = '/auto/data/tmp/mouse_io'  # You can specify any directory you want
+#cachedir = '/auto/data/tmp/mouse_io'  # You can specify any directory you want
+cachedir = tempfile.mkdtemp()  # You can specify any directory you want
 memory = joblib.Memory(cachedir, verbose=False)
 
 # uncomment to clear joblib cache (if updated gabor fit function)
