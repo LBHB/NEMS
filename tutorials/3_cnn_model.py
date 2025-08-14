@@ -21,12 +21,15 @@ options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_
 nems.download_demo()
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
 
-cid=29 # Picking our cell to pull data from
+#cid=11 # Better(?) LN model fit?
+cid = 29  # Picking our cell to pull data from
 cellid = training_dict['cellid'][cid]
 spectrogram_fit = training_dict['spectrogram']
 response_fit = training_dict['response'][:,[cid]]
 spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
+
+
 
 ############GETTING STARTED###############
 ###########################
@@ -101,3 +104,11 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 
 # A quick plot of our models pre and post fitting
 visualization.plot_predictions({'ln prediction':pred_ln, 'cnn prediction':pred_cnn}, spectrogram_test, response_test, correlation=True)
+
+
+# new contained LN model
+# from nems.models import LN
+# ln = LN.LN_STRF(15,18,3)
+# ln = ln.fit_LBHB(X=spectrogram_fit[np.newaxis], Y=response_fit[np.newaxis])
+# ln.plot_strf()
+#

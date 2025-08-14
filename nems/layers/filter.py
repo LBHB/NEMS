@@ -367,8 +367,8 @@ class FiniteImpulseResponse(Layer):
                 return tf.broadcast_to(expand_inputs(inputs), shape)
 
         elif new_inputs.ndim > fake_inputs.ndim:
-            #print(new_inputs_shape)
-            #print(input_shape)
+            # print(new_inputs_shape)
+            # print(input_shape)
 
             @tf.function()
             def broadcast_inputs(inputs):
@@ -378,7 +378,12 @@ class FiniteImpulseResponse(Layer):
                 shape = [batch_size] + new_inputs_shape
                 # insert_dim is where a dummy dimension was added to the inputs
                 # so that the summing occurs (or not) across the appropriate dims
-                return tf.broadcast_to(tf.expand_dims(inputs, axis=insert_dim+1), shape)
+                # SVD 2025-08-13 -- special case where insert dim is -1, don't add 1
+                if insert_dim>=0:
+                    ii = insert_dim+1
+                else:
+                    ii = insert_dim
+                return tf.broadcast_to(tf.expand_dims(inputs, axis=ii), shape)
 
         else:
             # Otherwise, don't need to do anything to inputs.
@@ -475,13 +480,11 @@ class FiniteImpulseResponse(Layer):
                     padded_input = tf.pad(
                         reshaped, [[0, 0], [filter_width-1, 0], [0, 0]]
                         )
-                #print("reshaped shape:", reshaped.shape.as_list(), "padded shape:", padded_input.shape.as_list())
                 # Convolve filters with input slices in groups of size `rank`.
                 y = tf.nn.conv1d(
                     padded_input, coefficients, stride=stride, padding='VALID'
                     )
-                #print("y shape:", y.shape.as_list())
-                return y 
+                return y
 
         return convolve
 
