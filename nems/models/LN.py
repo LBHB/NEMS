@@ -482,7 +482,9 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if channels is None:
         channels=[0]
     if strf is None:
-        strf = model.get_strf(channels=channels)[:,:,0]
+        strf = model.get_strf(channels=channels)
+        if strf.ndim>2:
+            strf=strf[:,:,0]
     if model is not None:
         rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
         rtest = rtest[channels[0], 0]
