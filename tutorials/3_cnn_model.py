@@ -39,6 +39,10 @@ spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
 ############GETTING STARTED###############
 ###########################
 # Example small convolutional neural network (CNN)
@@ -119,7 +123,7 @@ LN_plot_strf(fitted_ln, ax=ax[0], strf=get_strf(fitted_ln))
 visualization.plot_nl(fitted_ln.layers[-1], ax=ax[1], range=(-1, 1))
 fig.tight_layout()
 
-# new contained LN model
+# new self-contained LN model
 # from nems.models import LN
 # ln = LN.LN_STRF(15,18,3)
 # ln = ln.fit_LBHB(X=spectrogram_fit[np.newaxis], Y=response_fit[np.newaxis])
