@@ -65,7 +65,7 @@ class Model:
     """
 
     def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
-                 fs=None, f_min=200, f_max=20000, from_saved=False):
+                 fs=None, f_min=200, f_max=20000, primary_ear=0, from_saved=False):
         """
         Parameters
         ----------
@@ -134,6 +134,8 @@ class Model:
             meta['f_max'] = f_max
         if 'f_min' not in meta.keys():
             meta['f_min'] = f_min
+        if 'primary_ear' not in meta.keys():
+            meta['primary_ear'] = primary_ear
 
         self.meta = meta
         self.results = None   # holds FitResults after Model.fit()
@@ -152,8 +154,16 @@ class Model:
 
     @property
     def f_max(self):
-        """Low end of input spectrogram"""
+        """High end of input spectrogram"""
         return self.meta.get('f_max',None)
+
+    @property
+    def primary_ear(self):
+        """
+        Bank of stimulus spectrogram that's stimulating the contralateral ear
+        (for binaural experiments)
+        """
+        return self.meta.get('primary_ear', None)
 
     @property
     def layers(self):
