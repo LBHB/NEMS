@@ -39,10 +39,6 @@ spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
 
 
-<<<<<<< HEAD
-=======
-
->>>>>>> main
 ############GETTING STARTED###############
 ###########################
 # Example small convolutional neural network (CNN)

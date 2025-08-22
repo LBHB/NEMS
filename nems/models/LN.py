@@ -477,7 +477,7 @@ def LNpop_get_strf(model, channels=None, layer=2):
 def LN_plot_strf(model=None, channels=None, strf=None,
                  binaural=None, ax=None, ax2=None, fs=100,
                  show_tuning=False, show_gabor=False, label="", x0=0, y0=0,
-                 show_label=True, verbose=False,
+                 show_label=True, verbose=False, zoomsf=1,
                  **tuningkwargs):
     if channels is None:
         channels=[0]
@@ -486,8 +486,11 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         if strf.ndim>2:
             strf=strf[:,:,0]
     if model is not None:
-        rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
-        rtest = rtest[channels[0], 0]
+        try:
+            rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
+            rtest = rtest[channels[0], 0]
+        except:
+            rtest = np.nan
         if binaural is None:
             binaural = is_binaural(model)
         ac = model.meta.get('include_anticausal', False)
@@ -531,9 +534,13 @@ def LN_plot_strf(model=None, channels=None, strf=None,
 
     if binaural:
         m = int(strf.shape[0]/2)
-        hcontra = strf[:m, :]
-        hipsi = strf[m:, :]
-        
+        if model.primary_ear==0:
+            hcontra = strf[:m, :]
+            hipsi = strf[m:, :]
+        else:
+            hcontra = strf[m:, :]
+            hipsi = strf[:m, :]
+
     if binaural & (ax2 is not None):
         ax.imshow(hcontra, aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
@@ -542,7 +549,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
     else:
-        ax.imshow(strf, aspect='auto', cmap='bwr',
+        ax.imshow(zoom(strf,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
         lf = np.array(ax.get_yticks())
@@ -607,8 +614,8 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     ax.tick_params(axis='y', labelsize=6)
 
 def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
-                    layer=2, plot_nl=False, merge=None,
-                    binaural=None, show_tuning=False,
+                    layer=2, plot_nl=False, merge=None, rowcount=None,
+                    binaural=None, show_tuning=False, zoomsf=1,
                     show_gabor=False, x0=0, y0=0, figsize=None, verbose=False):
     if binaural is None:
         binaural = is_binaural(model)
@@ -622,8 +629,12 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     channels_out = len(channels)
 
     m = int(strf2.shape[0]/2)
-    hcontra = strf2[:m, :, :]
-    hipsi = strf2[m:, :, :]
+    if model.primary_ear==0:
+        hcontra = strf2[:m, :, :]
+        hipsi = strf2[m:, :, :]
+    else:
+        hcontra = strf2[m:, :, :]
+        hipsi = strf2[:m, :, :]
 
     norm = strf2.std(axis=(0,1), keepdims=True)
     if merge=='sum':
@@ -646,13 +657,16 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         rowcount = 1
         colcount = 2
     elif channels_out > 3:
-        rowcount = int(np.ceil(np.sqrt(channels_out)))
+        if rowcount is None:
+            rowcount = int(np.ceil(np.sqrt(channels_out)))
         colcount = int(np.ceil(channels_out / rowcount))
     elif channels_out > 16:
-        rowcount = np.min([channels_out, 5])
+        if rowcount is None:
+            rowcount = np.min([channels_out, 5])
         colcount = int(np.ceil(channels_out / 5))
     else:
-        rowcount = np.min([channels_out, 4])
+        if rowcount is None:
+            rowcount = np.min([channels_out, 4])
         colcount = int(np.ceil(channels_out / 4))
         
     if plot_nl:
@@ -670,7 +684,7 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         if colcount<=6:
             figsize = (colcount*col_mult*2.0, rowcount*1.5)
         else:
-            figsize = (colcount*col_mult*1.0, rowcount*0.75)
+            figsize = (colcount*col_mult*1.0, rowcount*0.75+0.5)
 
     f, ax = plt.subplots(rowcount * row_mult, colcount * col_mult, figsize=figsize, sharex='col', sharey='row')
     if rowcount==1:
@@ -694,7 +708,7 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
             lbl = f"ch{ch}"
         LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
                      binaural=binaural, ax=ax[rr, cc*col_mult], ax2=ax2[rr, cc*col_mult], fs=fs,
-                     show_tuning=show_tuning, show_gabor=show_gabor, label=lbl, verbose=verbose)
+                     show_tuning=show_tuning, show_gabor=show_gabor, label=lbl, zoomsf=zoomsf, verbose=verbose)
 
         yl = ax[rr,cc*col_mult].get_ylim()
         if rr<rowcount-1:
@@ -1007,15 +1021,19 @@ def get_strf_tuning(strf, binaural=False, f_min=200, f_max=20000, timestep=0.01)
 
     return res
 
-def get_binaural_strf_tuning(strf, **kwargs):
+def get_binaural_strf_tuning(strf, primary_ear=0, **kwargs):
 
     # figure out some tuning properties
 
     if int(strf.shape[0]/2) != strf.shape[0]/2:
         raise ValueError('Binaural strf must have even shape[0]')
     m=int(strf.shape[0]/2)
-    contra=strf[:m,:]
-    ipsi=strf[m:,:]
+    if primary_ear==0:
+        contra=strf[:m,:]
+        ipsi=strf[m:,:]
+    else:
+        contra=strf[m:,:]
+        ipsi=strf[:m,:]
 
     res={}
     ctuning = get_strf_tuning(contra, **kwargs)

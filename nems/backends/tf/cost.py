@@ -20,7 +20,7 @@ keras_mse = tf.keras.losses.MeanSquaredError()
 
 def poisson(response, prediction):
     """Poisson loss."""
-    return tf.math.reduce_mean(prediction - response * tf.math.log(prediction + 1e-5), name='poisson')
+    return tf.math.reduce_mean(tf.nn.relu(prediction) - response * tf.math.log(tf.nn.relu(prediction) + 1e-6), name='poisson')
 
 
 def drop_nan(response, prediction):
@@ -217,5 +217,6 @@ def pearson(y_true, y_pred):
 
 
 cost_nicknames = {'squared_error': loss_se, 'nmse': loss_tf_nmse,
-                  'nmse_shrinkage': loss_tf_nmse_shrinkage}
+                  'nmse_shrinkage': loss_tf_nmse_shrinkage,
+                  'poisson': poisson}
 get_cost = FindCallable({**globals(), **cost_nicknames}, header='Cost')
