@@ -158,7 +158,7 @@ class TensorFlowBackend(Backend):
     def _fit(self, data, eval_kwargs=None, cost_function='squared_error',
              epochs=1000, learning_rate=0.001, early_stopping_delay=100,
              early_stopping_patience=150, early_stopping_tolerance=5e-4,
-             validation_split=0.0, validation_data=None, shuffle=False, verbose=1):
+             validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
         
         Currently the use of other TensorFlow optimizers is not exposed as an
@@ -220,8 +220,9 @@ class TensorFlowBackend(Backend):
         # Store initial parameters, compile optimizer and loss for model.
         initial_parameters = self.nems_model.get_parameter_vector()
         final_layer = self.nems_model.layers[-1].name
+        print(f"~~~~~~~~~~~~~~~Using grad_clipnorm={grad_clipnorm}")
         self.model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0),
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
             loss={final_layer: cost_function}
         )
         #, metrics = [pearsonR]
