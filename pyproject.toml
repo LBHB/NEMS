@@ -18,7 +18,7 @@ classifiers = [
 ]
 keywords = ["neuroscience", "auditory", "sensory", "encoding", "strf"]
 dependencies = [
-    "numpy>=1.24.4",
+    "numpy>=1.24.4, <2.0",
     "scipy>=1.9.0",
     "matplotlib>=3.5.2",
     "numexpr>=2.8.3",
