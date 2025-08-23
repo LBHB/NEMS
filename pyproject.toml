@@ -31,7 +31,7 @@ requires-python = ">=3.9"
 
 [project.optional-dependencies]
 dev = ["build", "twine", "pytest"]
-tf = ["tensorflow[and-cuda] >= 2.9"]
+tf = ["tensorflow[and-cuda] >= 2.9, <=2.11"]
 io = ["pandas", "requests","h5py"]
 
 [project.urls]
