@@ -7,6 +7,13 @@ from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 from nems.metrics import correlation
 from nems.models.LN import LN_plot_strf
+import tensorflow as tf
+
+# Check if eager execution is enabled
+if tf.executing_eagerly():
+    print("Eager execution is enabled.")
+else:
+    print("Eager execution is disabled.")
 
 # Function to get STRF from a LN model
 def get_strf(ln_mdl, channels=None):
