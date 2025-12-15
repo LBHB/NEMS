@@ -365,3 +365,224 @@ class MultiplyByExp(Layer):
 
         return MultiplyByExpTF(self, **kwargs)
 
+
+class ApplyHRTFGainLayer(Layer):
+    """Apply separate HRTF and distance gains to spectrograms and generate binaural output.
+
+    This layer takes separate spatial HRTF gains and distance attenuation gains plus stimulus data
+    to produce binaural audio by:
+    1. Combining HRTF and distance gains in dB space
+    2. Converting combined gains to linear scale
+    3. Reshaping stimulus from stacked format (time, freq*ears*sources) to (time, sources, freq, ears)
+    4. Applying linear gains to each source spectrogram
+    5. RMS combining across sources for each ear
+    6. Concatenating ears as [right, left] output
+
+    Expected stimulus format: [S1_Left_freqs, S1_Right_freqs, S2_Left_freqs, S2_Right_freqs, ...]
+
+    Parameters
+    ----------
+    freq_bins : int
+        Number of frequency channels per ear per source
+    num_sources : int, optional
+        Number of audio sources. Default is 2.
+    """
+
+    def __init__(self, freq_bins=18, num_sources=None, input=None, **kwargs):
+        """Initialize HRTF gain application layer."""
+
+        # Handle num_sources that might be in kwargs from older saved models
+        if 'num_sources' in kwargs:
+            num_sources = kwargs.pop('num_sources') if num_sources is None else num_sources
+
+        self.freq_bins = freq_bins
+        self.num_sources = num_sources if num_sources is not None else 2
+
+        # Default to expecting 3 inputs: [hrtf_gains, distance_gains, stim]
+        if input is None:
+            input = ['hrtf_gains', 'distance_gains', 'stim']
+
+        super().__init__(input=input, **kwargs)
+
+    @layer('applyhrtf')
+    def from_keyword(keyword):
+        """Construct ApplyHRTFGainLayer from keyword string.
+
+        Expected format: 'applyhrtf[.{freq_bins}]'
+        Examples:
+        - 'applyhrtf' creates layer with default 18 frequency bins
+        - 'applyhrtf.36' creates layer with 36 frequency bins
+        """
+        options = keyword.split('.')
+
+        # Parse frequency bins (default=18)
+        freq_bins = 18
+        if len(options) > 1 and options[1].isdigit():
+            freq_bins = int(options[1])
+
+        return ApplyHRTFGainLayer(freq_bins=freq_bins)
+
+    def evaluate(self, hrtf_gains, distance_gains, stim):
+        """Apply separate HRTF and distance gains to stimulus spectrograms.
+
+        Parameters
+        ----------
+        hrtf_gains : np.ndarray
+            Shape: (batch, time, sources*2*freq_bins)
+            Concatenated HRTF gains: [S1_Left_freqs, S1_Right_freqs, S2_Left_freqs, S2_Right_freqs, ...]
+        distance_gains : np.ndarray
+            Shape: (batch, time, sources, ears)
+            Distance attenuation gains in dB
+        stim : np.ndarray
+            Shape: (batch, time, num_sources * freq_bins)
+            Stacked source spectrograms: [S1_freqs, S2_freqs, ...]
+
+        Returns
+        -------
+        np.ndarray
+            Binaural output: (batch, time, freq_bins*2) = [right_freqs, left_freqs]
+        """
+        # Handle both 2D and 3D inputs
+        if stim.ndim == 2:
+            stim = stim[np.newaxis, ...]  # Add batch dimension: (1, time, channels)
+        if hrtf_gains.ndim == 2:
+            hrtf_gains = hrtf_gains[np.newaxis, ...]  # Add batch dimension
+        # distance_gains can be 2D (time, sources) or 3D (time, sources, ears)
+        if distance_gains.ndim == 2:
+            distance_gains = distance_gains[np.newaxis, ...]  # Add batch dimension
+        elif distance_gains.ndim == 3:
+            # DistanceAttenuationLayer outputs (time, sources, ears), add batch dim
+            distance_gains = distance_gains[np.newaxis, ...]  # (1, time, sources, ears)
+
+        batch_size, time_steps, total_channels = stim.shape
+
+        # Validate channels: should be num_sources * freq_bins
+        expected_channels = self.num_sources * self.freq_bins
+        if total_channels != expected_channels:
+            raise ValueError(f"Expected {expected_channels} channels, got {total_channels}")
+
+        # Validate HRTF gains shape
+        expected_hrtf_channels = self.num_sources * 2 * self.freq_bins  # 2 ears per source
+        if hrtf_gains.shape[-1] != expected_hrtf_channels:
+            raise ValueError(f"Expected {expected_hrtf_channels} HRTF channels, got {hrtf_gains.shape[-1]}")
+
+        # 1. RESHAPE HRTF GAINS: (batch, time, sources*2*freq_bins) → (batch, time, sources, freq_bins, ears)
+        # Input format: [S1_Left_freqs, S1_Right_freqs, S2_Left_freqs, S2_Right_freqs, ...]
+        hrtf_gains_reshaped = hrtf_gains.reshape(batch_size, time_steps, self.num_sources, 2, self.freq_bins)
+        # Reorder to (batch, time, sources, freq_bins, ears)
+        hrtf_gains_proper = hrtf_gains_reshaped.transpose(0, 1, 2, 4, 3)
+
+        # 2. RESHAPE STIM: (batch, time, sources*freq_bins) → (batch, time, sources, freq_bins)
+        spectrograms = stim.reshape(batch_size, time_steps, self.num_sources, self.freq_bins)
+
+        # 3. COMBINE HRTF AND DISTANCE GAINS IN DB SPACE
+        # Broadcast distance gains to match HRTF gains shape
+        # distance_gains: (batch, time, sources, ears) -> (batch, time, sources, freq_bins, ears)
+        distance_gains_expanded = np.expand_dims(distance_gains, axis=3)  # Add freq dimension
+        distance_gains_broadcast = np.broadcast_to(
+            distance_gains_expanded,
+            (batch_size, time_steps, self.num_sources, self.freq_bins, 2)
+        )
+
+        # Combine gains in dB space
+        total_gains_db = hrtf_gains_proper + distance_gains_broadcast
+
+        # 4. APPLY COMBINED GAINS (following stim_filt_hrtf pattern)
+        # spectrograms: (batch, time, sources, freq_bins)
+        # total_gains_db: (batch, time, sources, freq_bins, ears)
+
+        # Square spectrograms FIRST (like original: s1**2, s2**2)
+        squared_spectrograms = spectrograms ** 2  # (batch, time, sources, freq_bins)
+
+        # Add ear dimension for broadcasting
+        squared_spectrograms_expanded = squared_spectrograms[..., np.newaxis]  # (batch, time, sources, freq_bins, 1)
+
+        # Convert combined gains to linear scale
+        linear_gains = 10.0 ** (total_gains_db / 10.0)
+
+        # Apply gains to squared spectrograms (like original: (s1**2) * gain1)
+        spatialized_power = squared_spectrograms_expanded * linear_gains  # (batch, time, sources, freq_bins, ears)
+
+        # 5. RMS COMBINATION ACROSS SOURCES
+        # Sum across sources (already squared), then sqrt
+        summed_power = np.sum(spatialized_power, axis=2)  # (batch, time, freq_bins, ears)
+        rms_output = np.sqrt(summed_power + 1e-12)  # Small epsilon for numerical stability
+
+        # 6. CONCATENATE EARS: [right, left]
+        left_ear = rms_output[..., 0]   # Index 0 = left ear (matches HRTF grid layout)
+        right_ear = rms_output[..., 1]  # Index 1 = right ear (matches HRTF grid layout)
+
+        # Concatenate RIGHT ear first, then LEFT ear (matches stim_filt_hrtf ear ordering)
+        binaural_output = np.concatenate([right_ear, left_ear], axis=-1)
+
+        # If input was 2D, remove batch dimension from output
+        if binaural_output.shape[0] == 1:
+            binaural_output = binaural_output[0]  # (time, freq_bins*2)
+
+        return binaural_output
+
+    def as_tensorflow_layer(self, **kwargs):
+        """Build TensorFlow equivalent of HRTF gain application layer."""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        freq_bins = self.freq_bins
+        num_sources = self.num_sources
+
+        class ApplyHRTFGainLayerTF(NemsKerasLayer):
+            def call(self, inputs):
+                # Expect 3 inputs: [hrtf_gains, distance_gains, stim]
+                hrtf_gains, distance_gains, stim = inputs
+
+                # Handle extra sample dimension during training
+                if len(hrtf_gains.shape) == 3:
+                    hrtf_gains = hrtf_gains[0]  # Remove sample dimension
+                    hrtf_gains = tf.expand_dims(hrtf_gains, 0)
+                if len(distance_gains.shape) == 4:
+                    distance_gains = distance_gains[0]  # Remove sample dimension
+                    distance_gains = tf.expand_dims(distance_gains, 0)
+                elif len(distance_gains.shape) == 3:
+                    # (time, sources, ears) -> (1, time, sources, ears)
+                    distance_gains = tf.expand_dims(distance_gains, 0)
+                if len(stim.shape) == 3:
+                    stim = stim[0]  # Remove sample dimension
+                    stim = tf.expand_dims(stim, 0)
+
+                batch_size = tf.shape(stim)[0]
+                time_steps = tf.shape(stim)[1]
+
+                # 1. RESHAPE HRTF GAINS: (batch, time, sources*2*freq_bins) → (batch, time, sources, freq_bins, ears)
+                hrtf_gains_reshaped = tf.reshape(hrtf_gains, [batch_size, time_steps, num_sources, 2, freq_bins])
+                hrtf_gains_proper = tf.transpose(hrtf_gains_reshaped, [0, 1, 2, 4, 3])
+
+                # 2. RESHAPE STIM: (batch, time, sources*freq_bins) → (batch, time, sources, freq_bins)
+                spectrograms = tf.reshape(stim, [batch_size, time_steps, num_sources, freq_bins])
+
+                # 3. COMBINE HRTF AND DISTANCE GAINS IN DB SPACE
+                # distance_gains: (batch, time, sources, ears) -> (batch, time, sources, freq_bins, ears)
+                distance_gains_expanded = tf.expand_dims(distance_gains, axis=3)
+                distance_gains_broadcast = tf.broadcast_to(
+                    distance_gains_expanded,
+                    [batch_size, time_steps, num_sources, freq_bins, 2]
+                )
+                total_gains_db = hrtf_gains_proper + distance_gains_broadcast
+
+                # 4. APPLY COMBINED GAINS
+                squared_spectrograms = tf.square(spectrograms)
+                squared_spectrograms_expanded = tf.expand_dims(squared_spectrograms, -1)
+
+                linear_gains = tf.pow(10.0, total_gains_db / 10.0)
+                spatialized_power = squared_spectrograms_expanded * linear_gains
+
+                # 5. RMS COMBINATION ACROSS SOURCES
+                summed_power = tf.reduce_sum(spatialized_power, axis=2)
+                rms_output = tf.sqrt(summed_power + 1e-12)
+
+                # 6. CONCATENATE EARS: [right, left]
+                left_ear = rms_output[..., 0]
+                right_ear = rms_output[..., 1]
+                binaural_output = tf.concat([right_ear, left_ear], axis=-1)
+
+                return binaural_output
+
+        return ApplyHRTFGainLayerTF(self, **kwargs)
