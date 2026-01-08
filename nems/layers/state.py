@@ -2110,6 +2110,435 @@ class HRTFGainLayerMLP(Layer):
         return HRTFGainLayerMLPTF(self, **kwargs)
 
 
+class HRTFGainLayerMLPReg(Layer):
+    """
+    Calculates pure spatial HRTF gains from sin/cos encoded angles using a 3-layer MLP,
+    with biologically-motivated regularization constraints.
+
+    This is a copy of HRTFGainLayerMLP with added regularization for:
+    - Spectral smoothness (smooth frequency response)
+    - Azimuthal smoothness (smooth spatial variation)
+    - Bilateral symmetry (HRTF_L(θ) ≈ HRTF_R(-θ))
+    - Head shadow constraint (small ILD at low frequencies)
+    - Frontal ILD constraint (ILD ≈ 0 at 0° and 180°)
+    - Gain range bounds (-20 to +5 dB typical)
+    - HRTF prior (penalize divergence from generic/measured HRTF)
+
+    Input format: [dist1, az1_sin, az1_cos, dist2, az2_sin, az2_cos] (6 channels)
+    Note: Distance values are ignored by this layer.
+
+    Parameters
+    ----------
+    shape : tuple
+        (freq_bins, ears) for the output gains.
+    hidden_units : list of int
+        Number of units in each hidden layer of the MLP.
+    hrtf_regularization : dict, optional
+        Regularization weights. Keys:
+        - 'freq_smooth': penalize frequency gradients (default 0.0)
+        - 'az_smooth': penalize azimuthal gradients (default 0.0)
+        - 'symmetry': penalize L/R asymmetry (default 0.0)
+        - 'ild_lowfreq': penalize ILD at low frequencies (default 0.0)
+        - 'ild_frontal': penalize ILD at 0°/180° (default 0.0)
+        - 'range': penalize gains outside -20 to +5 dB (default 0.0)
+        - 'hrtf_prior': penalize divergence from generic HRTF (default 0.0)
+    az_samples : int
+        Number of azimuth samples for computing regularization (default 36)
+    freq_centers : array-like, optional
+        Center frequencies in Hz for frequency-weighted regularization
+    generic_hrtf_params : dict, optional
+        Parameters to load generic ferret HRTF for prior regularization.
+        Keys: 'f_min', 'f_max'. If provided and hrtf_prior > 0, the ferret
+        HRTF will be loaded and sampled at az_samples azimuths.
+    generic_hrtf_table : ndarray, optional
+        Pre-computed generic HRTF table with shape (az_samples, freq_bins, 2).
+        If provided, this is used directly instead of loading from ferret data.
+    """
+    def __init__(self, hidden_units=(32, 16), output_scale=20.0, output_bias=-10.0,
+                 num_sources=2, hrtf_regularization=None, az_samples=36,
+                 freq_centers=None, generic_hrtf_params=None, generic_hrtf_table=None,
+                 reg_config=None,  # Ignored - for backwards compatibility with saved models
+                 **kwargs):
+        require_shape(self, kwargs, minimum_ndim=2)  # (freq_bins, ears)
+
+        # Extract shape before super().__init__() since _load_generic_hrtf needs it
+        self.shape = kwargs.get('shape')
+
+        # Set attributes before calling super().__init__() since initial_parameters() needs them
+        self.hidden_units = hidden_units
+        self.output_scale = output_scale  # Scale tanh(-1,1) to dB range
+        self.output_bias = output_bias    # Center the dB range
+        self.num_sources = num_sources
+        self.az_samples = az_samples
+        self.freq_centers = freq_centers
+        self.generic_hrtf_params = generic_hrtf_params
+
+        # Regularization config with defaults
+        self.hrtf_regularization = hrtf_regularization or {}
+        self.reg_config = {
+            'freq_smooth': self.hrtf_regularization.get('freq_smooth', 0.0),
+            'az_smooth': self.hrtf_regularization.get('az_smooth', 0.0),
+            'symmetry': self.hrtf_regularization.get('symmetry', 0.0),
+            'ild_lowfreq': self.hrtf_regularization.get('ild_lowfreq', 0.0),
+            'ild_frontal': self.hrtf_regularization.get('ild_frontal', 0.0),
+            'range': self.hrtf_regularization.get('range', 0.0),
+            'hrtf_prior': self.hrtf_regularization.get('hrtf_prior', 0.0),
+        }
+
+        # Store or generate generic HRTF table for prior regularization
+        self.generic_hrtf_table = None
+        if generic_hrtf_table is not None:
+            # Use provided table directly
+            self.generic_hrtf_table = np.array(generic_hrtf_table, dtype=np.float32)
+        elif self.reg_config['hrtf_prior'] > 0 and generic_hrtf_params is not None:
+            # Load ferret HRTF and sample at uniform azimuths
+            self.generic_hrtf_table = self._load_generic_hrtf(
+                generic_hrtf_params.get('f_min', 200),
+                generic_hrtf_params.get('f_max', 20000)
+            )
+
+        super().__init__(**kwargs)
+
+        # CRITICAL FIX: Initialize parameter values from priors
+        self.parameters.sample(inplace=True)
+
+    def _load_generic_hrtf(self, f_min, f_max):
+        """
+        Load generic ferret HRTF and sample at uniform azimuths.
+
+        Returns
+        -------
+        hrtf_table : ndarray
+            Shape (az_samples, freq_bins, 2) with left/right ear gains in dB
+        """
+        from scipy import interpolate
+        try:
+            from nems_lbhb.free_tools import load_hrtf
+        except ImportError:
+            log.warning("Could not import load_hrtf from nems_lbhb.free_tools. "
+                        "HRTF prior regularization will be disabled.")
+            return None
+
+        freq_bins = self.shape[0]
+
+        # Load ground truth HRTF
+        L0, R0, c, A = load_hrtf(format='az', fmin=f_min, fmax=f_max, num_freqs=freq_bins)
+        # L0, R0 shape: (freq_bins, n_azimuths)
+        # A: azimuth angles in degrees
+
+        # Create interpolators
+        f_left = interpolate.interp1d(A, L0, axis=1, kind='linear', fill_value='extrapolate')
+        f_right = interpolate.interp1d(A, R0, axis=1, kind='linear', fill_value='extrapolate')
+
+        # Sample at uniform azimuths (same as used for regularization)
+        az_deg = np.linspace(-180, 180, self.az_samples, endpoint=False)
+
+        # Interpolate HRTF at these azimuths
+        L_interp = f_left(az_deg)  # (freq_bins, az_samples)
+        R_interp = f_right(az_deg)  # (freq_bins, az_samples)
+
+        # Reshape to (az_samples, freq_bins, 2)
+        hrtf_table = np.stack([L_interp.T, R_interp.T], axis=-1).astype(np.float32)
+
+        log.info(f"Loaded generic HRTF for prior regularization: shape {hrtf_table.shape}")
+
+        return hrtf_table
+
+    @layer('hrtfmlpreg')
+    def from_keyword(keyword):
+        """
+        Construct HRTFGainLayerMLPReg from a keyword string.
+
+        Expected format: 'hrtfmlpreg.{freq_bins}x{ears}.h{h1}[.h{h2}][.reg{weight}]'
+        Examples:
+        - 'hrtfmlpreg.18x2.h100' -> 2-layer MLP (100 hidden units)
+        - 'hrtfmlpreg.18x2.h100.h50.reg01' -> with regularization weight 0.01
+        """
+        options = keyword.split('.')
+        shape = pop_shape(options)
+        if len(shape) != 2:
+            raise ValueError(f"HRTFGainLayerMLPReg requires 2D shape (freq_bins, ears), got {shape}")
+
+        hidden_units = [int(opt[1:]) for opt in options if opt.startswith('h')]
+        if not hidden_units:
+            hidden_units = [32, 16]
+
+        output_scale = 20.0
+        output_bias = -10.0
+        reg_weight = 0.0
+        for option in options:
+            if option.startswith('scale'):
+                output_scale = float(option[5:])
+            elif option.startswith('bias'):
+                output_bias = float(option[4:])
+            elif option.startswith('reg'):
+                reg_weight = float('0.' + option[3:])
+
+        # Apply uniform regularization if specified
+        hrtf_regularization = None
+        if reg_weight > 0:
+            hrtf_regularization = {
+                'freq_smooth': reg_weight,
+                'az_smooth': reg_weight,
+                'symmetry': reg_weight * 0.5,
+                'ild_lowfreq': reg_weight,
+                'ild_frontal': reg_weight * 0.5,
+                'range': reg_weight * 0.1,
+            }
+
+        return HRTFGainLayerMLPReg(shape=shape, hidden_units=tuple(hidden_units),
+                                    output_scale=output_scale, output_bias=output_bias,
+                                    hrtf_regularization=hrtf_regularization)
+
+    def initial_parameters(self):
+        """Initialize MLP weights and biases using WeightChannels pattern for proper sample_from_priors()."""
+        input_size = 2  # sin(angle), cos(angle)
+        freq_bins, ears = self.shape
+        output_size = freq_bins * ears
+        layer_sizes = [input_size] + list(self.hidden_units) + [output_size]
+
+        params = []
+        for i in range(len(layer_sizes) - 1):
+            in_size = layer_sizes[i]
+            out_size = layer_sizes[i+1]
+
+            # Weight parameters - following WeightChannels pattern exactly
+            w_shape = (in_size, out_size)
+            w_mean = np.full(shape=w_shape, fill_value=0.01)
+            w_sd = np.full(shape=w_shape, fill_value=0.1)
+            w_prior = Normal(w_mean, w_sd)
+            w_param = Parameter(name=f'w{i+1}', shape=w_shape, prior=w_prior)
+            params.append(w_param)
+
+            # Bias parameters
+            b_shape = (out_size,)
+            b_mean = np.full(shape=b_shape, fill_value=0.01)
+            b_sd = np.full(shape=b_shape, fill_value=0.1)
+            b_prior = Normal(b_mean, b_sd)
+            b_param = Parameter(name=f'b{i+1}', shape=b_shape, prior=b_prior)
+            params.append(b_param)
+
+        return Phi(*params)
+
+    def evaluate(self, dlc):
+        """Calculate HRTF gains using the MLP in NumPy."""
+        if dlc.ndim == 2:
+            dlc = dlc[np.newaxis, ...]
+
+        batch_size, time_steps, _ = dlc.shape
+        freq_bins, ears = self.shape
+
+        # 1. Parse DLC input
+        sin1, cos1, dist1 = dlc[..., 1], dlc[..., 2], dlc[..., 0]
+        sin2, cos2, dist2 = dlc[..., 4], dlc[..., 5], dlc[..., 3]
+
+        X1 = np.stack([sin1.ravel(), cos1.ravel()], axis=1)
+        X2 = np.stack([sin2.ravel(), cos2.ravel()], axis=1)
+
+        # 2. MLP Forward Pass
+        params = self.get_parameter_values()
+        num_layers = len(self.hidden_units) + 1
+
+        def forward_pass(X):
+            h = X
+            for i in range(num_layers):
+                w = params[i*2]
+                b = params[i*2 + 1]
+
+                if i < num_layers - 1:
+                    h = np.tanh(h @ w + b)
+                else:
+                    h = h @ w + b
+            return h
+
+        gains1_flat = forward_pass(X1)
+        gains2_flat = forward_pass(X2)
+
+        gains1 = gains1_flat.reshape(batch_size, time_steps, freq_bins * ears)
+        gains2 = gains2_flat.reshape(batch_size, time_steps, freq_bins * ears)
+
+        output = np.concatenate([gains1, gains2], axis=-1)
+
+        return output[0] if output.shape[0] == 1 else output
+
+    def as_tensorflow_layer(self, **kwargs):
+        """Build TensorFlow equivalent of the MLP HRTF gain layer with regularization."""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        # Capture parent layer attributes as closure variables
+        freq_bins, ears = self.shape
+        hidden_units = self.hidden_units
+        reg_config = self.reg_config
+        az_samples = self.az_samples
+        freq_centers = self.freq_centers
+        generic_hrtf_table = self.generic_hrtf_table  # Pre-computed generic HRTF for prior regularization
+
+        class HRTFGainLayerMLPRegTF(NemsKerasLayer):
+
+            def call(self, inputs):
+                dlc = inputs
+                if len(dlc.shape) == 3:
+                    dlc = dlc[0]
+                    dlc = tf.expand_dims(dlc, 0)
+
+                batch_size, time_steps = tf.shape(dlc)[0], tf.shape(dlc)[1]
+
+                # Parse DLC input - extract sin/cos for each source
+                sin1, cos1 = dlc[:, :, 1], dlc[:, :, 2]
+                sin2, cos2 = dlc[:, :, 4], dlc[:, :, 5]
+
+                # Create source inputs: (batch*time, 2)
+                source1_input = tf.stack([tf.reshape(sin1, [-1]), tf.reshape(cos1, [-1])], axis=1)
+                source2_input = tf.stack([tf.reshape(sin2, [-1]), tf.reshape(cos2, [-1])], axis=1)
+
+                # Sequential MLP processing
+                def process_source(source_input):
+                    # Layer 1: Input -> Hidden1 (with tanh)
+                    h1 = tf.nn.tanh(tf.matmul(source_input, self.w1) + self.b1)
+                    # Layer 2: Hidden1 -> Hidden2 (with tanh)
+                    h2 = tf.nn.tanh(tf.matmul(h1, self.w2) + self.b2)
+                    # Layer 3: Hidden2 -> Hidden3 (with tanh)
+                    h3 = tf.nn.tanh(tf.matmul(h2, self.w3) + self.b3)
+                    # Output: Hidden3 -> Output (linear, no activation)
+                    output = tf.matmul(h3, self.w4) + self.b4
+                    return output
+
+                # Process each source through the SAME MLP
+                gains1 = process_source(source1_input)
+                gains2 = process_source(source2_input)
+
+                # Add regularization losses (computed on sampled HRTF)
+                if any(v > 0 for v in reg_config.values()):
+                    self._add_hrtf_regularization()
+
+                # Simple concatenation: [S1_all_freqs, S2_all_freqs]
+                flattened = tf.concat([gains1, gains2], axis=1)
+
+                # Reshape back to NEMS format: (batch, time, freq_bins*4)
+                final_output = tf.reshape(flattened, [batch_size, time_steps, freq_bins * 4])
+
+                return final_output
+
+            def _add_hrtf_regularization(self):
+                """
+                Add biologically-motivated HRTF regularization losses.
+
+                Since MLP doesn't have an explicit lookup table, we sample the MLP
+                at uniform azimuths to compute regularization on the implicit HRTF.
+                """
+                # Sample MLP at uniform azimuths to get implicit HRTF table
+                # az_samples uniform angles from -pi to pi (endpoint=False for circular continuity)
+                az_rad = tf.linspace(-3.14159265359, 3.14159265359, az_samples + 1)[:-1]
+                sin_az = tf.sin(az_rad)
+                cos_az = tf.cos(az_rad)
+
+                # Create input for MLP: (az_samples, 2)
+                az_input = tf.stack([sin_az, cos_az], axis=1)
+
+                # Forward pass through MLP to get HRTF at each azimuth
+                h1 = tf.nn.tanh(tf.matmul(az_input, self.w1) + self.b1)
+                h2 = tf.nn.tanh(tf.matmul(h1, self.w2) + self.b2)
+                h3 = tf.nn.tanh(tf.matmul(h2, self.w3) + self.b3)
+                hrtf_flat = tf.matmul(h3, self.w4) + self.b4  # (az_samples, freq_bins*ears)
+
+                # Reshape to (az_samples, freq_bins, ears)
+                hrtf_table = tf.reshape(hrtf_flat, [az_samples, freq_bins, ears])
+
+                # Precompute front/back indices from sampled angles
+                front_idx = tf.argmin(tf.abs(az_rad))
+                back_idx_pos = tf.argmin(tf.abs(az_rad - 3.14159265359))
+                back_idx_neg = tf.argmin(tf.abs(az_rad + 3.14159265359))
+                back_indices = tf.stack([back_idx_pos, back_idx_neg], axis=0)
+
+                # 1. Spectral smoothness: penalize sharp frequency gradients
+                if reg_config['freq_smooth'] > 0:
+                    freq_grad = hrtf_table[:, 1:, :] - hrtf_table[:, :-1, :]
+                    loss_freq_raw = tf.reduce_mean(tf.square(freq_grad))
+                    loss_freq = reg_config['freq_smooth'] * loss_freq_raw
+                    self.add_loss(loss_freq)
+                    self.add_metric(loss_freq_raw, name='hrtf_freq_smooth')
+
+                # 2. Azimuthal smoothness: penalize sharp angular gradients (circular)
+                if reg_config['az_smooth'] > 0:
+                    az_grad = tf.roll(hrtf_table, -1, axis=0) - hrtf_table
+                    loss_az_raw = tf.reduce_mean(tf.square(az_grad))
+                    loss_az = reg_config['az_smooth'] * loss_az_raw
+                    self.add_loss(loss_az)
+                    self.add_metric(loss_az_raw, name='hrtf_az_smooth')
+
+                # 3. Bilateral symmetry: HRTF_L(θ) ≈ HRTF_R(-θ)
+                if reg_config['symmetry'] > 0:
+                    left_ear = hrtf_table[:, :, 0]   # (az, freq)
+                    right_ear = hrtf_table[:, :, 1]  # (az, freq)
+                    # Flip azimuth for comparison (θ → -θ)
+                    right_flipped = tf.reverse(right_ear, axis=[0])
+                    sym_error = left_ear - right_flipped
+                    loss_sym_raw = tf.reduce_mean(tf.square(sym_error))
+                    loss_sym = reg_config['symmetry'] * loss_sym_raw
+                    self.add_loss(loss_sym)
+                    self.add_metric(loss_sym_raw, name='hrtf_symmetry')
+
+                # 4. Low-frequency ILD penalty (head shadow physics)
+                # Low frequencies diffract around head → ILD should be small
+                if reg_config['ild_lowfreq'] > 0:
+                    left_ear = hrtf_table[:, :, 0]
+                    right_ear = hrtf_table[:, :, 1]
+                    ild = left_ear - right_ear  # (az, freq)
+
+                    # Weight: penalize more at low frequencies
+                    if freq_centers is not None and len(freq_centers) == freq_bins:
+                        freq_centers_tf = tf.constant(freq_centers, dtype=tf.float32)
+                        fmin = tf.reduce_min(freq_centers_tf)
+                        fmax = tf.reduce_max(freq_centers_tf)
+                        freq_weight = (fmax - freq_centers_tf) / tf.maximum(fmax - fmin, 1e-6)
+                    else:
+                        freq_weight = tf.linspace(1.0, 0.0, freq_bins)
+                    weighted_ild = ild * freq_weight[tf.newaxis, :]
+                    loss_ild_raw = tf.reduce_mean(tf.square(weighted_ild))
+                    loss_ild = reg_config['ild_lowfreq'] * loss_ild_raw
+                    self.add_loss(loss_ild)
+                    self.add_metric(loss_ild_raw, name='hrtf_ild_lowfreq')
+
+                # 5. Frontal ILD ≈ 0 at 0° and 180°
+                if reg_config['ild_frontal'] > 0:
+                    left_ear = hrtf_table[:, :, 0]
+                    right_ear = hrtf_table[:, :, 1]
+                    ild = left_ear - right_ear
+
+                    # Gather frontal ILDs at computed front/back indices
+                    frontal_ild = tf.gather(ild, tf.concat([[front_idx], back_indices], axis=0), axis=0)
+                    loss_frontal_raw = tf.reduce_mean(tf.square(frontal_ild))
+                    loss_frontal = reg_config['ild_frontal'] * loss_frontal_raw
+                    self.add_loss(loss_frontal)
+                    self.add_metric(loss_frontal_raw, name='hrtf_ild_frontal')
+
+                # 6. Gain range penalty (-20 to +5 dB typical)
+                if reg_config['range'] > 0:
+                    below_min = tf.nn.relu(-20.0 - hrtf_table)
+                    above_max = tf.nn.relu(hrtf_table - 5.0)
+                    loss_range_raw = (
+                        tf.reduce_mean(tf.square(below_min)) +
+                        tf.reduce_mean(tf.square(above_max))
+                    )
+                    loss_range = reg_config['range'] * loss_range_raw
+                    self.add_loss(loss_range)
+                    self.add_metric(loss_range_raw, name='hrtf_range')
+
+                # 7. HRTF prior: penalize divergence from generic/measured HRTF
+                if reg_config['hrtf_prior'] > 0 and generic_hrtf_table is not None:
+                    # generic_hrtf_table shape: (az_samples, freq_bins, 2)
+                    # hrtf_table shape: (az_samples, freq_bins, ears)
+                    generic_hrtf_tf = tf.constant(generic_hrtf_table, dtype=tf.float32)
+                    prior_error = hrtf_table - generic_hrtf_tf
+                    loss_prior_raw = tf.reduce_mean(tf.square(prior_error))
+                    loss_prior = reg_config['hrtf_prior'] * loss_prior_raw
+                    self.add_loss(loss_prior)
+                    self.add_metric(loss_prior_raw, name='hrtf_prior')
+
+        return HRTFGainLayerMLPRegTF(self, **kwargs)
+
+
 class DistanceAttenuationLayer(Layer):
     """Calculate distance attenuation from location coordinates.
 
