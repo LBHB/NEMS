@@ -158,7 +158,7 @@ class LN_STRF(Model):
 
         return strf1
 
-    def plot_strf(self, ax=None, labels=None):
+    def plot_strf(self, ax=None, labels=None, **kwargs):
         #strf1 = self.get_strf()
 
         #channels_out = strf1.shape[-1]
@@ -169,7 +169,7 @@ class LN_STRF(Model):
         else:
             ax=[ax]
 
-        LN_plot_strf(self, ax=ax[0])
+        LN_plot_strf(self, ax=ax[0], **kwargs)
         if len(ax)>1:
             ymin, ymax = self.out_range[0][0], self.out_range[1][0]
             plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
@@ -542,10 +542,10 @@ def LN_plot_strf(model=None, channels=None, strf=None,
             hipsi = strf[:m, :]
 
     if binaural & (ax2 is not None):
-        ax.imshow(hcontra, aspect='auto', cmap='bwr',
+        ax.imshow(zoom(hcontra,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
-        ax2.imshow(hipsi, aspect='auto', cmap='bwr',
+        ax2.imshow(zoom(hipsi,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
     else:
@@ -596,7 +596,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         pass
     elif binaural:
         ax.text(extent[0], extent[3],
-                f"{label} r={rtest:.2f}\nbdi:{res['bdi']:.2f} mcs:{res['mcs']:.2f}",
+                f"{label} r={rtest:.2f}\nbdi:{res['bdi']:.2f} mcs:{res['mcs']:.2f} mis:{res['mis']:.2f}",
                 va='bottom', fontsize=6)
         if (ax2 is None):
             ax.axhline(y=res['ipsi_offset'], lw=0.5, ls='--', color='gray')
@@ -621,7 +621,7 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         binaural = is_binaural(model)
 
     if cell_list is not None:
-        channels = [i for i,c in enumerate(model.meta['cellids']) if c in cell_list]
+        channels = [i for i, c in enumerate(model.meta['cellids']) if c in cell_list]
     if channels is None:
         strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
         channels = np.arange(strf2.shape[-1])
@@ -636,7 +636,7 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         hcontra = strf2[m:, :, :]
         hipsi = strf2[:m, :, :]
 
-    norm = strf2.std(axis=(0,1), keepdims=True)
+    norm = strf2.std(axis=(0, 1), keepdims=True)
     if merge=='sum':
         strf2=(hcontra+hipsi)
     elif merge=='diff':
@@ -653,9 +653,9 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     #wc2std[wc2std==0]=1
     #wc2 /= wc2std
 
-    if channels_out==2:
+    if channels_out<=2:
         rowcount = 1
-        colcount = 2
+        colcount = channels_out
     elif channels_out > 3:
         if rowcount is None:
             rowcount = int(np.ceil(np.sqrt(channels_out)))
@@ -687,15 +687,16 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
             figsize = (colcount*col_mult*1.0, rowcount*0.75+0.5)
 
     f, ax = plt.subplots(rowcount * row_mult, colcount * col_mult, figsize=figsize, sharex='col', sharey='row')
-    if rowcount==1:
-        ax=np.array([ax])
-    if row_mult>1:
-        ax2=ax[::2]
-        ax=ax[1::2]
-    else:
-        ax2 = ax
-    if (colcount*col_mult)==1:
+    if (rowcount==1) & (colcount==1):
         ax=np.array([ax]).T
+    # elif (rowcount==1):
+    #     print(rowcount, colcount, ax.shape)
+    if row_mult>1:
+        ax2=ax[::2].flatten()
+        ax=ax[1::2].flatten()
+    else:
+        ax = ax.flatten()
+        ax2 = ax.copy()
     for c, ch in enumerate(channels):
         cc = c % colcount
         rr = int(np.floor(c/colcount))
@@ -707,26 +708,28 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         else:
             lbl = f"ch{ch}"
         LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
-                     binaural=binaural, ax=ax[rr, cc*col_mult], ax2=ax2[rr, cc*col_mult], fs=fs,
+                     binaural=binaural, ax=ax[c], ax2=ax2[c], fs=fs,
                      show_tuning=show_tuning, show_gabor=show_gabor, label=lbl, zoomsf=zoomsf, verbose=verbose)
 
-        yl = ax[rr,cc*col_mult].get_ylim()
+        yl = ax[c].get_ylim()
         if rr<rowcount-1:
-            ax[rr,cc*col_mult].set_xlabel('')
+            ax[c].set_xlabel('')
 
         #yl = ax[rr,cc*col_mult].get_ylim()
         if rr<rowcount-1:
-            ax[rr, cc*col_mult].set_xlabel('')
+            ax[c].set_xlabel('')
         if cc==0:
-            lf = ax[rr, cc].get_yticks()
-            #f_min = model.meta.get('f_min', model.f_min)
-            #f_max = model.meta.get('f_max', model.f_max)
+            lf = ax[c].get_yticks()
+            f_min = model.meta.get('f_min', model.f_min)
+            f_max = model.meta.get('f_max', model.f_max)
+            lf = lf[(2**lf>f_min) & (2**lf<f_max)]
             #logf = np.linspace(np.log2(f_min), np.log2(f_max), strf2.shape[0])
             #lf = logf[[1,-2]]
             #print(lf)
             fr = np.round(2**np.array(lf)/1000, 1)
-            ax[rr,cc].set_yticks(lf, fr)
-    ax[-1,0].set_xlabel('Time lag')
+            ax[c].set_yticks(lf, fr)
+            ax2[c].set_yticks(lf, fr)
+    ax[-1].set_xlabel('Time lag')
     plt.suptitle(model.name[:30])
     plt.tight_layout()
 
@@ -786,11 +789,15 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, t=N
     logf = np.linspace(np.log2(f_min), np.log2(f_max), strf.shape[0]+1)
     dlogf = logf[1] - logf[0]
     logf = logf[:-1]+dlogf/2
-
     #print(logf, len(logf))
+
     if t is None:
-        t = np.linspace(0, 1/fs*(strf.shape[1]-1), strf.shape[1])+0.5/fs
+        t = np.linspace(0, 1/fs*(strf.shape[1]-1), strf.shape[1]) # +0.5/fs
+    #     print('set t:', t)
+    # else:
+    #     print('got t:', t)
     tmax = t[-1]
+
     phlist=['logBF', 'BW', 'Wf', 'Pf', 't0', 'BWt', 'Wt', 'Pt', 'g']
     if phi0 is None:
         c = get_strf_tuning(strf, binaural=False, f_min=f_min, f_max=f_max, timestep=1/fs)
@@ -913,7 +920,7 @@ def strf2gabor(strf, binaural=False, title=None, **fitopts):
 
     if binaural:
         m=int(strf.shape[0]/2)
-        strflist = [strf[:m, :], strf[18:, :]]
+        strflist = [strf[:m, :], strf[m:, :]]
         ylabels = ['Contra','Ipsi']
     else:
         strflist = [strf]
@@ -1122,10 +1129,19 @@ def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaur
 
 
 def is_binaural(model):
+    """
+    check loader string to determine if model is binaural.
+    unintuitively, "mono" means copy noise into the second channel, so it
+    should be plotted as binaural
+    :param model:
+    :return:
+    """
+    if 'is_binaural' in model.meta.keys():
+        return model.meta['is_binaural']
     loadkey0 = model.meta.get('loader',None)
     if loadkey0 is None:
         loadkey0 = model.meta.get('loadkey',model.name)
-    if '.bin' in loadkey0:
+    if ('.bin' in loadkey0) | ('.mono' in loadkey0):
         return True
     else:
         return False

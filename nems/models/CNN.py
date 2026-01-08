@@ -98,10 +98,7 @@ class CNN_pop(Model):
             fir_reg1=None
 
         # layer 1
-        if stride > 1:
-            stride_per_layer = int(stride/L1_reps)
-        else:
-            stride_per_layer = stride
+        stride_per_layer = stride
 
         for ll1 in range(L1_reps):
             if ll1==0:
@@ -112,7 +109,7 @@ class CNN_pop(Model):
             if rank is None:
                 # Full-rank finite impulse response, one per output channel
                 fir = FiniteImpulseResponse(shape=(time_bins, N_in, L1),
-                                            stride=stride, regularizer=regularizer)
+                                            stride=stride_per_layer, regularizer=regularizer)
                 self.add_layers(fir, relu1)
             elif gaussian & (ll1==0):
                 wc = wc_class1(shape=(N_in, 1, L1))
@@ -210,7 +207,6 @@ class CNN_pop(Model):
         return LNpop_get_tuning(self, **opts)
 
     @layer('CNNpop')
-
     def from_keyword(keyword):
         # Return a subclass of Model rather than a layer
         #
@@ -255,6 +251,8 @@ class CNN_pop(Model):
                 d['regularize_fir'] = False
             elif op.startswith('c'):
                 d['L1_reps'] = int(op[1:])
+            elif op.startswith('s'):
+                d['stride'] = int(op[1:])
         return CNN_pop(**d)
 
 ##
