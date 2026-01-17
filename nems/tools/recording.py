@@ -14,13 +14,17 @@ import numpy as np
 import pandas as pd
 import requests
 
-import nems.tools.epoch as ep
-#from nems0 import get_setting
-from nems.tools.signal import SignalBase, RasterizedSignal, PointProcess, merge_selections, \
+from . import epoch as ep
+from .signal import SignalBase, RasterizedSignal, PointProcess, merge_selections, \
     list_signals, load_signal, load_signal_from_streams
-from nems.tools.uri import local_uri, http_uri, targz_uri, NumpyEncoder, json_numpy_obj_hook
+from .uri import local_uri, http_uri, targz_uri, NumpyEncoder, json_numpy_obj_hook
 
-#from nems0.utils import recording_filename_hash, adjust_uri_prefix
+try:
+    from . import get_setting
+    from .utils import recording_filename_hash, adjust_uri_prefix
+    lbhb_support = True
+except:
+    lbhb_support = False
 
 log = logging.getLogger(__name__)
 
@@ -475,8 +479,11 @@ class Recording:
         rec.save('s3://nems0.amazonaws.com/somebucket/')
         """
 
-        #guessed_filename = recording_filename_hash(
-        #        self.name, self.meta,  uri_path=uri, uncompressed=uncompressed)
+        if lbhb_support:
+            guessed_filename = recording_filename_hash(
+                    self.name, self.meta,  uri_path=uri, uncompressed=uncompressed)
+        else:
+            guessed_filename = self.name + '.tgz'
 
         # Set the URI metadata since we are writing to a URI now
         if not self.uri:
@@ -490,7 +497,7 @@ class Recording:
                 return self.save_dir(uri, fmt=fmt)
             else:
                 # print(uri + '/' + guessed_filename)
-                uri = uri + os.sep + guessed_filename
+                uri = os.path.join(uri, guessed_filename)
                 return self.save_targz(uri)
         elif http_uri(uri):
             uri = http_uri(uri)
@@ -660,7 +667,6 @@ class Recording:
         with the same name will be overwritten. No return value.
         '''
         if not isinstance(signal, SignalBase):
-            import pdb; pdb.set_trace()
             raise TypeError("Recording signals must be instances of"
                             " a Signal class. signal {} was type: {}"
                             .format(signal.name, type(signal)))
@@ -732,7 +738,7 @@ class Recording:
                                             filemask=None, est_all=False, verbose=False, **context):
         """
         :param epoch_regex:
-        :param keepfrac:
+        :param keepfrac: if <1: save only keepfrac/100 of the trials
         :param selection
         :return:
 
@@ -742,7 +748,7 @@ class Recording:
         low-rep epochs and high-rep epochs.
 
         keepfrac: if <1: save only keepfrac fraction of the trials
-        
+
         NOTE: This is a fairly specialized function that we use in the LBHB lab. We have
         found that, given a limited recording time, it is advantageous to have a variety of sounds
         presented to the neuron (i.e. many low-repetition stimuli) for accurate estimation
@@ -826,9 +832,9 @@ class Recording:
                 lo_rep_epochs = mono_epochs[slice(0,l*2,2)] + bin_epochs[slice(0,(minlen-l)*2,2)]
             else:
                 raise ValueError(f"selection={selection} unknown")
-        lo_count=len(lo_rep_epochs)
-        keep_count=int(np.ceil(keepfrac*lo_count))
-        if keepfrac<1:
+        lo_count = len(lo_rep_epochs)
+        keep_count = int(np.ceil(keepfrac*lo_count))
+        if keepfrac < 1:
             log.info(f"keepfrac={keepfrac}, keeping {keep_count}/{lo_count} low-rep epochs")
             lo_rep_epochs = lo_rep_epochs[:keep_count]
 
@@ -1156,7 +1162,7 @@ class Recording:
         merged_signals = {}
         for signal_name in signal_names:
             signals = [r.signals[signal_name] for r in recordings]
-            merged_signals[signal_name] = Signal.concatenate_time(signals)
+            merged_signals[signal_name] = SignalBase.concatenate_time(signals)
 
         # TODO: copy the epochs as well ? TAKEN CARE OF BY Signal concatenation?
         #raise NotImplementedError    # TODO
@@ -1208,23 +1214,26 @@ class Recording:
 
         rec = self.copy()
         if base_signal is None:
-            sig_name = list(rec.signals.keys())[0]
+            if 'resp' in rec.signals.keys():
+                sig_name = 'resp'
+            else:
+                sig_name = list(rec.signals.keys())[0]
             base_signal = rec[sig_name]
 
         mask = base_signal.generate_epoch_mask(epoch)
 
         try:
-            mask_sig = base_signal._modified_copy(mask, dtype='bool')
+            mask_sig = base_signal._modified_copy(mask, dtype='bool', chans=[mask_name])
         except AttributeError:
             # Only rasterized signals support _modified_copy
-            mask_sig = base_signal.rasterize()._modified_copy(mask)
+            mask_sig = base_signal.rasterize()._modified_copy(mask, chans=[mask_name])
         mask_sig.name = mask_name
 
         rec.add_signal(mask_sig)
 
         return rec
 
-    def or_mask(self, epoch, invert=False):
+    def or_mask(self, epoch, mask_name='mask', invert=False):
         '''
         Make rec['mask'] == True for all {epoch} or where current mask true.
         Mask is created if it doesn't exist
@@ -1235,23 +1244,23 @@ class Recording:
             new recording with rec['mask'] == True for all PASSIVE EXPERIMENT
             and all HIT TRIAL epochs
         '''
-        if 'mask' not in self.signals.keys():
-            rec = self.create_mask(False)
+        if mask_name not in self.signals.keys():
+            rec = self.create_mask(False, mask_name=mask_name)
         else:
             rec = self.copy()
-        or_mask = rec['mask'].generate_epoch_mask(epoch)
+        or_mask = rec[mask_name].generate_epoch_mask(epoch)
 
         # Invert
         if invert:
             or_mask = ~or_mask
 
         # apply or_mask to existing mask
-        m = rec['mask'].as_continuous()
-        rec['mask'] = rec['mask']._modified_copy(m | or_mask)
+        m = rec[mask_name].as_continuous()
+        rec[mask_name] = rec[mask_name]._modified_copy(m | or_mask)
 
         return rec
 
-    def and_mask(self, epoch, invert=False):
+    def and_mask(self, epoch, mask_name='mask', invert=False):
         '''
         Make rec['mask'] == True for all epochs where current mask is also true.
         Mask is created if it doesn't exist
@@ -1264,23 +1273,24 @@ class Recording:
             newrec['mask'] == True only during REFERENCE and TARGET epochs
             contained within ACTIVE_EXPERIMENT epochs
         '''
-        if 'mask' not in self.signals.keys():
-            rec = self.create_mask(True)
+        if mask_name not in self.signals.keys():
+            rec = self.create_mask(True, mask_name=mask_name)
         else:
             rec = self.copy()
-        and_mask = rec['mask'].generate_epoch_mask(epoch)
+        and_mask = rec['resp'].generate_epoch_mask(epoch)
 
         # Invert
         if invert:
             and_mask = ~and_mask
 
         # apply and_mask to existing mask
-        m = rec['mask'].as_continuous().astype('bool')
-        rec['mask'] = rec['mask']._modified_copy(m & and_mask)
+        m = rec[mask_name]._data.astype(bool)
+
+        rec[mask_name] = rec[mask_name]._modified_copy(m & and_mask)
 
         return rec
 
-    def apply_mask(self, reset_epochs=False, mask_name='mask'):
+    def apply_mask(self, reset_epochs=False, mask_name='mask', invert_mask=False):
         '''
         Used to excise data based on boolean called mask. Returns new recording
         with only data specified mask. To make mask, see "create_mask"
@@ -1301,6 +1311,8 @@ class Recording:
             return rec
 
         m = rec[mask_name]._data[0, :].copy()
+        if invert_mask:
+            m = 1 - m.astype(int)
         z = np.array([0])
         m = np.concatenate((z, m, z))
         s, = np.nonzero(np.diff(m) > 0)
@@ -1314,6 +1326,14 @@ class Recording:
         newrec = rec.select_times(times, reset_epochs=reset_epochs)
 
         return newrec
+
+    def get_mask_vector(self, match_signal='mask', mask_name='mask'):
+        m = self[mask_name]._data[0, :].copy()
+        if self.signals[match_signal].shape[-1] > len(m):
+            upsample = int(self.signals[match_signal].shape[-1] / len(m))
+            if upsample>1:
+                m = np.repeat(m[:,np.newaxis], repeats=upsample, axis=1).flatten()
+        return m.astype(bool)
 
     def nan_mask(self, remove_epochs=True):
         """
@@ -1396,8 +1416,13 @@ def load_recording_from_targz_stream(tgz_stream):
                 v = 0
                 signame = str(_pieces)
             else:
-                v = int(_pieces[0])
-                signame = str(_pieces[1:])
+                try:
+                    v = int(_pieces[0])
+                    signame = str(_pieces[1:])
+                except:
+                    v=0
+                    signame = str(_pieces)
+
             #signame = str(basename.split('.')[0:2])
 
             if basename.endswith('meta.json'):
@@ -1483,7 +1508,9 @@ def load_recording(uri):
     '''
     if type(uri) in [PosixPath, WindowsPath]:
         uri = str(uri)
-    #uri = adjust_uri_prefix(uri)
+
+    if lbhb_support:
+        uri = adjust_uri_prefix(uri)
     
     if local_uri(uri):
         if targz_uri(uri):
@@ -1731,7 +1758,7 @@ def get_demo_recordings(directory=None, name=None, unpack=False):
     prefix = 'https://s3-us-west-2.amazonaws.com/nemspublic/sample_data/'
     uris = [(prefix + n) for n in names]
 
-    if directory is None:
+    if lbhb_support & (directory is None):
         directory = get_setting('NEMS_RECORDINGS_DIR')
 
     if unpack:
@@ -1779,3 +1806,184 @@ def get_demo_recordings(directory=None, name=None, unpack=False):
                              .format(directory))
                     log.exception(e)
     return directory
+
+
+def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True):
+    """
+    Returns a recording with _all_ signals averaged across epochs that
+    match epoch_regex, shortening them so that each epoch occurs only
+    once in the new signals. i.e. unlike 'add_average_sig', the new
+    recording will have signals 3x shorter if there are 3 occurrences of
+    every epoch.
+
+    This has advantages:
+    1. Averaging the value of a signal (such as a response) in different
+       occurrences will make it behave more like a linear variable with
+       gaussian noise, which is advantageous in many circumstances.
+    2. There will be less computation needed because the signal is shorter.
+
+    It also has disadvantages:
+    1. Stateful filters (FIR, IIR) will be subtly wrong near epoch boundaries
+    2. Any ordering of epochs is essentially lost, unless all epochs appear
+       in a perfectly repeated order.
+
+    To avoid accidentally averaging away differences in responses to stimuli
+    that are based on behavioral state, you may need to create new epochs
+    (based on stimulus and behaviorial state, for example) and then match
+    the epoch_regex to those.
+    """
+    if use_mask:
+        recording = recording.remove_masked_epochs()
+
+    # need to edit the epochs dataframe, so make a working copy
+    temp_epochs = recording['resp'].epochs.copy()
+
+    # only pull out matching epochs
+    regex_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
+    epoch_stims = temp_epochs[regex_mask]
+    #epoch_stims = temp_epochs[regex_mask].copy().reset_index()
+    # for i in range(len(epoch_stims)-1):
+    #     d = epoch_stims.loc[i + 1]['start'] - epoch_stims.loc[i]['end']
+    #     if d<0:
+    #         log.info(f"Adjusting end of epoch: {i}, {epoch_stims.loc[i,'name']} d={d}, {epoch_stims.loc[i+1]['start']}, {epoch_stims.loc[i]['end']}")
+    #         epoch_stims.loc[i,'end']=epoch_stims.loc[i+1, 'start']
+
+    # get a list of the unique epoch names
+    epoch_names = temp_epochs.loc[regex_mask, 'name'].sort_values().unique()
+
+    # what to round to when checking if epoch timings match
+    d = int(np.ceil(np.log10(recording[list(recording.signals.keys())[0]].fs))+1)
+
+    # need an end and start to close the bounds for cases where start and end bounds are identical
+    s_cat_start = pd.Series(np.arange(len(epoch_stims['start']), dtype='int'),
+                            pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
+    s_cat_end = pd.Series(np.arange(len(epoch_stims['end']), dtype='int'),
+                          pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
+    s_name_start = pd.Series(epoch_stims['name'].values,
+                             pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
+    s_name_end = pd.Series(epoch_stims['name'].values,
+                           pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
+
+    # add helper columns using the interval index lookups
+    temp_epochs['cat'] = temp_epochs['start'].map(s_cat_start)
+    temp_epochs['cat_end'] = temp_epochs['end'].map(s_cat_end)
+    temp_epochs['stim'] = temp_epochs['start'].map(s_name_start)
+    temp_epochs['stim_end'] = temp_epochs['end'].map(s_name_end)
+
+    # only want epochs that fall within a stim epoch, so drop the ones that don't
+    drop_mask = temp_epochs['cat'] != temp_epochs['cat_end']
+    trial_mask = temp_epochs['name'] == 'TRIAL'  # also dorp this
+    temp_epochs = temp_epochs.loc[~drop_mask & ~trial_mask, ['name', 'start', 'end', 'cat', 'stim']]
+
+    temp_epochs['cat'] = temp_epochs['cat'].astype(int)  # cast back to int to make into index
+
+    # build another helper series, to map in times to subtract from start/end
+    work_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
+    s_starts = pd.Series(temp_epochs.loc[work_mask, 'start'].values, temp_epochs.loc[work_mask, 'cat'].values)
+
+    temp_epochs['start'] -= temp_epochs['cat'].map(s_starts)
+    temp_epochs['end'] -= temp_epochs['cat'].map(s_starts)
+    temp_epochs = temp_epochs.round(d)
+
+    expected_max = temp_epochs.loc[temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True),'end'].max()
+
+    concat = []
+
+    offset = 0
+    new_epoch_names=[]
+    for name, group in temp_epochs.groupby('stim'):
+        # build a list of epoch names where all the values are equal
+        m_equal =(group.groupby('name').agg({
+            'start': lambda x: len(set(x)) == 1,
+            'end': lambda x: len(set(x)) == 1,
+        }).all(axis=1)
+           )
+        m_equal = list(m_equal.index[m_equal].values)
+        m_equal.extend([name,'REFERENCE','PreStimSilence','PostStimSilence'])
+
+        # find the epoch names that are common to every group
+        s = set()
+        for idx, (cat_name, cat_group) in enumerate(group.groupby('cat')):
+            if idx == 0:
+                s.update(cat_group['name'])
+            else:
+                s.intersection_update(cat_group['name'])
+
+        # drop where values across names aren't equal, or where a group is missing an epoch
+        keep_mask = (group['name'].isin(m_equal)) & (group['name'].isin(s))
+
+        g = group[keep_mask].drop(['cat', 'stim'], axis=1).drop_duplicates()
+        max_end = g['end'].max()
+        g[['start', 'end']] += offset
+
+        #if max_end>=expected_max:
+        concat.append(g)
+        offset += max_end
+        new_epoch_names.append(name)
+        #else:
+        #    log.info(f"dropping epoch {name} because it's too short")
+
+        if np.isnan(offset):
+            log.info('nan offset')
+
+    new_epochs = pd.concat(concat).sort_values(['start', 'end', 'name']).reset_index(drop=True)
+    epoch_names=new_epoch_names
+
+    # make name the temp_epochs index for quick start/end lookup in loop below
+    temp_epochs = (temp_epochs[['name', 'start', 'end']]
+                   .drop_duplicates()
+                   .set_index('name')
+                   .assign(dur=lambda x: (x['end'] - x['start']).astype(float))
+                   .drop(['start', 'end'], axis='columns')
+                   )
+
+    averaged_signals = {}
+    for signal_name, signal in recording.signals.items():
+        # TODO: this may be better done as a method in signal subclasses since
+        # some subclasses may have more efficient approaches (e.g.,
+        # TiledSignal)
+
+        # Extract all occurances of each epoch, returning a dict where keys are
+        # stimuli and each value in the dictionary is (reps X cell X bins)
+        #print(signal_name)
+        epoch_data = signal.rasterize().extract_epochs(epoch_names)
+
+        fs = signal.fs
+        # Average over all occurrences of each epoch
+        data = []
+        for epoch_name in epoch_names:
+            epoch = epoch_data[epoch_name]
+
+            # TODO: fix empty matrix error. do epochs align properly?
+            if epoch.dtype == bool:
+                epoch = epoch[0,...]
+            elif np.sum(np.isfinite(epoch)):
+                epoch = np.nanmean(epoch, axis=0)
+            else:
+                epoch = epoch[0,...]
+
+            elen = int(round(np.min(temp_epochs.loc[epoch_name, 'dur'] * fs)))
+
+            if epoch.shape[-1] > elen:
+                #log.info('truncating epoch_data for epoch %s', epoch_name)
+                #epoch = epoch[..., :elen]
+                log.info('NOT truncating epoch_data for epoch %s', epoch_name)
+                log.info(f"{epoch}")
+            elif epoch.shape[-1]<elen:
+                pad = np.zeros((epoch.shape[0], elen-epoch.shape[1])) * np.nan
+                epoch = np.concatenate((epoch, pad), axis=1)
+                log.info('padding epoch_data for epoch %s with nan', epoch_name)
+
+            data.append(epoch)
+
+        data = np.concatenate(data, axis=-1)
+        if data.shape[-1] != round(signal.fs * offset):
+            raise ValueError('Misalignment issue in averaging signal')
+
+        averaged_signal = signal._modified_copy(data, epochs=new_epochs)
+        averaged_signals[signal_name] = averaged_signal
+
+    averaged_recording = Recording(averaged_signals,
+                                   meta=recording.meta,
+                                   name=recording.name)
+    return averaged_recording

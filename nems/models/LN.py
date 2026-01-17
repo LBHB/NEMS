@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom, gaussian_filter
 import scipy
+import joblib, tempfile
 
 from .base import Model
 from nems.registry import layer
@@ -15,6 +16,13 @@ from nems.layers import (
 from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
+
+#cachedir = '/auto/data/tmp/mouse_io'  # You can specify any directory you want
+cachedir = tempfile.mkdtemp()  # You can specify any directory you want
+memory = joblib.Memory(cachedir, verbose=False)
+
+# uncomment to clear joblib cache (if updated gabor fit function)
+#memory.clear()
 
 #
 # Class defs
@@ -215,7 +223,7 @@ class LN_pop(Model):
 
     def __init__(self, time_bins=None, channels_in=None, channels_out=None, rank=None, L1=None, L2=None, share_tuning=True,
                  gaussian=False, nonlinearity='DoubleExponential', stride=1,
-                 nl_kwargs=None, regularizer=None, from_saved=False,
+                 nl_kwargs=None, regularizer=None, regularize_fir=True, from_saved=False,
                  include_anticausal=False, **model_init_kwargs):
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
@@ -278,6 +286,10 @@ class LN_pop(Model):
         else:
             wc_class1 = WeightChannels
             reg1 = regularizer
+        if regularize_fir:
+            fir_reg1=regularizer
+        else:
+            fir_reg1=None
         if rank is None:
             # Full-rank finite impulse response, one per output channel
             fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out),
@@ -286,12 +298,12 @@ class LN_pop(Model):
         elif share_tuning:
             wc = wc_class1(shape=(channels_in, 1, rank), regularizer=reg1)
             fir = FiniteImpulseResponse(shape=(time_bins, 1, rank),
-                                        include_anticausal=include_anticausal, regularizer=regularizer)
+                                        include_anticausal=include_anticausal, regularizer=fir_reg1)
             wc2 = WeightChannels(shape=(rank, channels_out), regularizer=regularizer)
             self.add_layers(wc, fir, wc2)
         else:
             wc = wc_class1(shape=(channels_in, rank, channels_out), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal, regularizer=regularizer)
+            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal, regularizer=fir_reg1)
             self.add_layers(wc, fir)
 
         # Add static nonlinearity
@@ -425,6 +437,10 @@ class LN_pop(Model):
                 d['regularizer'] = op
             elif op.startswith('l2'):
                 d['regularizer'] = op
+                d['regularize_fir'] = True
+            elif op.startswith('wl2'):
+                d['regularizer'] = op[1:]
+                d['regularize_fir'] = False
             elif op.startswith('ac'):
                 d['include_anticausal'] = True
         return LN_pop(**d)
@@ -460,25 +476,31 @@ def LNpop_get_strf(model, channels=None, layer=2):
 
 def LN_plot_strf(model=None, channels=None, strf=None,
                  binaural=None, ax=None, ax2=None, fs=100,
-                 show_tuning=False, show_gabor=False, label="", x0=0, y0=0, show_label=True,
+                 show_tuning=False, show_gabor=False, label="", x0=0, y0=0,
+                 show_label=True, verbose=False, zoomsf=1,
                  **tuningkwargs):
     if channels is None:
         channels=[0]
     if strf is None:
-        strf = model.get_strf(channels=channels)[:,:,0]
+        strf = model.get_strf(channels=channels)
+        if strf.ndim>2:
+            strf=strf[:,:,0]
     if model is not None:
-        rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
-        rtest = rtest[channels[0], 0]
+        try:
+            rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
+            rtest = rtest[channels[0], 0]
+        except:
+            rtest = np.nan
         if binaural is None:
             binaural = is_binaural(model)
         ac = model.meta.get('include_anticausal', False)
-        fmin = model.meta.get('fmin', model.fmin)
-        fmax = model.meta.get('fmax', model.fmax)
+        f_min = model.meta.get('f_min', model.f_min)
+        f_max = model.meta.get('f_max', model.f_max)
     else:
         rtest = np.nan
         ac = False
-        fmin=200
-        fmax=20000
+        f_min=200
+        f_max=20000
     if binaural is None:
         binaural = False
     if ax is None:
@@ -498,7 +520,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         res = get_binaural_strf_tuning(strf, **tuningkwargs)
         
     # mm = np.max(np.abs(strf))
-    logf = np.linspace(np.log2(fmin), np.log2(fmax), strf.shape[0] + 1)
+    logf = np.linspace(np.log2(f_min), np.log2(f_max), strf.shape[0] +1 )
     if binaural:
         res['ipsi_offset'] = np.mean(logf)
     tt = np.arange(strf.shape[1])/fs
@@ -512,9 +534,13 @@ def LN_plot_strf(model=None, channels=None, strf=None,
 
     if binaural:
         m = int(strf.shape[0]/2)
-        hcontra = strf[:m, :]
-        hipsi = strf[m:, :]
-        
+        if model.primary_ear==0:
+            hcontra = strf[:m, :]
+            hipsi = strf[m:, :]
+        else:
+            hcontra = strf[m:, :]
+            hipsi = strf[:m, :]
+
     if binaural & (ax2 is not None):
         ax.imshow(hcontra, aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
@@ -523,12 +549,16 @@ def LN_plot_strf(model=None, channels=None, strf=None,
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
     else:
-        ax.imshow(strf, aspect='auto', cmap='bwr',
+        ax.imshow(zoom(strf,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
-        lf = np.array(ax.get_yticks())[1:-1]
+
+        lf = np.array(ax.get_yticks())
+        lf = lf[(lf>logf.min()) & (lf<logf.max())]
+        lf = np.array([logf[0], np.mean(logf[[0,-1]]), logf[-1]])
         fr = np.round(2 ** lf / 1000, 1)
         ax.set_yticks(lf, fr)
+        #print(lf,fr)
 
     if show_tuning:
         f_ = scipy.interpolate.interp1d(np.arange(len(logf)), logf, fill_value="extrapolate")
@@ -543,16 +573,20 @@ def LN_plot_strf(model=None, channels=None, strf=None,
 
     if show_gabor:
         if binaural & (ax2 is not None):
-            phiopt, E = strf2gabor(hipsi,fs=fs, fmin=model.fmin, fmax=model.fmax)
+            phiopt, E = strf2gabor(hipsi,fs=fs, f_min=model.f_min, f_max=model.f_max,
+                                   include_offset=False, verbose=verbose)
             label2 = f"{label} I BF={2**phiopt[0][0]/1000:.1f}K"
             plot_gabor(phiopt[0], ax=ax2, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
 
-            phiopt, E = strf2gabor(hcontra,fs=fs, fmin=model.fmin, fmax=model.fmax)
+            phiopt, E = strf2gabor(hcontra,fs=fs, f_min=model.f_min, f_max=model.f_max,
+                                   include_offset=False, verbose=verbose)
             label = f"{label} C BF={2**phiopt[0][0]/1000:.1f}K"
             plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
 
         else:
-            phiopt, E = strf2gabor(strf, binaural=binaural, fs=fs, fmin=model.fmin, fmax=model.fmax)
+            phiopt, E = strf2gabor(strf, binaural=binaural, fs=fs, f_min=model.f_min, f_max=model.f_max, t=tt,
+                                   include_offset=False, verbose=verbose)
+            #print(label,phiopt)
             #label = f"{label} E={E[0]:.2f}"
             label = f"{label} BF={2**phiopt[0][0]/1000:.1f}K"
             plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
@@ -575,13 +609,14 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         ax.text(extent[0], extent[3], f"{label} r={rtest:.2f}")
     else:
         ax.text(extent[0], extent[3], f"{label}")
-    ax.set_xlabel('Time lag')
-
+    ax.set_xlabel('Time lag', fontsize=6)
+    ax.tick_params(axis='x', labelsize=6)
+    ax.tick_params(axis='y', labelsize=6)
 
 def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
-                    layer=2, plot_nl=False, merge=None,
-                    binaural=None, show_tuning=False,
-                    show_gabor=False, x0=0, y0=0, figsize=None):
+                    layer=2, plot_nl=False, merge=None, rowcount=None,
+                    binaural=None, show_tuning=False, zoomsf=1,
+                    show_gabor=False, x0=0, y0=0, figsize=None, verbose=False):
     if binaural is None:
         binaural = is_binaural(model)
 
@@ -594,8 +629,12 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     channels_out = len(channels)
 
     m = int(strf2.shape[0]/2)
-    hcontra = strf2[:m, :, :]
-    hipsi = strf2[m:, :, :]
+    if model.primary_ear==0:
+        hcontra = strf2[:m, :, :]
+        hipsi = strf2[m:, :, :]
+    else:
+        hcontra = strf2[m:, :, :]
+        hipsi = strf2[:m, :, :]
 
     norm = strf2.std(axis=(0,1), keepdims=True)
     if merge=='sum':
@@ -614,14 +653,20 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     #wc2std[wc2std==0]=1
     #wc2 /= wc2std
 
-    if channels_out > 3:
-        rowcount = int(np.ceil(np.sqrt(channels_out)))
-        colcount = int(np.ceil(channels_out/rowcount))
+    if channels_out==2:
+        rowcount = 1
+        colcount = 2
+    elif channels_out > 3:
+        if rowcount is None:
+            rowcount = int(np.ceil(np.sqrt(channels_out)))
+        colcount = int(np.ceil(channels_out / rowcount))
     elif channels_out > 16:
-        rowcount = np.min([channels_out, 5])
+        if rowcount is None:
+            rowcount = np.min([channels_out, 5])
         colcount = int(np.ceil(channels_out / 5))
     else:
-        rowcount = np.min([channels_out, 4])
+        if rowcount is None:
+            rowcount = np.min([channels_out, 4])
         colcount = int(np.ceil(channels_out / 4))
         
     if plot_nl:
@@ -639,9 +684,11 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
         if colcount<=6:
             figsize = (colcount*col_mult*2.0, rowcount*1.5)
         else:
-            figsize = (colcount*col_mult*1.0, rowcount*0.75)
+            figsize = (colcount*col_mult*1.0, rowcount*0.75+0.5)
 
-    f, ax = plt.subplots(rowcount * row_mult, colcount * col_mult, figsize=figsize, sharex=True, sharey=True)
+    f, ax = plt.subplots(rowcount * row_mult, colcount * col_mult, figsize=figsize, sharex='col', sharey='row')
+    if rowcount==1:
+        ax=np.array([ax])
     if row_mult>1:
         ax2=ax[::2]
         ax=ax[1::2]
@@ -661,7 +708,7 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
             lbl = f"ch{ch}"
         LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
                      binaural=binaural, ax=ax[rr, cc*col_mult], ax2=ax2[rr, cc*col_mult], fs=fs,
-                     show_tuning=show_tuning, show_gabor=show_gabor, label=lbl)
+                     show_tuning=show_tuning, show_gabor=show_gabor, label=lbl, zoomsf=zoomsf, verbose=verbose)
 
         yl = ax[rr,cc*col_mult].get_ylim()
         if rr<rowcount-1:
@@ -672,6 +719,11 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
             ax[rr, cc*col_mult].set_xlabel('')
         if cc==0:
             lf = ax[rr, cc].get_yticks()
+            #f_min = model.meta.get('f_min', model.f_min)
+            #f_max = model.meta.get('f_max', model.f_max)
+            #logf = np.linspace(np.log2(f_min), np.log2(f_max), strf2.shape[0])
+            #lf = logf[[1,-2]]
+            #print(lf)
             fr = np.round(2**np.array(lf)/1000, 1)
             ax[rr,cc].set_yticks(lf, fr)
     ax[-1,0].set_xlabel('Time lag')
@@ -680,22 +732,26 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
 
     return f
 
-def Gabor1d(x, X0, BW, W, P, g=1):
+def Gabor1d(x, X0, BW, W, P, g=1, offset=0):
     g = g * np.exp(-(x-X0)**2 / (2*BW**2))
-    s = np.sin(W *2*np.pi * (x-X0) + P)
+    s = np.sin(W *2*np.pi * (x-X0) + P) + offset
     return g * s, g, s
 
 def Gabor2D(phi, x=None, t=None):
-    logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phi
+    if len(phi)==9:
+        logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phi
+        offset = 0
+    else:
+        logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phi
 
     if x is None:
         x = np.linspace(np.log2(200), np.log2(20000), 18)
     if t is None:
         t = np.linspace(0, 0.15, 16)
 
-    S, Sg, Ss = Gabor1d(x, logBF, BW, Wf, Pf, g=g)
+    S, Sg, Ss = Gabor1d(x, logBF, BW, Wf, Pf, g=g, offset=offset)
     T, Tg, Ts = Gabor1d(t, t0, BWt, Wt, Pt, g=1)
-    H = S[:, np.newaxis] * T[np.newaxis,:]
+    H = S[:, np.newaxis] * T[np.newaxis,:] # + offset
 
     return H
 
@@ -707,12 +763,12 @@ def plot_gabor(phi, ax=None, logf=None, t=None, show_contours=False, frame_on=Fa
         logf = np.linspace(np.log2(200), np.log2(20000), 18)
     if t is None:
         t = np.linspace(0, 0.150, 16)
-
     H = Gabor2D(phi, x=logf, t=t)
     mm = np.max(np.abs(H))
     if show_contours:
         if mm > 0:
             ax.contour(t+x0, logf+y0, H, levels=[-mm*0.65, mm*0.65], colors=['b','r'])
+            ax.contour(t + x0, logf + y0, H, levels=[-mm * 0.35, mm * 0.35], linewidths=[0.5,0.5], colors=['b', 'r'])
         if frame_on:
             ax.plot([t[0]+x0, t[-1]+x0, t[-1]+x0, t[0]+x0, t[0]+x0],
                     [logf[0]+y0, logf[0]+y0, logf[-1]+y0, logf[-1]+y0, logf[0]+y0],
@@ -721,20 +777,26 @@ def plot_gabor(phi, ax=None, logf=None, t=None, show_contours=False, frame_on=Fa
         ax.imshow(H, cmap='bwr', vmin=-mm, vmax=mm,
                   origin='lower', aspect='auto',
                   extent=[t[0]+x0, t[-1]+x0, logf[0]+y0, logf[-1]+y0])
-
     return ax
 
-def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbose=False):
+@memory.cache
+def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, t=None,
+                 include_offset=False, verbose=False):
 
-    logf = np.linspace(np.log2(fmin), np.log2(fmax), strf.shape[0])
-    t = np.linspace(0, 1/fs*(strf.shape[1]-1), strf.shape[1])
+    logf = np.linspace(np.log2(f_min), np.log2(f_max), strf.shape[0]+1)
+    dlogf = logf[1] - logf[0]
+    logf = logf[:-1]+dlogf/2
+
+    #print(logf, len(logf))
+    if t is None:
+        t = np.linspace(0, 1/fs*(strf.shape[1]-1), strf.shape[1])+0.5/fs
     tmax = t[-1]
     phlist=['logBF', 'BW', 'Wf', 'Pf', 't0', 'BWt', 'Wt', 'Pt', 'g']
     if phi0 is None:
-        c = get_strf_tuning(strf, binaural=False, fmin=fmin, fmax=fmax, timestep=1/fs)
+        c = get_strf_tuning(strf, binaural=False, f_min=f_min, f_max=f_max, timestep=1/fs)
         f_ = scipy.interpolate.interp1d(np.arange(len(logf)), logf, fill_value="extrapolate")
 
-        Wf0 = 0.25 / c['bw']
+        Wf0 = 0.5 / c['bw']
         Wt0 = 0.5 / (c['offlat'] - c['lat'])
         Pt0 = np.pi * 0.75
         g0 = np.std(strf) * 2 * np.sign(np.mean(strf))
@@ -742,6 +804,8 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
         phi0 = [np.log2(c['bf']), c['bw'] / 2, Wf0, np.pi / 2,
                 (c['lat'] + c['offlat']) / 2,
                 (c['offlat'] - c['lat']) / 2, Wt0, Pt0, g0]
+        if include_offset:
+            phi0.append(0.0)
         if verbose:
             log.info("phi0  "+",".join([f"{n}={p:.3f}" for n,p in zip(phlist,phi0)]))
 
@@ -752,7 +816,7 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
         logfpadded = np.concatenate([logf[0] + np.arange(-padbins, 0) * dlogf,
                                      logf,
                                      logf[-1] + np.arange(1, padbins + 1) * dlogf])
-        tpadded = np.linspace(0 - 1/fs * padbins, t[-1] + 1/fs * padbins, len(t) + padbins * 2)
+        tpadded = np.linspace(t[0] - 1/fs * padbins, t[-1] + 1/fs * padbins, len(t) + padbins * 2)
 
         strf, logf, t = strfpadded, logfpadded, tpadded
     # end padded stuff
@@ -761,7 +825,10 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
 
     # lambda x: np.sum((strf1-Gabor2D(x, x=logf, t=t)**2))
     def Err(x):
-        logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = x
+        if len(x)==9:
+            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = x
+        else:
+            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = x
 
         # measure big deviations from the bounds, implementing a crude regularizer
         d = 0
@@ -775,13 +842,15 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
             d += -BW+0.1
         if (np.abs(Wt) > 30):
             d += np.abs(Wt) / 30
+        if (np.abs(Wt) < 0.2/np.abs(BWt)):
+            d += 0.2/np.abs(BWt) - np.abs(Wt)
         if (t0 > t[-padbins]):
             d += t0 - t[-padbins]
         if (t0 < 0):
             d += -t0
         if (BWt > tmax):
             d += (BWt - tmax)
-        if (BWt < 0):
+        if (BWt < 0.0001):
             d += -BWt
         if (Wf > 2):
             d += (Wf - 2)
@@ -801,8 +870,12 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
     # this is the one that works for the most part
     phiopt = scipy.optimize.fmin(func=Err, x0=phi0, ftol=0.0001, maxiter=5000, disp=False) # , callback=Callback)
 
-    # clean up values in phiopt
-    logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phiopt
+    # clean up values in phiopt to make them easy to align/compare
+    if len(phiopt)==9:
+        logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phiopt
+        offset=0
+    else:
+        logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phiopt
 
     if Wf < 0:
         Wf = -Wf
@@ -825,19 +898,18 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, fmin=200, fmax=20000, verbo
         Pt += np.pi
         g = -g
 
-    phiopt = np.array([logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g])
+    phiopt = np.array([logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset])
     E = 1 - Err(phiopt) / np.var(strf)
 
     if verbose:
-        plt.figure()
+        log.info("phiopt " + ",".join([f"{n}={p:.3f}" for n, p in zip(phlist, phiopt)]))
         #plt.imshow(strf, origin='lower', extent=[t[0],t[-1],logf[0],logf[-1]])
         #plot_gabor(phiopt, ax=plt.gca(), t=t, logf=logf, show_contours=True)
         #log.info("phiopt" + ",".join([f"{n}={p:.3f}" for n, p in zip(phlist, phiopt)]))
 
     return phiopt, E
 
-
-def strf2gabor(strf, binaural=False, verbose=False, title=None, **fitopts):
+def strf2gabor(strf, binaural=False, title=None, **fitopts):
 
     if binaural:
         m=int(strf.shape[0]/2)
@@ -850,7 +922,7 @@ def strf2gabor(strf, binaural=False, verbose=False, title=None, **fitopts):
     x = [fit_gabor_2d(s, **fitopts) for s in strflist]
     phiopt = [x_[0] for x_ in x]
     E = [x_[1] for x_ in x]
-    if verbose:
+    if False:
         f,ax = plt.subplots(len(phiopt), 2, sharex=True, sharey=True)
         if len(phiopt)==1:
             ax=[ax]
@@ -877,17 +949,17 @@ def strf_to_components(strf, binaural=False):
         return ucf[:,0],vcf[0,:]
 
 
-def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
+def get_strf_tuning(strf, binaural=False, f_min=200, f_max=20000, timestep=0.01):
     if binaural:
-        return get_binaural_strf_tuning(strf, fmin=fmin, fmax=fmax, timestep=timestep)
+        return get_binaural_strf_tuning(strf, f_min=f_min, f_max=f_max, timestep=timestep)
     # figure out some tuning properties
-    maxoct = int(np.log2(fmax/fmin))
+    maxoct = int(np.log2(f_max/f_min))
 
     sf = 4
     strfsmooth = zoom(strf, sf)
     #strfsmooth = gaussian_filter(strfsmooth, sigma=1)
     #strfsmooth[np.abs(strfsmooth) < strfsmooth.std()/2] = 0
-    ff = np.exp(np.linspace(np.log(fmin), np.log(fmax), strfsmooth.shape[0]))
+    ff = np.exp(np.linspace(np.log(f_min), np.log(f_max), strfsmooth.shape[0]))
     
     onsetbins = int(0.6/timestep*sf)
     mm = np.mean(strfsmooth[:, :onsetbins] * (1*(strfsmooth[:, :onsetbins] > 0)), 1)
@@ -899,12 +971,16 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
     else:
         bfpos = True
 
-    fcurve, tcurve = strf_to_components(strfsmooth[:,:-8])
+    fcurve, tcurve = strf_to_components(strfsmooth[:,:-5])
     
     if 1:
-        mm = np.mean(np.abs(strfsmooth[:,:onsetbins]),axis=1)
+        #mm = np.mean(np.abs(strfsmooth[:,:onsetbins]),axis=1)
+        mm = np.mean(np.abs(strfsmooth[:,:-5]),axis=1)
         msum=np.cumsum(mm)/np.sum(mm)
         bfidx = np.argwhere(msum>=0.5)[0][0]
+        #print(bfidx)
+        #bfidx = np.where(np.abs(fcurve)==np.abs(fcurve).max())[0].flatten()[0]
+        #print(bfidx, fcurve.shape)
         blo = np.argwhere(msum>=0.3)[0][0]
         bhi = np.argwhere(msum>=0.7)[0][0]
         bf = np.round(ff[bfidx])
@@ -945,15 +1021,19 @@ def get_strf_tuning(strf, binaural=False, fmin=200, fmax=20000, timestep=0.01):
 
     return res
 
-def get_binaural_strf_tuning(strf, **kwargs):
+def get_binaural_strf_tuning(strf, primary_ear=0, **kwargs):
 
     # figure out some tuning properties
 
     if int(strf.shape[0]/2) != strf.shape[0]/2:
         raise ValueError('Binaural strf must have even shape[0]')
     m=int(strf.shape[0]/2)
-    contra=strf[:m,:]
-    ipsi=strf[m:,:]
+    if primary_ear==0:
+        contra=strf[:m,:]
+        ipsi=strf[m:,:]
+    else:
+        contra=strf[m:,:]
+        ipsi=strf[:m,:]
 
     res={}
     ctuning = get_strf_tuning(contra, **kwargs)
@@ -964,6 +1044,7 @@ def get_binaural_strf_tuning(strf, **kwargs):
         res['i'+k] = ituning[k]
 
     res['bdi'] = np.std(contra-ipsi) / (contra.std()+ipsi.std())
+    res['sbdi'] = res['bdi'] * np.sign((contra-ipsi).sum())
     res['mcs'] = contra.mean() / np.abs(contra).mean()
     res['mis'] = ipsi.mean() / np.abs(ipsi).mean()
     res['ipsi_offset'] = m
@@ -1010,28 +1091,29 @@ def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaur
             res = {'cellid': model.meta['cellids'][c]}
         else:
             res = {'cellid': 'cell'}
-        if 'fmin' not in fitopts.keys():
-            fitopts['fmin'] = model.fmin
-        if 'fmax' not in fitopts.keys():
-            fitopts['fmax'] = model.fmax
+        if 'f_min' not in fitopts.keys():
+            fitopts['f_min'] = model.f_min
+        if 'f_max' not in fitopts.keys():
+            fitopts['f_max'] = model.f_max
         if 'fs' not in fitopts.keys():
             fitopts['fs'] = model.fs
+        fitopts['include_offset']=False
         phiopt, E = strf2gabor(strf[:,:,i], binaural=binaural,
                                title=res['cellid'], **fitopts)
         if binaural:
-            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phiopt[0]
+            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phiopt[0]
             res.update({'cBF': 2**logBF, 'clogBF': logBF, 'cBW': BW, 'cWf': Wf,
                         'cPf': Pf, 'ct0': t0, 'cBWt': BWt, 'cWt': Wt,
-                        'cPt': Pt, 'cg': g, 'cE': E[0]})
-            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phiopt[1]
+                        'cPt': Pt, 'cg': g, 'coffset': offset, 'cE': E[0]})
+            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phiopt[1]
             res.update({'iBF': 2**logBF, 'ilogBF': logBF, 'iBW': BW, 'iWf': Wf,
                         'iPf': Pf, 'it0': t0, 'iBWt': BWt, 'iWt': Wt,
-                        'iPt': Pt, 'ig': g, 'iE': E[0]})
+                        'iPt': Pt, 'ig': g, 'ioffset': offset, 'iE': E[0]})
         else:
-            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = phiopt[0]
+            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phiopt[0]
             res.update({'BF': 2**logBF, 'logBF': logBF, 'BW': BW, 'Wf': Wf,
                         'Pf': Pf, 't0': t0, 'BWt': BWt, 'Wt': Wt,
-                        'Pt': Pt, 'g': g, 'E': E[0]})
+                        'Pt': Pt, 'g': g, 'offset': offset, 'E': E[0]})
         dlist.append(res)
     df = pd.DataFrame(dlist)
     df = df.set_index('cellid')

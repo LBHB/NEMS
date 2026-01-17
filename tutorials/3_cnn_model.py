@@ -6,6 +6,22 @@ from nems import Model
 from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
 from nems import visualization
 from nems.metrics import correlation
+from nems.models.LN import LN_plot_strf
+import tensorflow as tf
+
+# Check if eager execution is enabled
+if tf.executing_eagerly():
+    print("Eager execution is enabled.")
+else:
+    print("Eager execution is disabled.")
+
+# Function to get STRF from a LN model
+def get_strf(ln_mdl, channels=None):
+    wc = ln_mdl.layers[0].coefficients
+    fir = ln_mdl.layers[1].coefficients
+    strf = wc @ fir.T
+
+    return strf
 
 # Basic options to quickly fit our models for tf backend
 # NOTE: This will be explored in the next tutorial
@@ -21,12 +37,14 @@ options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_
 nems.download_demo()
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
 
-cid=29 # Picking our cell to pull data from
+#cid=11 # Better(?) LN model fit?
+cid = 29  # Picking our cell to pull data from
 cellid = training_dict['cellid'][cid]
 spectrogram_fit = training_dict['spectrogram']
 response_fit = training_dict['response'][:,[cid]]
 spectrogram_test = test_dict['spectrogram']
 response_test = test_dict['response'][:,[cid]]
+
 
 ############GETTING STARTED###############
 ###########################
@@ -101,3 +119,15 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 
 # A quick plot of our models pre and post fitting
 visualization.plot_predictions({'ln prediction':pred_ln, 'cnn prediction':pred_cnn}, spectrogram_test, response_test, correlation=True)
+
+# Plot STRF and nonlinearity
+fig, ax = plt.subplots(1, 2, figsize=(7, 3))
+LN_plot_strf(fitted_ln, ax=ax[0], strf=get_strf(fitted_ln))
+visualization.plot_nl(fitted_ln.layers[-1], ax=ax[1], range=(-1, 1))
+fig.tight_layout()
+
+# new self-contained LN model
+# from nems.models import LN
+# ln = LN.LN_STRF(15,18,3)
+# ln = ln.fit_LBHB(X=spectrogram_fit[np.newaxis], Y=response_fit[np.newaxis])
+# ln.plot_strf()
