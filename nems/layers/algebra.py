@@ -312,6 +312,7 @@ class ApplyHRTF(Layer):
             def call(self, inputs):
                 # Assume inputs is a list of two tensors
                 # TODO: Use tensor names to not require this arbitrary order.
+                # inputs = [hrtf, stim] hrtf
                 m = int(tf.shape(inputs[1])[-1] / 2)
 
                 # add power
