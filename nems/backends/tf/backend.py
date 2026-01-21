@@ -41,18 +41,20 @@ class TensorFlowBackend(Backend):
         """
         # TODO: what backend options to accept?
 
-        batch_size = eval_kwargs.get('batch_size', 0)
-        if batch_size == 0:
-            data = data.prepend_samples()
-            batch_size = None
         #elif batch_size is not None:
         #    raise NotImplementedError(
         #        "tf.tensordot is failing for multiple batches b/c the axis "
         #        "numbers shift. Need to fix that before this will work."
         #    )
-        inputs = data.inputs
-        if data.data_format=='array':
 
+        data_format = data.data_format
+        batch_size = eval_kwargs.get('batch_size', 0)
+        if (batch_size == 0) and (data_format != 'tf.data.Dataset'):
+            data = data.prepend_samples()
+            batch_size = None
+
+        if data_format=='array':
+            inputs = data.inputs
             # Convert inputs to TensorFlow format
             tf_input_dict = {}
             for k, v in inputs.items():
@@ -61,7 +63,26 @@ class TensorFlowBackend(Backend):
                               dtype=self.nems_model.dtype)
                 tf_input_dict[k] = tf_in
             unused_inputs = list(tf_input_dict.keys())
+
+        elif (data_format =='tf.data.Dataset') or (data_format=='tf.keras.utils.Sequence'):
+            itdata = iter(data)
+            slice_data = next(itdata)
+            if isinstance(slice_data, tuple):
+                slice_data = slice_data[0]
+            not_inputs = ['task_id', 'output']
+            if (sum([ni in slice_data.keys() for ni in not_inputs])>0):
+                inputs = {k:v for (k,v) in slice_data.items() if k not in not_inputs}
+            else:
+                inputs = slice_data
+            tf_input_dict = {}
+            for k, v in inputs.items():
+                tf_in = Input(shape=v[0].shape, name=k, batch_size=batch_size,
+                              dtype=self.nems_model.dtype)
+                tf_input_dict[k] = tf_in
+            unused_inputs = list(tf_input_dict.keys())
+
         else:
+            inputs = data.inputs
             k = list(inputs.keys())[0]
             tf_input_dict = {k: Input(shape=inputs[k][0][0].shape[1:], name=k, batch_size=batch_size,
                                             dtype=self.nems_model.dtype)}
@@ -207,7 +228,7 @@ class TensorFlowBackend(Backend):
         """
         log.info("Starting tf.backend.fit...")
         batch_size = eval_kwargs.get('batch_size', 0)
-        if batch_size == 0:
+        if (batch_size == 0) and (data.data_format != 'tf.data.Dataset'):
             data = data.prepend_samples()
             batch_size = None
 
@@ -251,7 +272,8 @@ class TensorFlowBackend(Backend):
         #       Need to tweak this to be able to fit outputs from multiple
         #       layers. _build would need to establish a mapping I guess, since
         #       it has the information about which layer generates which output.
-        inputs = data.inputs
+        if data.data_format != 'tf.data.Dataset':
+            inputs = data.inputs
 
         if data.data_format == 'array':
             if len(data.targets) > 1:
@@ -266,8 +288,19 @@ class TensorFlowBackend(Backend):
                 initial_error = np.array([initial_error])
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
 
+            history = self.model.fit(inputs, {final_layer: target}, epochs=epochs, verbose=0,
+                validation_split=validation_split, callbacks=callbacks,
+                validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
+
+        elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
+
+            initial_error = self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False)
+            if type(initial_error) is float:
+                initial_error = np.array([initial_error])
+            log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
+
             history = self.model.fit(
-                inputs, {final_layer: target}, epochs=epochs, verbose=0,
+                data, epochs=epochs, verbose=0,
                 validation_split=validation_split, callbacks=callbacks,
                 validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
         else:
@@ -538,6 +571,589 @@ class TensorFlowBackend(Backend):
             res = g.jacobian(z, tensor)
 
         return res
+
+    def get_jacobian_multi(self, input, out_channel=0, layer_name=None, time_index=-1):
+        """
+        Gets the jacobian at the given index, with support for multi-input models
+        and intermediate layer access.
+
+        Parameters:
+        -----------
+        input : tensor or list of tensors
+            Input data for the model
+        out_channel : int
+            Output channel to compute jacobian for
+        layer_name : str, optional
+            Name of intermediate layer to compute jacobian to. If None, uses final output.
+        time_index : int
+            Time index to use for jacobian computation (default: -1 for last time step)
+
+        Returns:
+        --------
+        jacobian : tensor or list of tensors
+            Jacobian with respect to input(s)
+        """
+
+        # Support for multiple inputs - convert to list format for consistency
+        if not isinstance(input, list):
+            input = [input]
+
+        # Ensure all inputs are float32 tensors
+        tensor_list = [tf.cast(i, tf.float32) for i in input]
+
+        # Create intermediate model if layer_name is specified
+        if layer_name is not None:
+            # Find the target layer
+            target_layer = None
+            for layer in self.model.layers:
+                if layer.name == layer_name:
+                    target_layer = layer
+                    break
+
+            if target_layer is None:
+                raise ValueError(f"Layer '{layer_name}' not found in model. Available layers: "
+                               f"{[layer.name for layer in self.model.layers]}")
+
+            # Create intermediate model up to target layer
+            if len(tensor_list) == 1:
+                intermediate_model = tf.keras.Model(inputs=self.model.input,
+                                                  outputs=target_layer.output)
+            else:
+                intermediate_model = tf.keras.Model(inputs=self.model.inputs,
+                                                  outputs=target_layer.output)
+        else:
+            intermediate_model = self.model
+
+        # Use tf.function decorator for performance
+        @tf.function
+        def _compute_jacobian(tensor_list, out_channel, time_index):
+            with tf.GradientTape(persistent=True) as g:
+                # Watch all input tensors
+                for tensor in tensor_list:
+                    g.watch(tensor)
+
+                # Forward pass through model (or intermediate model)
+                if len(tensor_list) == 1:
+                    z = intermediate_model(tensor_list[0])
+                else:
+                    z = intermediate_model(tensor_list)
+
+                # Handle different output formats
+                if isinstance(z, list):
+                    # Multiple outputs - use the last one
+                    output = z[-1]
+                else:
+                    output = z
+
+                # Handle time indexing
+                if len(output.shape) >= 3:  # (batch, time, channels)
+                    if time_index == -1:
+                        target_output = output[0, -1, out_channel]
+                    else:
+                        target_output = output[0, time_index, out_channel]
+                elif len(output.shape) == 2:  # (batch, channels)
+                    target_output = output[0, out_channel]
+                else:
+                    raise ValueError(f"Unexpected output shape: {output.shape}")
+
+                # Compute jacobian with respect to each input
+                jacobians = []
+                for tensor in tensor_list:
+                    jac = g.jacobian(target_output, tensor)
+                    jacobians.append(jac)
+
+            return jacobians if len(jacobians) > 1 else jacobians[0]
+
+        return _compute_jacobian(tensor_list, out_channel, time_index)
+
+    def get_intermediate_jacobian(self, input, out_channel=0, layer_name=None, time_index=-1):
+        """
+        Computes jacobian of final output with respect to intermediate layer representation.
+
+        This computes ∂(final_output)/∂(intermediate_layer_output), giving the sensitivity
+        of the final neural response to each element of the intermediate representation.
+
+        Parameters:
+        -----------
+        input : tensor or list of tensors
+            Input data for the model
+        out_channel : int
+            Output channel to compute jacobian for
+        layer_name : str
+            Name of intermediate layer to use as the jacobian "input"
+        time_index : int
+            Time index to use for jacobian computation (default: -1 for last time step)
+
+        Returns:
+        --------
+        jacobian : tensor
+            Jacobian ∂(final_output)/∂(intermediate_representation)
+        """
+        # Support for multiple inputs
+        if not isinstance(input, list):
+            input = [input]
+
+        # Ensure all inputs are float32 tensors
+        tensor_list = [tf.cast(i, tf.float32) for i in input]
+
+        if layer_name is None:
+            raise ValueError("layer_name must be specified for intermediate jacobian computation")
+
+        # Find the target layer
+        target_layer = None
+        target_layer_index = None
+        for i, layer in enumerate(self.model.layers):
+            if layer.name == layer_name:
+                target_layer = layer
+                target_layer_index = i
+                break
+
+        if target_layer is None:
+            raise ValueError(f"Layer '{layer_name}' not found in model. Available layers: "
+                           f"{[layer.name for layer in self.model.layers]}")
+
+        # Create a model up to the target layer to get intermediate representation
+        if len(tensor_list) == 1:
+            input_layer = self.model.input
+            intermediate_model = tf.keras.Model(inputs=input_layer, outputs=target_layer.output)
+        else:
+            input_layers = self.model.inputs
+            intermediate_model = tf.keras.Model(inputs=input_layers, outputs=target_layer.output)
+
+        # Create a model from the target layer to the final output
+        # We need to find all layers after the target layer
+        layers_after_target = []
+        target_found = False
+        for layer in self.model.layers:
+            if layer == target_layer:
+                target_found = True
+                continue
+            if target_found:
+                layers_after_target.append(layer)
+
+        @tf.function
+        def _compute_intermediate_jacobian(tensor_list, out_channel, time_index):
+            with tf.GradientTape(persistent=True) as g:
+                # Get intermediate representation using the intermediate model
+                if len(tensor_list) == 1:
+                    intermediate_representation = intermediate_model(tensor_list[0])
+                else:
+                    intermediate_representation = intermediate_model(tensor_list)
+
+                # Watch the intermediate representation
+                g.watch(intermediate_representation)
+
+                # Continue forward pass through remaining layers
+                current_output = intermediate_representation
+                for layer in layers_after_target:
+                    current_output = layer(current_output)
+
+                final_output = current_output
+
+                # Handle different output formats
+                if isinstance(final_output, list):
+                    output = final_output[-1]
+                else:
+                    output = final_output
+
+                # Handle time indexing
+                if len(output.shape) >= 3:  # (batch, time, channels)
+                    if time_index == -1:
+                        target_output = output[0, -1, out_channel]
+                    else:
+                        target_output = output[0, time_index, out_channel]
+                elif len(output.shape) == 2:  # (batch, channels)
+                    target_output = output[0, out_channel]
+                else:
+                    raise ValueError(f"Unexpected output shape: {output.shape}")
+
+                # Compute jacobian with respect to intermediate representation
+                jacobian = g.jacobian(target_output, intermediate_representation)
+
+            return jacobian
+
+        return _compute_intermediate_jacobian(tensor_list, out_channel, time_index)
+
+    def _create_intermediate_models(self, layer_name):
+        """
+        Create and cache models for efficient intermediate jacobian computation.
+
+        Parameters:
+        -----------
+        layer_name : str
+            Name of the target intermediate layer
+
+        Returns:
+        --------
+        tuple : (intermediate_model, final_model, target_layer_index)
+            intermediate_model: inputs -> intermediate_layer_output
+            final_model: intermediate_layer_output -> final_output
+            target_layer_index: index of target layer in original model
+        """
+        import tensorflow as tf
+
+        # Find the target layer
+        target_layer = None
+        target_layer_index = None
+        for i, layer in enumerate(self.model.layers):
+            if layer.name == layer_name:
+                target_layer = layer
+                target_layer_index = i
+                break
+
+        if target_layer is None:
+            raise ValueError(f"Layer '{layer_name}' not found in model. Available layers: "
+                           f"{[layer.name for layer in self.model.layers]}")
+
+        # Create intermediate model (inputs -> target layer)
+        if len(self.model.inputs) == 1:
+            input_layer = self.model.input
+            intermediate_model = tf.keras.Model(inputs=input_layer, outputs=target_layer.output)
+        else:
+            input_layers = self.model.inputs
+            intermediate_model = tf.keras.Model(inputs=input_layers, outputs=target_layer.output)
+
+        # Create final model (target layer output -> final output)
+        # We need to build a model that takes intermediate representation as input
+        intermediate_shape = target_layer.output_shape[1:]  # Remove batch dimension
+        intermediate_input = tf.keras.Input(shape=intermediate_shape, name='intermediate_input')
+
+        # Find layers after target layer
+        layers_after_target = []
+        target_found = False
+        for layer in self.model.layers:
+            if layer == target_layer:
+                target_found = True
+                continue
+            if target_found:
+                layers_after_target.append(layer)
+
+        # Build the final model by chaining layers
+        current_output = intermediate_input
+        for layer in layers_after_target:
+            current_output = layer(current_output)
+
+        final_model = tf.keras.Model(inputs=intermediate_input, outputs=current_output)
+
+        return intermediate_model, final_model, target_layer_index
+
+    def get_batch_intermediate_representations(self, input_batch, layer_name):
+        """
+        Efficiently compute intermediate representations for a batch of inputs.
+
+        Parameters:
+        -----------
+        input_batch : list of tensors
+            List of input tensors for different time points
+        layer_name : str
+            Name of target intermediate layer
+
+        Returns:
+        --------
+        intermediate_representations : tensor
+            Batch of intermediate representations [batch, time, channels]
+        """
+        import tensorflow as tf
+
+        # Create or get cached models
+        cache_key = f"intermediate_models_{layer_name}"
+        if not hasattr(self, '_model_cache'):
+            self._model_cache = {}
+
+        if cache_key not in self._model_cache:
+            intermediate_model, final_model, target_idx = self._create_intermediate_models(layer_name)
+            self._model_cache[cache_key] = (intermediate_model, final_model, target_idx)
+        else:
+            intermediate_model, final_model, target_idx = self._model_cache[cache_key]
+
+        # Concatenate all time samples into a batch (remove individual batch dims)
+        if isinstance(input_batch[0], list):
+            # Multi-input case: concatenate each input type separately
+            batched_inputs = []
+            for input_idx in range(len(input_batch[0])):
+                # Each sample[input_idx] has shape [1, time, features], squeeze batch dim and stack
+                stacked_input = tf.concat([sample[input_idx] for sample in input_batch], axis=0)
+                batched_inputs.append(stacked_input)
+        else:
+            # Single input case: each sample has shape [1, time, features]
+            batched_inputs = tf.concat(input_batch, axis=0)
+
+        # Get all intermediate representations in one forward pass
+        intermediate_representations = intermediate_model(batched_inputs)
+
+        return intermediate_representations, final_model
+
+    def get_batch_intermediate_jacobians(self, input_batch, out_channels, layer_name, time_index=-1):
+        """
+        Efficiently compute intermediate jacobians for multiple time points and output channels.
+
+        Parameters:
+        -----------
+        input_batch : list of tensors
+            List of input tensors for different time points
+        out_channels : list of int
+            Output channels to compute jacobians for
+        layer_name : str
+            Name of target intermediate layer
+        time_index : int
+            Time index for jacobian computation
+
+        Returns:
+        --------
+        jacobians : tensor
+            Jacobians [time_points, out_channels, intermediate_dims...]
+        """
+        import tensorflow as tf
+
+        # Get intermediate representations and final model
+        intermediate_representations, final_model = self.get_batch_intermediate_representations(input_batch, layer_name)
+
+        # Prepare for jacobian computation
+        batch_size = len(input_batch)
+        if len(intermediate_representations.shape) == 4:  # [batch, time, height, width]
+            # Flatten spatial dimensions for jacobian computation
+            intermediate_flat = tf.reshape(intermediate_representations,
+                                         [batch_size, -1])
+            original_shape = intermediate_representations.shape[1:]  # Include time dimension
+        elif len(intermediate_representations.shape) == 3:  # [batch, time, features]
+            # Flatten time and feature dimensions
+            intermediate_flat = tf.reshape(intermediate_representations,
+                                         [batch_size, -1])
+            original_shape = intermediate_representations.shape[1:]  # Include time dimension
+        else:  # [batch, features]
+            intermediate_flat = intermediate_representations
+            original_shape = intermediate_representations.shape[1:]
+
+        jacobians = []
+
+        @tf.function
+        def _compute_jacobian_batch(intermediate_batch, out_channel):
+            with tf.GradientTape() as g:
+                # Reshape back to original intermediate shape
+                intermediate_reshaped = tf.reshape(intermediate_batch,
+                                                 [batch_size] + list(original_shape))
+
+                g.watch(intermediate_reshaped)
+
+                # Forward pass through final model
+                final_output = final_model(intermediate_reshaped)
+
+                # Handle different output formats
+                if isinstance(final_output, list):
+                    output = final_output[-1]
+                else:
+                    output = final_output
+
+                # Handle time indexing and output channel selection
+                if len(output.shape) >= 3:  # [batch, time, channels]
+                    if time_index == -1:
+                        target_outputs = output[:, -1, out_channel]
+                    else:
+                        target_outputs = output[:, time_index, out_channel]
+                elif len(output.shape) == 2:  # [batch, channels]
+                    target_outputs = output[:, out_channel]
+                else:
+                    raise ValueError(f"Unexpected output shape: {output.shape}")
+
+                # Sum over batch to get single scalar for jacobian computation
+                target_scalar = tf.reduce_sum(target_outputs)
+
+            jacobian = g.gradient(target_scalar, intermediate_reshaped)
+            return jacobian
+
+        # Compute jacobians for all output channels
+        for out_channel in out_channels:
+            jacobian = _compute_jacobian_batch(intermediate_flat, out_channel)
+            jacobians.append(jacobian)
+
+        # Stack jacobians: [out_channels, batch, intermediate_features...]
+        jacobians = tf.stack(jacobians, axis=0)
+
+        # Reshape to [batch, out_channels, intermediate_features...]
+        jacobians = tf.transpose(jacobians, [1, 0] + list(range(2, len(jacobians.shape))))
+
+        return jacobians
+
+    def dstrf_multi(self, input_data, index, D=10, width=0,
+                   out_channel=0, method='jacobian', target_layer=None,
+                   rebuild_model=False, **eval_kwargs):
+        """
+        Multi-input compatible dSTRF computation using get_jacobian_multi.
+
+        Creates a tf model from the modelspec and generates the dstrf with support
+        for multi-input models (like HRTF models) and intermediate layer analysis.
+
+        Parameters:
+        -----------
+        input_data : dict or array
+            Dictionary of input signals (e.g., {'stim': array, 'disttheta': array})
+            or single array for backward compatibility
+        index : int
+            The time index at which the dstrf is calculated
+        D : int
+            The duration/memory of the returned dstrf (time lags from index)
+        width : int
+            Width of the output dstrf window (default: same as D)
+        out_channel : int or list
+            Output channel(s) to analyze
+        method : str
+            'jacobian' or 'perturbation'
+        target_layer : str, optional
+            Name of intermediate layer for analysis (e.g., 'concatenate' for HRTF+DLC)
+        rebuild_model : bool
+            Rebuild the model to avoid using cached version
+
+        Returns:
+        --------
+        dstrf : np.array
+            Array of size [channels, width] or [channels, width, out_channels]
+        """
+        import tensorflow as tf
+
+        # Handle backward compatibility - convert single array to dict format
+        if not isinstance(input_data, dict):
+            input_data = {'stim': input_data}
+
+        # Determine the primary input signal
+        primary_key = 'stim' if 'stim' in input_data else list(input_data.keys())[0]
+        primary_data = input_data[primary_key]
+
+        # Extract data around the time point of interest for all inputs
+        data_dict = {}
+        for key, signal_data in input_data.items():
+            data_slice = signal_data[:, np.max([0, index - D]):(index + 1)].T
+            if index < D:
+                # Pad if we don't have enough history
+                pad_width = ((D - index, 0), (0, 0))
+                data_slice = np.pad(data_slice, pad_width)
+            data_dict[key] = data_slice
+
+        # Get channel count from primary signal
+        chan_count = data_dict[primary_key].shape[1]
+
+        if width == 0:
+            width = D
+
+        # Safety checks
+        for key, data in data_dict.items():
+            if data.ndim != 2:
+                raise ValueError(f'Data for {key} must be of shape [time, channels].')
+            if D > data.shape[0]:
+                raise ValueError(f'D must be within bounds of time dimension for {key}.')
+
+        # Check if we need 4D tensors for Conv2D layers
+        need_fourth_dim = np.any(['Conv2D_NEMS' in m['fn'] for m in self])
+
+        # Build or use cached model
+        if self.model is None or rebuild_model:
+            # Note: This uses the NEMS 2.x backend's model, not the legacy tf_model
+            # The model should already be built during backend initialization
+            if self.model is None:
+                raise ValueError("Model not found. Ensure the backend was properly initialized.")
+
+        # Handle output channels
+        if isinstance(out_channel, list):
+            out_channels = out_channel
+        else:
+            out_channels = [out_channel]
+
+        if method == 'jacobian':
+            # Convert data to tensors with proper formatting
+            tensor_dict = {}
+            for key, data in data_dict.items():
+                if need_fourth_dim:
+                    tensor = tf.convert_to_tensor(data[np.newaxis, ..., np.newaxis], dtype='float32')
+                else:
+                    tensor = tf.convert_to_tensor(data[np.newaxis], dtype='float32')
+                tensor_dict[key] = tensor
+
+            # Convert to list format for get_jacobian_multi
+            tensor_list = [tensor_dict[key] for key in sorted(tensor_dict.keys())]
+
+            # Compute dSTRF for each output channel
+            dstrf_results = []
+            for outidx in out_channels:
+                # Choose jacobian method based on whether we want intermediate analysis
+                if target_layer is not None:
+                    # Use intermediate jacobian: ∂(final_output)/∂(intermediate_representation)
+                    jacobians = self.get_intermediate_jacobian(
+                        tensor_list,
+                        out_channel=outidx,
+                        layer_name=target_layer,
+                        time_index=D-1
+                    )
+                else:
+                    # Use standard jacobian: ∂(final_output)/∂(original_inputs)
+                    jacobians = self.get_jacobian_multi(
+                        tensor_list,
+                        out_channel=outidx,
+                        layer_name=None,
+                        time_index=D-1
+                    )
+
+                # Handle multiple jacobians (one per input)
+                if isinstance(jacobians, list):
+                    # For multi-input models, we typically want the jacobian w.r.t. the primary input
+                    # but we could concatenate or handle differently based on needs
+                    primary_idx = 0 if primary_key == sorted(tensor_dict.keys())[0] else \
+                                 sorted(tensor_dict.keys()).index(primary_key)
+                    w = jacobians[primary_idx].numpy()[0]
+                else:
+                    w = jacobians.numpy()[0]
+
+                # Remove 4th dimension if it was added for Conv2D
+                if need_fourth_dim and len(w.shape) > 2:
+                    w = w[:, :, 0]
+
+                # Format output based on width parameter
+                if width == 0:
+                    _w = w.T
+                else:
+                    # Pad only the time axis if necessary
+                    padded = np.pad(w, ((width - 1, width), (0, 0)))
+                    _w = padded[D:D + width, :].T
+
+                dstrf_results.append(_w)
+
+            # Combine results for multiple output channels
+            if len(out_channels) == 1:
+                dstrf = dstrf_results[0]
+            else:
+                # Stack along a new axis for multiple output channels
+                dstrf = np.stack(dstrf_results, axis=-1)
+
+        else:  # perturbation method
+            dstrf = np.zeros((chan_count, width, len(out_channels)))
+
+            # Convert primary data to tensor for baseline prediction
+            primary_tensor_data = data_dict[primary_key]
+            if need_fourth_dim:
+                tensor = tf.convert_to_tensor(primary_tensor_data[np.newaxis, ..., np.newaxis])
+            else:
+                tensor = tf.convert_to_tensor(primary_tensor_data[np.newaxis])
+
+            # Get baseline prediction
+            p0 = self.model(tensor).numpy()
+
+            # Perturbation analysis
+            eps = 0.0001
+            for lag in range(width):
+                for c in range(chan_count):
+                    d = primary_tensor_data.copy()
+                    d[-lag, c] += eps
+
+                    if need_fourth_dim:
+                        tensor = tf.convert_to_tensor(d[np.newaxis, ..., np.newaxis])
+                    else:
+                        tensor = tf.convert_to_tensor(d[np.newaxis])
+
+                    p = self.model(tensor).numpy()
+                    dstrf[c, -lag, :] = p[0, D, out_channels] - p0[0, D, out_channels]
+
+            if len(out_channels) == 1:
+                dstrf = dstrf[:, :, 0]
+
+        return dstrf
 
 
 class DelayedStopper(tf.keras.callbacks.EarlyStopping):

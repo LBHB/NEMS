@@ -5,7 +5,7 @@ from nems.registry import layer
 from nems.distributions import Normal
 from .base import Layer, Phi, Parameter
 from .tools import require_shape, pop_shape
-
+from nems.preprocessing.normalization import log_compress
 
 class StaticNonlinearity(Layer):
     """Apply a nonlinear transformation to input(s).
@@ -336,9 +336,11 @@ class LogCompress(StaticNonlinearity):
         """
         shift, = self.get_parameter_values()
 
-        d = 10.0**shift
-
-        return np.log((input + d) / d)
+        # call preprocessing.normalization.log_compress to execute:
+        #d = 10.0**shift
+        #y = np.log((input + d) / d)
+        
+        return log_compress(input, offset=shift)
         
     @layer('dlog')
     def from_keyword(keyword):

@@ -552,6 +552,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         ax.imshow(zoom(strf,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
+
         lf = np.array(ax.get_yticks())
         lf = lf[(lf>logf.min()) & (lf<logf.max())]
         lf = np.array([logf[0], np.mean(logf[[0,-1]]), logf[-1]])
@@ -588,7 +589,6 @@ def LN_plot_strf(model=None, channels=None, strf=None,
             #print(label,phiopt)
             #label = f"{label} E={E[0]:.2f}"
             label = f"{label} BF={2**phiopt[0][0]/1000:.1f}K"
-            #label = f"{label} lBF={phiopt[0][0]:.2f}"
             plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
     else:
         label2 = None

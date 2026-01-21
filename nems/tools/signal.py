@@ -1,5 +1,4 @@
 import io
-import io
 import os
 import logging
 import json
@@ -14,8 +13,8 @@ import numpy as np
 import h5py
 from scipy.sparse import csr_array
 
-from nems.tools.epoch import (remove_overlap, merge_epoch, epoch_contained,
-                        epoch_intersection, epoch_names_matching)
+from .epoch import (remove_overlap, merge_epoch, epoch_contained,
+                    epoch_intersection, epoch_names_matching)
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +183,8 @@ class SignalBase:
         self.chans = chans
         self.n_extradims = []
         self.epochs = epochs
+        if meta is None:
+            meta = {}
         self.meta = meta
         self.signal_type = str(type(self))
         self._data = data
@@ -212,7 +213,10 @@ class SignalBase:
         self.segments = segments
 
         if epochs is None:
-            self.add_epoch("SIGNAL",np.array([[0, self.ntimes/self.fs]]))
+            if recording is not None:
+                self.add_epoch(recording, np.array([[0, self.ntimes/self.fs]]))
+            else:
+                self.add_epoch("SIGNAL",np.array([[0, self.ntimes/self.fs]]))
 
         if safety_checks:
             self._run_safety_checks()
@@ -298,9 +302,13 @@ class SignalBase:
         basepath = os.path.join(dirpath, filebase)
         hdf5filepath = basepath + '.h5'
 
+        if type(self._data) is np.ndarray:
+            d_ = {'raster': self._data}
+        else:
+            d_ = self._data
         with h5py.File(hdf5filepath, 'a') as f:
             # TODO: any other attrs we should save?
-            for key, array in self._data.items():
+            for key, array in d_.items():
                 f.create_dataset(key, data=array, compression='gzip')
 
         return hdf5filepath
@@ -470,7 +478,7 @@ class SignalBase:
         Returns
         -------
         bounds : 2D array (n_occurances x 2)
-            Each row in the array corresponds to an occurance of the epoch. The
+            Each row in the array corresponds to an occurrence of the epoch. The
             first column is the start time and the second column is the end
             time.
         '''
@@ -631,7 +639,7 @@ class SignalBase:
         # important to match standard column order in case epochs is empty. Some code requires this order??
         #df = df[['name', 'start', 'end']]
         if self.epochs is not None:
-            self.epochs = self.epochs.append(df, ignore_index=True)
+            self.epochs = pd.concat([self.epochs, df], ignore_index=True)
         else:
             self.epochs = df
 
@@ -641,9 +649,9 @@ class SignalBase:
             repochs = None
         else:
             mask = self.epochs['start'] < split_time
-            lepochs = self.epochs.loc[mask]
+            lepochs = self.epochs.loc[mask].copy()
             mask = self.epochs['end'] > split_time
-            repochs = self.epochs.loc[mask]
+            repochs = self.epochs.loc[mask].copy()
             repochs.loc[:, 'start'] -= split_time
             repochs.loc[:, 'end'] -= split_time
 
@@ -702,6 +710,17 @@ class SignalBase:
         epoch_data = self.extract_epoch(epoch, mask=mask)
         return np.nanmean(epoch_data, axis=0)
 
+    def epoch_names_matching(self, epoch_regex, minreps=1):
+
+        epoch_names = epoch_names_matching(self.epochs, epoch_regex)
+
+        if minreps > 1:
+            cc = self.epochs.loc[self.epochs.name.isin(epoch_names)].groupby('name').count()
+            cc = cc.loc[cc['start'] > 1]
+            epoch_names = cc.index.to_list()
+
+        return epoch_names
+
     def extract_epochs(self, epoch_names, overlapping_epoch=None, mask=None, allow_incomplete=False):
         '''
         Returns a dictionary of the data matching each element in epoch_names.
@@ -711,7 +730,7 @@ class SignalBase:
         epoch_names : list OR string
             if list, list of epoch names to extract. These will be keys in the
             result dictionary.
-            if string, will find matches via nems0.epoch.epoch_names_matching
+            if string, will find matches via nems.tools.epoch.epoch_names_matching
 
         chans : {None, iterable of strings}
             Names of channels to return. If None, return the full set of
@@ -802,7 +821,7 @@ class SignalBase:
             mask[0, epoch] = True
 
         elif epoch == True:
-            mask[:] = 1
+            mask[:] = True
 
         else:
             raise RuntimeError('Invalid epoch passed to generate_epoch_mask')
@@ -1148,7 +1167,12 @@ class RasterizedSignal(SignalBase):
                   safety_checks=safety_cheks)
         times = np.array([[t / fs, (t + n_times) / fs] for t in
                           range(0, n_trials * n_times, n_times)])
-        out.add_epoch(epoch_name, times)
+        if type(epoch_name) is str:
+            out.add_epoch(epoch_name, times)
+        elif type(epoch_name) is list:
+            for e, t in zip (epoch_name, times):
+                out.add_epoch(e, [t])
+
         return out
 
     def _set_cached_props(self):
@@ -1175,21 +1199,39 @@ class RasterizedSignal(SignalBase):
                 fmt = '%.18e'
         files = {}
         filebase = self.recording + '.' + self.name
-        csvfile = filebase + '.csv'
+
+        if self.meta is None:
+            self.meta = {}
+        save_csv = False
+        if save_csv:
+            csvfile = filebase + '.csv'
+
+            files[csvfile] = io.BytesIO()
+            # Write to those streams
+            # Write the CSV file to a bytesIO buffer
+            mat = self.as_continuous()
+            mat = np.swapaxes(mat, 0, 1)
+            np.savetxt(files[csvfile], mat, delimiter=",", fmt=fmt)
+            files[csvfile].seek(0)  # Seek back to start of file
+            self.meta['savefmt']='csv'
+        else:
+            h5file = filebase + '.h5'
+
+            tmppath = tempfile.mkdtemp()
+
+            temph5 = self._save_data_to_h5(tmppath)
+            th = io.open(temph5, 'rb')
+            files[h5file] = io.BytesIO(th.read())
+            self.meta['savefmt']='h5'
+
+        # Create textfile streams
         jsonfile = filebase + '.json'
         epochfile = filebase + '.epoch.csv'
-        # Create three streams
-        files[csvfile] = io.BytesIO()
+
         files[jsonfile] = io.StringIO()
         files[epochfile] = io.StringIO()
-        # Write to those streams
-        # Write the CSV file to a bytesIO buffer
-        mat = self.as_continuous()
-        mat = np.swapaxes(mat, 0, 1)
-        np.savetxt(files[csvfile], mat, delimiter=",", fmt=fmt)
-        files[csvfile].seek(0)  # Seek back to start of file
-
-        self._save_metadata(files[epochfile],files[jsonfile], fmt)
+        #log.info(f"{filebase} {files.keys()} {fmt}")
+        self._save_metadata(files[epochfile], files[jsonfile], fmt)
 
         return files
 
@@ -1201,7 +1243,7 @@ class RasterizedSignal(SignalBase):
         '''
         if fmt is None:
             if self.dtype=='float32':
-                fmt = '%.12e'
+                fmt = '%.9e'
             else:
                 fmt = '%.18e'
         jsonfilepath,epochfilepath=self._save_metadata_to_dirpath(dirpath)
@@ -1284,7 +1326,7 @@ class RasterizedSignal(SignalBase):
         attributes.update(kwargs)
         return RasterizedSignal(data=data, safety_checks=False, **attributes)
 
-    def extract_epoch(self, epoch, boundary_mode='exclude',
+    def extract_epoch(self, epoch=None, epoch_indices=None, boundary_mode='exclude',
                       fix_overlap='first', allow_empty=False, trunc_at_min=False,
                       overlapping_epoch=None, mask=None, allow_incomplete=False):
         '''
@@ -1325,8 +1367,9 @@ class RasterizedSignal(SignalBase):
         Epochs tagged with the same name may have various lengths. Shorter
         epochs will be padded with NaN.
         '''
-
-        if type(epoch) is str:
+        if epoch_indices is not None:
+            pass
+        elif type(epoch) is str:
             epoch_indices = self.get_epoch_indices(epoch,
                                                    boundary_mode=boundary_mode,
                                                    fix_overlap=fix_overlap,
@@ -2782,7 +2825,7 @@ def load_signal(basepath):
     if 'signal_type' in js.keys():
         signal_type=js['signal_type']
     else:
-        signal_type="nems0.signal.RasterizedSignal"
+        signal_type="nems.tools.signal.RasterizedSignal"
 
     if 'RasterizedSignal' in signal_type:
         #print(js)
@@ -2853,16 +2896,23 @@ def load_signal_from_streams(data_stream, json_stream, epoch_stream=None):
     if 'signal_type' in js.keys():
         signal_type=js['signal_type']
     else:
-        signal_type="nems0.signal.RasterizedSignal"
+        signal_type="nems.tools.signal.RasterizedSignal"
 
     if 'RasterizedSignal' in signal_type:
         #print(js)
         #mat = np.loadtxt(data_stream, dtype=js['dtype'], delimiter=',')
         #if mat.ndim == 1:
         #    mat = mat[:, np.newaxis]
-        mat = pd.read_csv(data_stream, header=None, dtype=js['dtype']).values
-        #mat = np.concatenate([x.values for x in pd.read_csv(data_stream, chunksize=50000, dtype=js['dtype'])],axis=0)
-        mat = np.swapaxes(mat, 0, 1)
+        if '_io.StringIO' in str(type(data_stream)):
+            mat = pd.read_csv(data_stream, header=None, dtype=js['dtype']).values
+            #mat = np.concatenate([x.values for x in pd.read_csv(data_stream, chunksize=50000, dtype=js['dtype'])],axis=0)
+            mat = np.swapaxes(mat, 0, 1)
+        else:
+            with h5py.File(data_stream, 'r') as f:
+                data = {}
+                for key, dataset in f.items():
+                    data[key] = np.array(dataset[:], dtype=js['dtype'])
+            mat = data['raster']
 
         s = RasterizedSignal(name=js['name'],
                     chans=js.get('chans', None),
@@ -2915,6 +2965,7 @@ def load_signal_from_streams(data_stream, json_stream, epoch_stream=None):
 
 
 def load_rasterized_signal(basepath):
+    h5filepath = basepath + '.h5'
     csvfilepath = basepath + '.csv'
     epochfilepath = basepath + '.epoch.csv'
     jsonfilepath = basepath + '.json'
@@ -2927,7 +2978,12 @@ def load_rasterized_signal(basepath):
     else:
         epochs = None
     print(js)
-    mat = pd.read_csv(csvfilepath, header=None, dtype=js['dtype']).values
+    if os.path.exists(csvfilepath):
+        mat = pd.read_csv(csvfilepath, header=None, dtype=js['dtype']).values
+    elif os.path.exists(h5filepath):
+        pass
+    else:
+        raise ValueError("raw data file does not exist for this signal")
     print(mat.dtype)
     #mat = mat.astype(js['dtype'])
     mat = np.swapaxes(mat, 0, 1)
@@ -3115,6 +3171,13 @@ def _merge_epochs(signals):
 
 def _normalize_data(data, normalization='minmax', d=None, g=None, sig=None, mask=None):
 
+    if np.nanmin(data) < 0:
+        fix_sign = True
+        smtx = np.sign(data)
+        data = np.abs(data)
+    else:
+        fix_sign = False
+
     if (d is not None) and (g is not None):
         data_out = (data - d) / g
         
@@ -3133,7 +3196,23 @@ def _normalize_data(data, normalization='minmax', d=None, g=None, sig=None, mask
         data_out = (data - d) / g
 
         # force "quiet" stim to be true zero
-        data_out[data_out<1e-6]=0
+        data_out[data_out<1e-8]=0
+        if fix_sign:
+            data_out[smtx==-1] = data_out[smtx==-1]
+
+    elif normalization == 'gminmax':
+        # normalize by min/max across all channels -- for spectrograms?
+        d = np.nanmin(data, keepdims=True)
+        g = np.nanmax(data, keepdims=True) - d
+
+        # avoid divide-by-zero
+        g[g == 0] = 1
+        data_out = (data - d) / g
+
+        # force "quiet" stim to be true zero
+        data_out[data_out<1e-8]=0
+        if fix_sign:
+            data_out[smtx==-1] = data_out[smtx==-1]
 
     elif normalization == 'meanstd':
         d = np.nanmean(data, axis=1, keepdims=True)

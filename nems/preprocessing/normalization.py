@@ -157,3 +157,27 @@ def joint_minmax(*arrays, **minmax_kwargs):
     separate_normalized = np.split(all_normalized, split_indices[:-1], axis=0)
 
     return separate_normalized
+
+
+def log_compress(x, offset=-1):
+    """
+    Log compression helper function
+    :param x: input, needs to be >0, works best if x values range approximately (0, 1)
+    :param offset: threshold (d = 10**offset). offset compressed for |offset|>2
+    :return: y = np.log((x + d) / d)
+    """
+
+    # soften effects of more extreme offsets
+    inflect = 2
+
+    if isinstance(offset, int):
+        offset = np.array([[offset]])
+
+    adjoffset = offset.copy()
+    adjoffset[offset > inflect] = inflect + (offset[offset > inflect]-inflect) / 50
+    adjoffset[offset < -inflect] = -inflect + (offset[offset < -inflect]+inflect) / 50
+
+    d = 10.0**adjoffset
+
+    return np.log((x + d) / d)
+

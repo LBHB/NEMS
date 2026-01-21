@@ -687,7 +687,7 @@ class Layer:
 
     def sample_from_priors(self, inplace=True, as_vector=False):
         """Get or set new parameter values by sampling from priors.
-        
+
         Parameters
         ----------
         inplace : bool, default=True
@@ -707,6 +707,15 @@ class Layer:
         nems.layers.base.Phi.sample
 
         """
+        # Check if all parameters are frozen
+        if self.parameter_info['unfrozen'] == 0:
+            # All parameters are frozen, don't sample from priors
+            if inplace:
+                return None  # No changes made
+            else:
+                # Return current parameter values instead of sampling
+                return self.parameters.sample(inplace=False, as_vector=as_vector)
+
         return self.parameters.sample(inplace=inplace, as_vector=as_vector)
 
     def mean_of_priors(self, inplace=True, as_vector=False):

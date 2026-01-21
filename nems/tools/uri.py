@@ -66,6 +66,12 @@ class NumpyEncoder(jsonlib.JSONEncoder):
         if issubclass(type(obj), NemsModule):
             return obj.data_dict
 
+        if isinstance(obj, np.int64):
+            return int(obj)
+
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+
         if isinstance(obj, np.ndarray):
             # currently disabling b64 encoding because it doesn't work and
             # it makes JSON files unreadable. However, it may be worth

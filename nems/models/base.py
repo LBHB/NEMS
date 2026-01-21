@@ -913,13 +913,25 @@ class Model:
 
         """
 
+        if backend == 'tf':
+            import tensorflow as tf
+
         if fitter_options is None: fitter_options = {}
         if backend_options is None: backend_options = {}
 
-        # Initialize DataSet
+        # Initialize DataSet unless input is generator
         if isinstance(input, DataSet):
             input, target = (input['input'], input['target'])
             data=DataSet
+
+        elif isinstance(input, tf.data.Dataset):
+            data=input
+            data.data_format = 'tf.data.Dataset'
+
+        elif isinstance(input, tf.keras.utils.Sequence):
+            data=input
+            data.data_format = 'tf.keras.utils.Sequence'
+
         else:
             data = DataSet(
                 input, target=target, target_name=target_name,
@@ -928,11 +940,21 @@ class Model:
         if data.data_format == 'array':
             tdata = data
             tinput = input
+
+        elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
+            input_keys = input.input_keys
+            data_iter = iter(input)
+            slice_data = next(data_iter)
+            if isinstance(slice_data, dict):
+                tinput = {k: slice_data[k] for k in input_keys}
+            elif isinstance(slice_data, tuple):
+                tinput = {k:slice_data[0][k] for k in input_keys}
+
         else:
             tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
                             prediction_name=prediction_name, **eval_kwargs)
             tinput = input[0][0]
-        if eval_kwargs.get('batch_size', 0) != 0:
+        if (eval_kwargs.get('batch_size', 0) != 0) and (data.data_format != 'tf.data.Dataset') and (data.data_format != 'tf.keras.utils.Sequence'):
             # Broadcast prior to passing to Backend so that those details
             # only have to be tracked once.
             data = data.as_broadcasted_samples()
@@ -1045,6 +1067,141 @@ class Model:
         #        jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channel)
         #        for idx, key in enumerate(dstrf.keys()):
         #            dstrf[key][outidx, timeidx, :, :] = jacobian_matrix[idx][0, :, :].numpy().T
+
+        return dstrf
+
+    def dstrf_multi(self, stim, D=25, out_channels=None, t_indexes=None,
+                   backend='tf', reset_backend=False, method='jacobian', backend_options=None,
+                   remove_nl=False, verbose=1, target_layer=None, **eval_kwargs):
+        """
+        Multi-input compatible dSTRF computation with intermediate layer analysis.
+
+        :param stim: dict of input stimuli used to compute jacobian --> dSTRF
+        :param D: memory of dSTRF (in time bins)
+        :param out_channels: list of output channels to use to generate dSTRF
+        :param t_indexes: time samples to use
+        :param backend: str, currently has to be 'tf'
+        :param reset_backend: if True, force new initialization of backend
+        :param method: {'jacobian', 'delta'}
+        :param backend_options: pass-through options for backend initialization
+        :param verbose: future support for verbosity control
+        :param target_layer: str, name of intermediate layer to analyze (e.g., 'concatenate')
+        :param eval_kwargs: pass-through options for model evaluation
+        :return: dstrf : dict, each k,v pair is a [unit X t_index X lag X input_channel] array
+        """
+        # Try to import tqdm for progress bar, fall back to enumerate if not available
+        try:
+            from tqdm import tqdm
+            progress_wrapper = lambda x: tqdm(x, desc="Computing dSTRF")
+        except ImportError:
+            progress_wrapper = lambda x: x
+        if out_channels is None:
+            out_channels = [0]
+        if t_indexes is None:
+            t_indexes = np.arange(D, D*10, D)
+        if backend_options is None:
+            backend_options = {}
+        if not isinstance(stim, dict):
+            stim = {'input': stim}
+
+        input = {key: stim[key][np.newaxis, :D, :] for key in stim.keys()}
+
+        # Get Backend subclass if not running in place on the same backend
+        if reset_backend | (self.dstrf_backend is None):
+            # Initialize DataSet
+            eval_kwargs['batch_size'] = None
+            data = DataSet(input, target=None, **eval_kwargs)
+            data = data.as_broadcasted_samples()
+
+            if remove_nl & self.layers[-1].is_nonlinearity:
+                layers = list(self.layers.values())
+                log.info(f"Removing last layer for dstrf: {layers[-1].name}")
+                dstrf_model = Model(layers=layers[:-1], dtype=self.dtype)
+            else:
+                dstrf_model = self.copy()
+
+            # Evaluate once prior to fetching backend
+            _ = dstrf_model.evaluate(input, use_existing_maps=False, **eval_kwargs)
+
+            backend_class = get_backend(name=backend)
+            # Build backend model.
+            self.dstrf_backend = backend_class(
+                dstrf_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
+                **backend_options)
+
+        if target_layer is not None:
+            # get intermediate output shape
+            for l in dstrf_model.layers:
+                if l.name == target_layer:
+                    l_out = l.output
+                    break
+
+            intermediate_shape = _[l_out].shape  # Remove batch dimension
+
+            # Initialize dstrf with target layer name and correct shape
+            dstrf = {target_layer: np.zeros((len(out_channels), len(t_indexes), intermediate_shape[2], D))}
+            log.info(f"Multi-input dSTRF for {len(out_channels)} out channels (target_layer={target_layer})")
+        else:
+            # Standard initialization for original inputs
+            dstrf = {key: np.zeros((len(out_channels), len(t_indexes), data.shape[2], D)) for key, data in input.items()}
+            log.info(f"Multi-input dSTRF for {len(out_channels)} out channels (target_layer={target_layer})")
+
+        # Check if backend supports optimized batch intermediate jacobian
+        if hasattr(self.dstrf_backend, 'get_batch_intermediate_jacobians') and target_layer is not None:
+
+            # Use optimized batch intermediate jacobian method
+            log.info(f'Using optimized batch intermediate jacobian for {len(t_indexes)} time points, {len(out_channels)} channels')
+
+            # Prepare all input batches at once
+            input_batch = []
+            for time in t_indexes:
+                s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
+                input_batch.append(s)
+
+            # Compute all jacobians in one optimized call
+            jacobian_batch = self.dstrf_backend.get_batch_intermediate_jacobians(
+                input_batch, out_channels, target_layer, time_index=-1
+            )
+
+            # Reshape and assign results
+            for timeidx, time in enumerate(t_indexes):
+                for outidx, out_channel in enumerate(out_channels):
+                    # jacobian_batch shape: [time_points, out_channels, intermediate_features...]
+                    jacobian_matrix = jacobian_batch[timeidx, outidx, :, :]
+                    dstrf[target_layer][outidx, timeidx, :, :] = np.moveaxis(jacobian_matrix.numpy(), [0,1], [1,0])
+
+        # Fall back to single-call intermediate jacobian if batch method not available
+        elif hasattr(self.dstrf_backend, 'get_intermediate_jacobian') and target_layer is not None:
+
+            # Use intermediate jacobian method (slower, but compatible)
+            log.warning("Backend doesn't support batch intermediate jacobians, using slower method")
+            for timeidx, time in progress_wrapper(enumerate(t_indexes)):
+                s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
+                if verbose:
+                    log.info(f'Computing intermediate jacobian for t_index={time}')
+                for outidx, out_channel in enumerate(out_channels):
+                    jacobian_matrix = self.dstrf_backend.get_intermediate_jacobian(
+                        s, out_channel=out_channel, layer_name=target_layer, time_index=-1
+                    )
+
+                    # For intermediate jacobian, we have a single result with the target layer name
+                    dstrf[target_layer][outidx, timeidx, :, :] = np.moveaxis(jacobian_matrix[0, :, :].numpy(), [0,1], [1,0])
+
+        elif hasattr(self.dstrf_backend, 'get_jacobian_multi'):
+            # Use standard multi-input jacobian method
+            for timeidx, time in progress_wrapper(enumerate(t_indexes)):
+                s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
+                jacobian_matrix = self.dstrf_backend.get_jacobian_multi(s, out_channels)
+                for idx, key in enumerate(dstrf.keys()):
+                    dstrf[key][:, timeidx, :, :] = np.moveaxis(jacobian_matrix[idx][:, 0, :, :].numpy(), [1,2], [2,1])
+        else:
+            # Fall back to standard jacobian method
+            log.warning("Backend doesn't support get_jacobian_multi, falling back to standard method")
+            for timeidx, time in progress_wrapper(enumerate(t_indexes)):
+                s = [stim[key][np.newaxis, (time - D + 1):(time+1), :].astype('float32') for key in stim.keys()]
+                jacobian_matrix = self.dstrf_backend.get_jacobian(s, out_channels)
+                for idx, key in enumerate(dstrf.keys()):
+                    dstrf[key][:, timeidx, :, :] = np.moveaxis(jacobian_matrix[idx][:, 0, :, :].numpy(), [1,2], [2,1])
 
         return dstrf
 

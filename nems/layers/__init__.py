@@ -10,10 +10,10 @@ from .nonlinearity import LevelShift, DoubleExponential, RectifiedLinear, ReLU, 
 from .filter import FiniteImpulseResponse, FIR, STRF
 from .weight_channels import WeightChannels, WeightChannelsMulti, WeightChannelsGaussian, \
     WeightChannelsMultiGaussian, WeightGaussianExpand
-from .state import StateGain, StateDexp, StateHinge, HRTF
+from .state import StateGain, StateDexp, StateHinge, HRTF, HRTFGainLayer, HRTFGainLayerSinCos, HRTFGainLayerMLP
 from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
-from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp, ApplyHRTF
+from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp, ApplyHRTF, ApplyHRTFGainLayer
 from .conv2d import Conv2d
 
 from .base import Layer, Phi, Parameter
