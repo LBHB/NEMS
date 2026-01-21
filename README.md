@@ -26,36 +26,55 @@ NEMS is still under development, so this is the best way to ensure you're using 
 git clone https://github.com/LBHB/NEMS.git
 ```
     
-2. **Set up Virtual Environment Anaconda | Venv**
-- 2a. Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
+2. **Set up python environment**
+- 2a. **Option 1.** Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
 
 ```bash
 conda create -n nems python=3.9 ipython
 conda activate nems
 ```
 
-- 2b. Or using `venv`:
+- 2b. **Option 2.** Create an environment using `venv`:
 
 ```bash
 python -m venv ./nems-env
 source nems-env/bin/activate
 ```
 
-3. **Install NEMS in editable modes.**
+3. **Install NEMS.**
 Include development tools to permit testing.
+
+- 3a. **Option 1.** Lightweight, without Tensorflow support
 
 ```console
 pip install -e NEMS[dev]
 ```
 
-- 3a. **Optional** Install along with Tensorflow and GPU support
+- 3b. **Option 2.** Install along with Tensorflow and GPU support
 This may take a while to download all the required libraries. But it appears to work without requiring separate CUDA configuration.
         
 ```console
 pip install -e NEMS[dev,tf]
 ```
-        
-4. **Optional.** If using the development installation, run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
+Running Tensorflow requires CUDA drivers. The `tf` flag tells conda to install CUDA, but the path to the CUDA library files may not be set when you activate the environment. To add the CUDA drivers to `LD_LIBRARY_PATH` upon activation, run the following code in your terminal. (Credit to [https://ericmjl.github.io/blog/2024/6/1/how-to-manage-cuda-libraries-within-conda-environments/] for this fix!)
+
+```
+activate nems
+
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo 'export OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}' > \
+    $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib/:$OLD_LD_LIBRARY_PATH' >> \
+    $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+
+mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
+echo 'export LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}' > \
+    $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
+echo 'unset OLD_LD_LIBRARY_PATH' >> \
+    $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
+```
+
+4. **Test installation (optional).** If using the development installation, run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
 
 ```bash
 pytest NEMS
