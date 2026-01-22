@@ -59,7 +59,7 @@ pip install -e NEMS[dev,tf]
 Running Tensorflow requires CUDA drivers. The `tf` flag tells conda to install CUDA, but the path to the CUDA library files may not be set when you activate the environment. To add the CUDA drivers to `LD_LIBRARY_PATH` upon activation, run the following code in your terminal. (Credit to [https://ericmjl.github.io/blog/2024/6/1/how-to-manage-cuda-libraries-within-conda-environments/] for this fix!)
 
 ```
-activate nems
+conda activate nems
 
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 echo 'export OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}' > \
