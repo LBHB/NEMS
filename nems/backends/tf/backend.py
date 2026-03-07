@@ -1,9 +1,10 @@
 import numpy as np
+import logging
+
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
 from tensorflow.python.keras import regularizers
-import logging
 
 from ..base import Backend, FitResults
 from .cost import get_cost
@@ -64,6 +65,11 @@ class TensorFlowBackend(Backend):
                 tf_input_dict[k] = tf_in
             unused_inputs = list(tf_input_dict.keys())
 
+        # elif type(data) is nems.backends.tf.tools.simple_generator:
+        #     data_iter = iter(data)
+        #     slice_data = next(data_iter)
+        #     tinput = {'input': slice_data[0]}
+
         elif (data_format =='tf.data.Dataset') or (data_format=='tf.keras.utils.Sequence'):
             itdata = iter(data)
             slice_data = next(itdata)
@@ -71,7 +77,7 @@ class TensorFlowBackend(Backend):
                 slice_data = slice_data[0]
             not_inputs = ['task_id', 'output']
             if (sum([ni in slice_data.keys() for ni in not_inputs])>0):
-                inputs = {k:v for (k,v) in slice_data.items() if k not in not_inputs}
+                inputs = {k: v for (k, v) in slice_data.items() if k not in not_inputs}
             else:
                 inputs = slice_data
             tf_input_dict = {}
@@ -406,139 +412,139 @@ class TensorFlowBackend(Backend):
 
         r = self.predict(data, **eval_kwargs)
 
-    def dstrf(self, input, t=0, e=0, D=10,
-              out_channel=0, method='jacobian', batch_size=0, **eval_kwargs):
-        """Creates a tf model from the modelspec and generates the dstrf.
-
-        :param input: The input stimulus [trial X space/freq/etc ... X time
-        :param t: The index at which the dstrf is calculated. Must be within the data.
-        :param e: trial/epoch
-        :param D: The duration of the returned dstrf (i.e. time lag from the index).  If 0, returns the whole dstrf.
-        :rebuild_model: Rebuild the model to avoid using the cached one.
-        Zero padded if out of bounds.
-
-        :return: np array of size [channels, width]
-        """
-        if 'stim' not in rec.signals:
-            raise ValueError('No "stim" signal found in recording.')
-        # predict response for preceeding D bins, enough time, presumably, for slow nonlinearities to kick in
-        D = 50
-        data = rec['stim']._data[:, np.max([0, index - D]):(index + 1)].T
-        chan_count = data.shape[1]
-        if 'state' in rec.signals.keys():
-            include_state = True
-            state_data = rec['state']._data[:, np.max([0, index - D]):(index + 1)].T
-        else:
-            include_state = False
-
-        if index < D:
-            data = np.pad(data, ((D - index, 0), (0, 0)))
-            if include_state:
-                state_data = np.pad(state_data, ((D - index, 0), (0, 0)))
-
-        # a few safety checks
-        if data.ndim != 2:
-            raise ValueError('Data must be a recording of shape [channels, time].')
-        # if not 0 <= index < width + data.shape[-2]:
-
-        if D > data.shape[-2]:
-            raise ValueError(f'Index must be within the bounds of the time channel plus width.')
-
-        need_fourth_dim = np.any(['Conv2D_NEMS' in m['fn'] for m in self])
-
-        # print(f'index: {index} shape: {data.shape}')
-        # need to import some tf stuff here so we don't clutter and unnecessarily import tf
-        # (which is slow) when it's not needed
-        # TODO: is this best practice? Better way to do this?
-        import tensorflow as tf
-        from nems0.tf.cnnlink_new import get_jacobian
-
-        if self.tf_model is None or rebuild_model:
-            from nems0.tf import modelbuilder
-            from nems0.tf.layers import Conv2D_NEMS
-
-            # generate the model
-            model_layers = self.modelspec2tf2(use_modelspec_init=True)
-            state_shape = None
-            if need_fourth_dim:
-                # need a "channel" dimension for Conv2D (like rgb channels, not frequency). Only 1 channel for our data.
-                data_shape = data[np.newaxis, ..., np.newaxis].shape
-                if include_state:
-                    state_shape = state_data[np.newaxis, ..., np.newaxis].shape
-            else:
-                data_shape = data[np.newaxis].shape
-                if include_state:
-                    state_shape = state_data[np.newaxis].shape
-            self.tf_model = modelbuilder.ModelBuilder(
-                name='Test-model',
-                layers=model_layers,
-            ).build_model(input_shape=data_shape, state_shape=state_shape)
-
-        if type(out_channel) is list:
-            out_channels = out_channel
-        else:
-            out_channels = [out_channel]
-
-        if method == 'jacobian':
-            # need to convert the data to a tensor
-            stensor = None
-            if need_fourth_dim:
-                tensor = tf.convert_to_tensor(data[np.newaxis, ..., np.newaxis], dtype='float32')
-                if include_state:
-                    stensor = tf.convert_to_tensor(state_data[np.newaxis, ..., np.newaxis], dtype='float32')
-            else:
-                tensor = tf.convert_to_tensor(data[np.newaxis], dtype='float32')
-                if include_state:
-                    stensor = tf.convert_to_tensor(state_data[np.newaxis], dtype='float32')
-
-            if include_state:
-                tensor = [tensor, stensor]
-
-            for outidx in out_channels:
-                if include_state:
-                    w = get_jacobian(self.tf_model, tensor, D, tf.cast(outidx, tf.int32))[0].numpy()[0]
-                else:
-                    w = get_jacobian(self.tf_model, tensor, D, tf.cast(outidx, tf.int32)).numpy()[0]
-
-                if need_fourth_dim:
-                    w = w[:, :, 0]
-
-                if width == 0:
-                    _w = w.T
-                else:
-                    # pad only the time axis if necessary
-                    padded = np.pad(w, ((width - 1, width), (0, 0)))
-                    _w = padded[D:D + width, :].T
-                if len(out_channels) == 1:
-                    dstrf = _w
-                elif outidx == out_channels[0]:
-                    dstrf = _w[..., np.newaxis]
-                else:
-                    dstrf = np.concatenate((dstrf, _w[..., np.newaxis]), axis=2)
-        else:
-            dstrf = np.zeros((chan_count, width, len(out_channels)))
-
-            if need_fourth_dim:
-                tensor = tf.convert_to_tensor(data[np.newaxis, ..., np.newaxis])
-            else:
-                tensor = tf.convert_to_tensor(data[np.newaxis])
-            p0 = self.tf_model(tensor).numpy()
-            eps = 0.0001
-            for lag in range(width):
-                for c in range(chan_count):
-                    d = data.copy()
-                    d[-lag, c] += eps
-                    if need_fourth_dim:
-                        tensor = tf.convert_to_tensor(d[np.newaxis, ..., np.newaxis])
-                    else:
-                        tensor = tf.convert_to_tensor(d[np.newaxis])
-                    p = self.tf_model(tensor).numpy()
-                    # print(p.shape)
-                    dstrf[c, -lag, :] = p[0, D, out_channels] - p0[0, D, out_channels]
-            if len(out_channels) == 1:
-                dstrf = dstrf[:, :, 0]
-
-        return dstrf
+    # def dstrf(self, input, t=0, e=0, D=10,
+    #           out_channel=0, method='jacobian', batch_size=0, **eval_kwargs):
+    #     """Creates a tf model from the modelspec and generates the dstrf.
+    #
+    #     :param input: The input stimulus [trial X space/freq/etc ... X time
+    #     :param t: The index at which the dstrf is calculated. Must be within the data.
+    #     :param e: trial/epoch
+    #     :param D: The duration of the returned dstrf (i.e. time lag from the index).  If 0, returns the whole dstrf.
+    #     :rebuild_model: Rebuild the model to avoid using the cached one.
+    #     Zero padded if out of bounds.
+    #
+    #     :return: np array of size [channels, width]
+    #     """
+    #     if 'stim' not in rec.signals:
+    #         raise ValueError('No "stim" signal found in recording.')
+    #     # predict response for preceeding D bins, enough time, presumably, for slow nonlinearities to kick in
+    #     D = 50
+    #     data = rec['stim']._data[:, np.max([0, index - D]):(index + 1)].T
+    #     chan_count = data.shape[1]
+    #     if 'state' in rec.signals.keys():
+    #         include_state = True
+    #         state_data = rec['state']._data[:, np.max([0, index - D]):(index + 1)].T
+    #     else:
+    #         include_state = False
+    #
+    #     if index < D:
+    #         data = np.pad(data, ((D - index, 0), (0, 0)))
+    #         if include_state:
+    #             state_data = np.pad(state_data, ((D - index, 0), (0, 0)))
+    #
+    #     # a few safety checks
+    #     if data.ndim != 2:
+    #         raise ValueError('Data must be a recording of shape [channels, time].')
+    #     # if not 0 <= index < width + data.shape[-2]:
+    #
+    #     if D > data.shape[-2]:
+    #         raise ValueError(f'Index must be within the bounds of the time channel plus width.')
+    #
+    #     need_fourth_dim = np.any(['Conv2D_NEMS' in m['fn'] for m in self])
+    #
+    #     # print(f'index: {index} shape: {data.shape}')
+    #     # need to import some tf stuff here so we don't clutter and unnecessarily import tf
+    #     # (which is slow) when it's not needed
+    #     # TODO: is this best practice? Better way to do this?
+    #     import tensorflow as tf
+    #     from nems0.tf.cnnlink_new import get_jacobian
+    #
+    #     if self.tf_model is None or rebuild_model:
+    #         from nems0.tf import modelbuilder
+    #         from nems0.tf.layers import Conv2D_NEMS
+    #
+    #         # generate the model
+    #         model_layers = self.modelspec2tf2(use_modelspec_init=True)
+    #         state_shape = None
+    #         if need_fourth_dim:
+    #             # need a "channel" dimension for Conv2D (like rgb channels, not frequency). Only 1 channel for our data.
+    #             data_shape = data[np.newaxis, ..., np.newaxis].shape
+    #             if include_state:
+    #                 state_shape = state_data[np.newaxis, ..., np.newaxis].shape
+    #         else:
+    #             data_shape = data[np.newaxis].shape
+    #             if include_state:
+    #                 state_shape = state_data[np.newaxis].shape
+    #         self.tf_model = modelbuilder.ModelBuilder(
+    #             name='Test-model',
+    #             layers=model_layers,
+    #         ).build_model(input_shape=data_shape, state_shape=state_shape)
+    #
+    #     if type(out_channel) is list:
+    #         out_channels = out_channel
+    #     else:
+    #         out_channels = [out_channel]
+    #
+    #     if method == 'jacobian':
+    #         # need to convert the data to a tensor
+    #         stensor = None
+    #         if need_fourth_dim:
+    #             tensor = tf.convert_to_tensor(data[np.newaxis, ..., np.newaxis], dtype='float32')
+    #             if include_state:
+    #                 stensor = tf.convert_to_tensor(state_data[np.newaxis, ..., np.newaxis], dtype='float32')
+    #         else:
+    #             tensor = tf.convert_to_tensor(data[np.newaxis], dtype='float32')
+    #             if include_state:
+    #                 stensor = tf.convert_to_tensor(state_data[np.newaxis], dtype='float32')
+    #
+    #         if include_state:
+    #             tensor = [tensor, stensor]
+    #
+    #         for outidx in out_channels:
+    #             if include_state:
+    #                 w = get_jacobian(self.tf_model, tensor, D, tf.cast(outidx, tf.int32))[0].numpy()[0]
+    #             else:
+    #                 w = get_jacobian(self.tf_model, tensor, D, tf.cast(outidx, tf.int32)).numpy()[0]
+    #
+    #             if need_fourth_dim:
+    #                 w = w[:, :, 0]
+    #
+    #             if width == 0:
+    #                 _w = w.T
+    #             else:
+    #                 # pad only the time axis if necessary
+    #                 padded = np.pad(w, ((width - 1, width), (0, 0)))
+    #                 _w = padded[D:D + width, :].T
+    #             if len(out_channels) == 1:
+    #                 dstrf = _w
+    #             elif outidx == out_channels[0]:
+    #                 dstrf = _w[..., np.newaxis]
+    #             else:
+    #                 dstrf = np.concatenate((dstrf, _w[..., np.newaxis]), axis=2)
+    #     else:
+    #         dstrf = np.zeros((chan_count, width, len(out_channels)))
+    #
+    #         if need_fourth_dim:
+    #             tensor = tf.convert_to_tensor(data[np.newaxis, ..., np.newaxis])
+    #         else:
+    #             tensor = tf.convert_to_tensor(data[np.newaxis])
+    #         p0 = self.tf_model(tensor).numpy()
+    #         eps = 0.0001
+    #         for lag in range(width):
+    #             for c in range(chan_count):
+    #                 d = data.copy()
+    #                 d[-lag, c] += eps
+    #                 if need_fourth_dim:
+    #                     tensor = tf.convert_to_tensor(d[np.newaxis, ..., np.newaxis])
+    #                 else:
+    #                     tensor = tf.convert_to_tensor(d[np.newaxis])
+    #                 p = self.tf_model(tensor).numpy()
+    #                 # print(p.shape)
+    #                 dstrf[c, -lag, :] = p[0, D, out_channels] - p0[0, D, out_channels]
+    #         if len(out_channels) == 1:
+    #             dstrf = dstrf[:, :, 0]
+    #
+    #     return dstrf
 
     @tf.function
     def get_jacobian(self, input, out_channel=0):

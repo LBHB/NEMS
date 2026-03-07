@@ -688,19 +688,20 @@ class Conv2d(Layer):
 
     @layer('conv2d')
     def from_keyword(keyword):
-        '''
-        Keyword layer call. 'conv2d' should call this layer
-        with default values
-        
-                Keyword options
+        '''Construct Conv2d from keyword.
+
+        Keyword options
         ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-            (time, input channels a.k.a. rank, ..., output channels) 
+        {digit}x{digit}x ... x{digit} : N-dimensional shape
+            (time, input channels a.k.a. rank, ..., output channels).
+        stack : Use STACK pooling (pool_type='STACK').
+        max : Use MAX pooling (pool_type='MAX').
+        s{XY} : Stride as two digits, e.g. 's12' sets stride=[1,1,2,1].
 
         See also
         --------
         Layer.from_keyword
-        
+
         '''
         kwargs = {}
         Conv2d_class = Conv2d

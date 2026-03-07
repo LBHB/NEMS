@@ -941,10 +941,19 @@ class Model:
             tdata = data
             tinput = input
 
+        # elif type(input) is nems.backends.tf.tools.simple_generator:
+        #     data_iter = iter(input)
+        #     slice_data = next(data_iter)
+        #
+        #     tinput = {'input': slice_data[0]}
+
         elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-            input_keys = input.input_keys
             data_iter = iter(input)
             slice_data = next(data_iter)
+
+            #input_keys = input.input_keys
+            input_keys = list(slice_data[0].keys())
+
             if isinstance(slice_data, dict):
                 tinput = {k: slice_data[k] for k in input_keys}
             elif isinstance(slice_data, tuple):

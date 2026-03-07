@@ -17,8 +17,8 @@ from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
 
-#cachedir = '/auto/data/tmp/mouse_io'  # You can specify any directory you want
-cachedir = tempfile.mkdtemp()  # You can specify any directory you want
+cachedir = '/auto/users/svd/data/cache'  # You can specify any directory you want
+#cachedir = tempfile.mkdtemp()  # You can specify any directory you want
 memory = joblib.Memory(cachedir, verbose=False)
 
 # uncomment to clear joblib cache (if updated gabor fit function)
@@ -573,12 +573,12 @@ def LN_plot_strf(model=None, channels=None, strf=None,
 
     if show_gabor:
         if binaural & (ax2 is not None):
-            phiopt, E = strf2gabor(hipsi,fs=fs, f_min=model.f_min, f_max=model.f_max,
+            phiopt, E = strf2gabor(hipsi, fs=fs, f_min=model.f_min, f_max=model.f_max,
                                    include_offset=False, verbose=verbose)
             label2 = f"{label} I BF={2**phiopt[0][0]/1000:.1f}K"
             plot_gabor(phiopt[0], ax=ax2, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
 
-            phiopt, E = strf2gabor(hcontra,fs=fs, f_min=model.f_min, f_max=model.f_max,
+            phiopt, E = strf2gabor(hcontra, fs=fs, f_min=model.f_min, f_max=model.f_max,
                                    include_offset=False, verbose=verbose)
             label = f"{label} C BF={2**phiopt[0][0]/1000:.1f}K"
             plot_gabor(phiopt[0], ax=ax, logf=logf, t=tt, show_contours=True, x0=x0, y0=y0)
@@ -606,16 +606,16 @@ def LN_plot_strf(model=None, channels=None, strf=None,
                     va='bottom', fontsize=6)
             
     elif np.isfinite(rtest):
-        ax.text(extent[0], extent[3], f"{label} r={rtest:.2f}")
+        ax.set_title(f"{label} r={rtest:.2f}", fontsize=6)
     else:
-        ax.text(extent[0], extent[3], f"{label}")
+        ax.set_title(f"{label}", fontsize=6)
     ax.set_xlabel('Time lag', fontsize=6)
     ax.tick_params(axis='x', labelsize=6)
     ax.tick_params(axis='y', labelsize=6)
 
 def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
                     layer=2, plot_nl=False, merge=None, rowcount=None,
-                    binaural=None, show_tuning=False, zoomsf=1,
+                    binaural=None, show_tuning=False, zoomsf=1, D=None,
                     show_gabor=False, x0=0, y0=0, figsize=None, verbose=False):
     if binaural is None:
         binaural = is_binaural(model)
@@ -625,7 +625,9 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     if channels is None:
         strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
         channels = np.arange(strf2.shape[-1])
-    strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
+    else:
+        strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
+
     channels_out = len(channels)
 
     m = int(strf2.shape[0]/2)
@@ -705,9 +707,11 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
             lbl = labels[c]
         elif 'cellids' in model.meta.keys():
             lbl = model.meta['cellids'][ch]
+            if "-" in lbl:
+                lbl = "-".join(lbl.split("-")[1:])
         else:
             lbl = f"ch{ch}"
-        LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :, c],
+        LN_plot_strf(model=model, channels=[ch], strf=strf2[:, :D, c],
                      binaural=binaural, ax=ax[c], ax2=ax2[c], fs=fs,
                      show_tuning=show_tuning, show_gabor=show_gabor, label=lbl, zoomsf=zoomsf, verbose=verbose)
 
@@ -782,10 +786,103 @@ def plot_gabor(phi, ax=None, logf=None, t=None, show_contours=False, frame_on=Fa
                   extent=[t[0]+x0, t[-1]+x0, logf[0]+y0, logf[-1]+y0])
     return ax
 
-@memory.cache
-def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, t=None,
-                 include_offset=False, verbose=False):
+def _fit_gabor_2d_tf(strf_np, phi0, logf_np, t_np, padbins, tmax, include_offset):
+    """Fit Gabor2D parameters using TensorFlow Adam optimizer with parameter clipping.
 
+    Parameter bounds that were enforced via penalty terms in the scipy Err
+    function are instead enforced by clipping variables after each gradient step.
+    """
+    import tensorflow as tf
+
+    phi0 = np.array(phi0, dtype=np.float64)
+    # Always work with 10 parameters internally; offset is frozen at 0 if not included
+    if len(phi0) == 9:
+        phi0 = np.append(phi0, 0.0)
+
+    # Bounds matching the original Err function constraints
+    #   logBF in [logf[padbins], logf[-padbins]]
+    #   BW    in [0.1, 5.0]
+    #   Wf    in [-2.0, 2.0]
+    #   Pf    unconstrained
+    #   t0    in [0, t[-padbins]]
+    #   BWt   in [0.0001, tmax]
+    #   Wt    in [-30, 30]
+    #   Pt    unconstrained
+    #   g     unconstrained
+    #   offset unconstrained (or frozen at 0)
+    if padbins > 0:
+        bf_lo, bf_hi = float(logf_np[padbins]), float(logf_np[-padbins])
+        t0_hi = float(t_np[-padbins])
+    else:
+        bf_lo, bf_hi = float(logf_np[0]), float(logf_np[-1])
+        t0_hi = float(t_np[-1])
+
+    lo = np.array([bf_lo, 0.1, -2.0, -1e6, 0.0, 0.0001, -30.0, -1e6, -1e6, -1e6], dtype=np.float64)
+    hi = np.array([bf_hi, 5.0,  2.0,  1e6, t0_hi, tmax,  30.0,  1e6,  1e6,  1e6], dtype=np.float64)
+    if not include_offset:
+        lo[9] = hi[9] = 0.0
+
+    phi0 = np.clip(phi0, lo, hi)
+
+    strf_c = tf.constant(strf_np, dtype=tf.float64)
+    logf_c = tf.constant(logf_np, dtype=tf.float64)
+    t_c = tf.constant(t_np, dtype=tf.float64)
+    lo_c = tf.constant(lo, dtype=tf.float64)
+    hi_c = tf.constant(hi, dtype=tf.float64)
+    two_pi = tf.constant(2.0 * np.pi, dtype=tf.float64)
+
+    params = tf.Variable(phi0, dtype=tf.float64)
+
+    @tf.function
+    def train_step(optimizer):
+        with tf.GradientTape() as tape:
+            p = params
+            logBF = p[0]; BW = p[1]; Wf = p[2]; Pf = p[3]
+            t0 = p[4]; BWt = p[5]; Wt = p[6]; Pt = p[7]
+            g = p[8]; offset = p[9]
+
+            gf = g * tf.exp(-(logf_c - logBF) ** 2 / (2.0 * BW ** 2))
+            S = gf * (tf.sin(Wf * two_pi * (logf_c - logBF) + Pf) + offset)
+
+            gt = tf.exp(-(t_c - t0) ** 2 / (2.0 * BWt ** 2))
+            T = gt * tf.sin(Wt * two_pi * (t_c - t0) + Pt)
+
+            H = S[:, tf.newaxis] * T[tf.newaxis, :]
+            loss = tf.reduce_mean((strf_c - H) ** 2)
+        grads = tape.gradient(loss, [params])
+        optimizer.apply_gradients(zip(grads, [params]))
+        params.assign(tf.clip_by_value(params, lo_c, hi_c))
+        return loss
+
+    # Two-phase optimization: coarse convergence then fine-tuning
+    for lr, max_steps, patience in [(0.02, 2000, 200), (0.002, 3000, 300)]:
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        best_loss = np.inf
+        best_params = params.numpy().copy()
+        no_improve = 0
+        for _ in range(max_steps):
+            loss = train_step(optimizer)
+            lv = loss.numpy()
+            if lv < best_loss - 1e-7:
+                best_loss = lv
+                best_params = params.numpy().copy()
+                no_improve = 0
+            else:
+                no_improve += 1
+            if no_improve >= patience:
+                break
+        params.assign(best_params)
+
+    result = params.numpy()
+    if not include_offset:
+        result = result[:9]
+    return result
+
+
+@memory.cache
+def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, D=None, t=None,
+                 include_offset=False, verbose=False, use_tf=False):
+    strf=strf[:,:D]
     logf = np.linspace(np.log2(f_min), np.log2(f_max), strf.shape[0]+1)
     dlogf = logf[1] - logf[0]
     logf = logf[:-1]+dlogf/2
@@ -828,54 +925,43 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, t=N
         strf, logf, t = strfpadded, logfpadded, tpadded
     # end padded stuff
 
-    #f = 2 ** logf
+    if use_tf:
+        phiopt = _fit_gabor_2d_tf(strf, phi0, logf, t, padbins, tmax, include_offset)
+    else:
+        def Err(x):
+            if len(x)==9:
+                logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = x
+            else:
+                logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = x
+            d = 0
+            if (logBF > logf[-padbins]):
+                d += (logBF - logf[-padbins])
+            if (logBF < logf[padbins]):
+                d += logf[padbins] - logBF
+            if (BW > 5):
+                d += BW - 5
+            if (BW < 0.08):
+                d += -BW+0.08
+            if (np.abs(Wt) > fs/3):
+                d += np.abs(Wt) / (fs/3)
+            if (np.abs(Wt) < 0.2/np.abs(BWt)):
+                d += 0.2/np.abs(BWt) - np.abs(Wt)
+            if (np.abs(Wf) < 0.2/np.abs(BW)):
+                d += 0.2/np.abs(BW) - np.abs(Wf)
+            if (t0 > t[-padbins]):
+                d += t0 - t[-padbins]
+            if (t0 < 0):
+                d += -t0
+            if (BWt > tmax):
+                d += (BWt - tmax)
+            if (BWt < 0.0001):
+                d += -BWt
+            if (Wf > 2):
+                d += (Wf - 2)
+            alpha = 100
+            return np.mean((strf - Gabor2D(x, x=logf, t=t)) ** 2) + d / alpha
 
-    # lambda x: np.sum((strf1-Gabor2D(x, x=logf, t=t)**2))
-    def Err(x):
-        if len(x)==9:
-            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g = x
-        else:
-            logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = x
-
-        # measure big deviations from the bounds, implementing a crude regularizer
-        d = 0
-        if (logBF > logf[-padbins]):
-            d += (logBF - logf[-padbins])
-        if (logBF < logf[padbins]):
-            d += logf[padbins] - logBF
-        if (BW > 5):
-            d += BW - 5
-        if (BW < 0.1):
-            d += -BW+0.1
-        if (np.abs(Wt) > 30):
-            d += np.abs(Wt) / 30
-        if (np.abs(Wt) < 0.2/np.abs(BWt)):
-            d += 0.2/np.abs(BWt) - np.abs(Wt)
-        if (t0 > t[-padbins]):
-            d += t0 - t[-padbins]
-        if (t0 < 0):
-            d += -t0
-        if (BWt > tmax):
-            d += (BWt - tmax)
-        if (BWt < 0.0001):
-            d += -BWt
-        if (Wf > 2):
-            d += (Wf - 2)
-
-        alpha = 100
-        return np.mean((strf - Gabor2D(x, x=logf, t=t)) ** 2) + d / alpha
-
-    cc = 0
-    def Callback(xk):
-        nonlocal cc
-        cc += 1
-        if cc % 500 == 1:
-            print(cc, Err(xk))
-
-    # minimize(method=’L-BFGS-B’)
-    # minimize(fun, x0, args=(), method=None, jac=None, hess=None, hessp=None, bounds=None, constraints=(), tol=None, callback=None, options=None)
-    # this is the one that works for the most part
-    phiopt = scipy.optimize.fmin(func=Err, x0=phi0, ftol=0.0001, maxiter=5000, disp=False) # , callback=Callback)
+        phiopt = scipy.optimize.fmin(func=Err, x0=phi0, ftol=0.0001, maxiter=5000, disp=False)
 
     # clean up values in phiopt to make them easy to align/compare
     if len(phiopt)==9:
@@ -906,21 +992,26 @@ def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, t=N
         g = -g
 
     phiopt = np.array([logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset])
-    E = 1 - Err(phiopt) / np.var(strf)
+    E = 1 - np.mean((strf - Gabor2D(phiopt, x=logf, t=t)) ** 2) / np.var(strf)
 
     if verbose:
         log.info("phiopt " + ",".join([f"{n}={p:.3f}" for n, p in zip(phlist, phiopt)]))
-        #plt.imshow(strf, origin='lower', extent=[t[0],t[-1],logf[0],logf[-1]])
-        #plot_gabor(phiopt, ax=plt.gca(), t=t, logf=logf, show_contours=True)
+        plt.figure()
+        plt.imshow(strf, origin='lower', extent=[t[0],t[-1],logf[0],logf[-1]])
+        plot_gabor(phiopt, ax=plt.gca(), t=t, logf=logf, show_contours=True)
         #log.info("phiopt" + ",".join([f"{n}={p:.3f}" for n, p in zip(phlist, phiopt)]))
 
     return phiopt, E
 
-def strf2gabor(strf, binaural=False, title=None, **fitopts):
+def strf2gabor(strf, binaural=False, primary_ear=0, title=None, **fitopts):
 
     if binaural:
         m=int(strf.shape[0]/2)
-        strflist = [strf[:m, :], strf[m:, :]]
+        if primary_ear==0:
+            strflist = [strf[:m, :], strf[m:, :]]
+        else:
+            strflist = [strf[m:, :], strf[:m, :]]
+
         ylabels = ['Contra','Ipsi']
     else:
         strflist = [strf]
@@ -1105,7 +1196,7 @@ def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaur
         if 'fs' not in fitopts.keys():
             fitopts['fs'] = model.fs
         fitopts['include_offset']=False
-        phiopt, E = strf2gabor(strf[:,:,i], binaural=binaural,
+        phiopt, E = strf2gabor(strf[:,:,i], binaural=binaural, primary_ear=model.primary_ear,
                                title=res['cellid'], **fitopts)
         if binaural:
             logBF, BW, Wf, Pf, t0, BWt, Wt, Pt, g, offset = phiopt[0]

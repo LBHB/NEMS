@@ -1,4 +1,5 @@
 """Tools for looking up python objects from strings."""
+import fnmatch
 import importlib
 from functools import partial
 
@@ -114,6 +115,65 @@ def split_to_api_and_fn(mystring):
     fn_name = matches[-1]
     return api, fn_name
 
+def _layer_class_path(func):
+    """Return (module, class_name, full_path) for a keyword parse function."""
+    module = getattr(func, '__module__', '?')
+    qualname = getattr(func, '__qualname__', func.__name__)
+    class_name = qualname.rsplit('.', 1)[0] if '.' in qualname else '?'
+    return module, class_name, f"{module}.{class_name}"
+
+
+def layer_info(keyword=None):
+    """Print class path and from_keyword docstring for registered layer keywords.
+
+    Parameters
+    ----------
+    keyword : str or None
+        A keyword registered via the @layer decorator (e.g. 'wc', 'fir').
+        May contain '*' wildcards to match multiple keywords (e.g. 'fir*',
+        '*gain*'). If None, list all registered keywords with their class
+        paths.
+
+    Examples
+    --------
+    >>> layer_info('wc')       # full info for one keyword
+    >>> layer_info('fir*')     # summary of all keywords starting with 'fir'
+    >>> layer_info('*gain*')   # summary of all keywords containing 'gain'
+    >>> layer_info()           # summary of all keywords
+
+    """
+    from nems.registry import keyword_lib
+
+    if keyword is None:
+        # Show summary of all keywords
+        for kw_head in sorted(keyword_lib.keywords):
+            _, _, class_path = _layer_class_path(keyword_lib.keywords[kw_head].parse)
+            print(f"  {kw_head:15s} {class_path}")
+        return
+
+    if '*' in keyword:
+        # Wildcard match — print summary of all matching keywords
+        matches = sorted(fnmatch.filter(keyword_lib.keywords.keys(), keyword))
+        if not matches:
+            print(f"No keywords matching '{keyword}'")
+            return
+        for kw_head in matches:
+            _, _, class_path = _layer_class_path(keyword_lib.keywords[kw_head].parse)
+            print(f"  {kw_head:15s} {class_path}")
+        return
+
+    # Exact keyword — print full info with docstring
+    kw_head = keyword_lib.kw_head(keyword)
+    kw = keyword_lib.lookup(keyword)
+    func = kw.parse
+    _, _, class_path = _layer_class_path(func)
+
+    print(f"Keyword: '{kw_head}'")
+    print(f"Class:   {class_path}")
+    if func.__doc__:
+        print(func.__doc__)
+
+
 lookup_table = {}  # TODO: Replace with real memoization/joblib later
 
 def lookup_fn_at(fn_path, ignore_table=False):
@@ -126,9 +186,9 @@ def lookup_fn_at(fn_path, ignore_table=False):
         ...
     '''
 
-    # default is nems0.xforms.<fn_path>
+    # default is nems_lbhb.xforms.<fn_path>
     if not '.' in fn_path:
-        fn_path = 'nems0.xforms.' + fn_path
+        fn_path = 'nems_lbhb.xforms.' + fn_path
 
     if (not ignore_table) and (fn_path in lookup_table):
         fn = lookup_table[fn_path]
