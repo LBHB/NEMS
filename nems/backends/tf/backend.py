@@ -1,29 +1,10 @@
 import numpy as np
-import tensorflow as tf
-import tensorflow.keras as keras
-from tensorflow.keras import Input
-from tensorflow.python.keras import regularizers
 import logging
 
-from ..base import Backend, FitResults
-from .cost import get_cost
-from .cost import pearson as pearsonR
-import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
 from tensorflow.python.keras import regularizers
-import logging
-
-from ..base import Backend, FitResults
-from .cost import get_cost
-from .cost import pearson as pearsonR
-import numpy as np
-import tensorflow as tf
-import tensorflow.keras as keras
-from tensorflow.keras import Input
-from tensorflow.python.keras import regularizers
-import logging
 
 from ..base import Backend, FitResults
 from .cost import get_cost

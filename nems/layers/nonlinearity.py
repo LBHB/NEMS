@@ -344,7 +344,7 @@ class LogCompress(StaticNonlinearity):
         
     @layer('dlog')
     def from_keyword(keyword):
-        """Construct DoubleExponential from keyword.
+        """Construct LogCompress from keyword.
 
         Keyword options
         ---------------
@@ -352,12 +352,12 @@ class LogCompress(StaticNonlinearity):
 
         Returns
         -------
-        DoubleExponential
+        LogCompress
 
         See also
         --------
         Layer.from_keyword
-        
+
         """
         options = keyword.split('.')
         shape = pop_shape(options)
@@ -458,15 +458,19 @@ class Sigmoid(StaticNonlinearity):
 
     @layer('sig')
     def from_keyword(keyword):
-        """Construct RectifiedLinear from a keyword.
+        """Construct Sigmoid from a keyword.
 
         Keyword options
         ---------------
         {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : Enable shift parameter.
+        o : Enable offset parameter.
+        os : Enable both shift and offset parameters.
+        g : Enable gain parameter.
 
         Returns
         -------
-        RectifiedLinear
+        Sigmoid
 
         See also
         --------
@@ -595,6 +599,11 @@ class RectifiedLinear(StaticNonlinearity):
         Keyword options
         ---------------
         {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : Enable shift parameter.
+        o : Enable offset parameter.
+        os : Enable both shift and offset parameters.
+        g : Enable gain parameter.
+        n : Normalize output.
 
         Returns
         -------
@@ -724,7 +733,7 @@ class Hinge(StaticNonlinearity):
 
     @layer('prelu')
     def from_keyword(keyword):
-        """Construct RectifiedLinear from a keyword.
+        """Construct Hinge (parametric ReLU) from a keyword.
 
         Keyword options
         ---------------

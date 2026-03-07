@@ -133,13 +133,18 @@ class WeightChannels(Layer):
 
         Keyword options
         ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-        g : Use gaussian function(s) to determine coefficients.
+        {digit}x{digit}x ... x{digit} : N-dimensional shape
+            (input_channels, rank) or higher-dimensional.
+        g : Use WeightChannelsGaussian (gaussian parameterization).
+        b : Use WeightChannelsMulti (separate weights per output channel).
+        n : Normalize coefficients (norm_coefficients=True).
+        l2{value} : L2 regularizer, e.g. 'l2e-3'.
+        i : Set layer input name to 'input'.
 
         See also
         --------
         Layer.from_keyword
-        
+
         """
         wc_class = WeightChannels
         kwargs = {}
