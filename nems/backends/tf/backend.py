@@ -1,9 +1,11 @@
+import logging
+from types import SimpleNamespace
+
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
-from tensorflow.python.keras import regularizers
-import logging
+from keras import regularizers
 
 from ..base import Backend, FitResults
 from .cost import get_cost
@@ -138,7 +140,7 @@ class TensorFlowBackend(Backend):
             # Construct TF layer, provide input_shape for Layers that need that
             # extra information. If inputs is a singleton, unwrap it. Otherwise,
             # layers that expect a single input can break.
-            input_shape = [keras.backend.int_shape(x) for x in layer_inputs]
+            input_shape = [tuple(x.shape) for x in layer_inputs]
             if len(layer_inputs) == 1:
                 layer_inputs = layer_inputs[0]
                 input_shape = input_shape[0]
@@ -238,35 +240,31 @@ class TensorFlowBackend(Backend):
             cost_function = get_cost(cost_function)
 
         # TODO: support more keys in `fitter_options`.
-        # Store initial parameters, compile optimizer and loss for model.
+        # Store initial parameters.
         initial_parameters = self.nems_model.get_parameter_vector()
-        final_layer = self.nems_model.layers[-1].name
-        print(f"~~~~~~~~~~~~~~~Using grad_clipnorm={grad_clipnorm}")
+        log.info(f"grad_clipnorm={grad_clipnorm}")
+        loss_name = 'loss'  # overridden to 'val_loss' in the array+validation branch
+
+        # Compile once here; all branches (including the custom training loop,
+        # which needs compile() so that evaluate() works in Keras 3) use the
+        # same optimizer settings.
         self.model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-            loss={final_layer: cost_function}
+            loss=cost_function
         )
-        #, metrics = [pearsonR]
-        log.info(f"TF model compiled")
 
-        # Build callbacks for early stopping, ... (what else?)
-        loss_name = 'loss'
-        if (validation_split > 0) or (validation_data is not None):
-            loss_name = 'val_loss'
-        callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
-                     TerminateOnNaNWeights(),
-        ]
-        #log.info(f"{callbacks}")
-        if early_stopping_tolerance != 0:
-            early_stopping = DelayedStopper(
-                monitor=loss_name, patience=early_stopping_patience,
-                min_delta=early_stopping_tolerance, verbose=1,
-                mode='min',
-                restore_best_weights=True, start_epoch=early_stopping_delay,
-                )
-            callbacks.append(early_stopping)
-        # Change back to default None if no callbacks were specified
-        if len(callbacks) == 0: callbacks = None
+        def _make_callbacks(loss_name):
+            cbs = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
+                   TerminateOnNaNWeights()]
+            if early_stopping_tolerance != 0:
+                cbs.append(DelayedStopper(
+                    monitor=loss_name, patience=early_stopping_patience,
+                    min_delta=early_stopping_tolerance, verbose=1, mode='min',
+                    restore_best_weights=True, start_epoch=early_stopping_delay))
+            return cbs
+
+        def _to_array(err):
+            return np.array([err]) if isinstance(err, float) else err
 
         # TODO: This assumes a single output (like our usual models).
         #       Need to tweak this to be able to fit outputs from multiple
@@ -278,43 +276,89 @@ class TensorFlowBackend(Backend):
         if data.data_format == 'array':
             if len(data.targets) > 1:
                 raise NotImplementedError("Only one target supported currently.")
-            elif len(list(data.targets.values())) == 0:
-                target = None
-            else:
-                target = list(data.targets.values())[0]
+            target = list(data.targets.values())[0] if data.targets else None
 
-            initial_error = self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False)
-            if type(initial_error) is float:
-                initial_error = np.array([initial_error])
+            initial_error = _to_array(self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
 
-            history = self.model.fit(inputs, {final_layer: target}, epochs=epochs, verbose=0,
-                validation_split=validation_split, callbacks=callbacks,
-                validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
+            if validation_split == 0 and validation_data is None:
+                # Custom training loop: avoids Keras 3 per-epoch Python overhead.
+                # In Keras 3, model.fit() has significant Python overhead each epoch
+                # (metrics, history, data pipeline). For small fast-GPU models this
+                # dominates. A @tf.function loop traces once and runs on GPU with
+                # only a single scalar sync per epoch.
+                optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
+                tf_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in inputs.items()}
+                tf_target = tf.constant(target, dtype=tf.float32)
+                model_ref = self.model
+
+                @tf.function
+                def _train_step():
+                    with tf.GradientTape() as tape:
+                        preds = model_ref(tf_inputs, training=True)
+                        loss = cost_function(tf_target, preds)
+                    grads = tape.gradient(loss, model_ref.trainable_variables)
+                    optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+                    return loss
+
+                loss_history = []
+                best_loss = np.inf
+                best_weights = self.model.get_weights()
+                patience_count = 0
+                leading_zeros = int(np.log10(max(epochs, 1))) + 1
+
+                for epoch in range(epochs):
+                    loss_val = float(_train_step())
+                    loss_history.append(loss_val)
+
+                    if epoch % 50 == 0:
+                        log.info(f'Epoch {epoch:0>{leading_zeros}}/{epochs} - loss: {loss_val:.4e}')
+
+                    if np.isnan(loss_val) or np.isinf(loss_val):
+                        log.info(f'Epoch {epoch}: NaN/Inf loss, restoring best weights')
+                        self.model.set_weights(best_weights)
+                        break
+
+                    if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
+                        if loss_val < best_loss - early_stopping_tolerance:
+                            best_loss = loss_val
+                            best_weights = self.model.get_weights()
+                            patience_count = 0
+                        else:
+                            patience_count += 1
+                            if patience_count >= early_stopping_patience:
+                                log.info(f'Early stopping at epoch {epoch}')
+                                self.model.set_weights(best_weights)
+                                break
+                    elif loss_val < best_loss:
+                        best_loss = loss_val
+                        best_weights = self.model.get_weights()
+
+                history = SimpleNamespace(history={'loss': loss_history})
+
+            else:
+                # Validation requested: fall back to model.fit().
+                loss_name = 'val_loss'
+                history = self.model.fit(inputs, target, epochs=epochs, verbose=0,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
+                    validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
 
         elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-
-            initial_error = self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False)
-            if type(initial_error) is float:
-                initial_error = np.array([initial_error])
+            initial_error = _to_array(self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
-
             history = self.model.fit(
                 data, epochs=epochs, verbose=0,
-                validation_split=validation_split, callbacks=callbacks,
+                validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                 validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
         else:
             X_ = inputs['input'][0][0]
             Y_ = inputs['input'][0][1]
-            initial_error = self.model.evaluate({'input': X_}, Y_, return_dict=False,
-                                                verbose=self.verbose)
-            if type(initial_error) is float:
-                initial_error=np.array([initial_error])
-            log.info(f"Initial loss: {initial_error[0]} batch_size: {batch_size} shuffle: {shuffle}")
-            if validation_split==0:
+            initial_error = _to_array(self.model.evaluate({'input': X_}, Y_, return_dict=False, verbose=self.verbose))
+            log.info(f"Init loss: {initial_error[0]:.3f}, batch_size: {batch_size}, shuffle: {shuffle}")
+            if validation_split == 0:
                 history = self.model.fit(
                     inputs['input'], None, epochs=epochs, verbose=0,
-                    validation_split=validation_split, callbacks=callbacks,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                     validation_data=validation_data, batch_size=batch_size, shuffle=shuffle
                 )
             else:
@@ -324,9 +368,9 @@ class TensorFlowBackend(Backend):
                 g_val.frac=-validation_split
                 history = self.model.fit(
                     g_est,
-                    validation_data=g_val, batch_size=batch_size, 
+                    validation_data=g_val, batch_size=batch_size,
                     epochs=epochs, verbose=0,
-                    callbacks=callbacks,
+                    callbacks=_make_callbacks(loss_name),
                     shuffle=shuffle
                 )
 

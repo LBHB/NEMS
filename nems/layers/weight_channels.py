@@ -163,32 +163,26 @@ class WeightChannels(Layer):
         return wc
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs
-        
-        NOTE: This is currently hard-coded to dot the 2nd dim of the input
-        (batch, time, channels, ...) and first dim of coefficients
-        (channels, rank, ...).
-        
+        """Return a Keras layer that applies the weighted channel mixing.
+
+        Contracts the 2nd dim of input (batch, time, channels, ...) with the
+        first dim of coefficients (channels, rank, ...).
         """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
-        #from keras.utils import register_keras_serializable
 
-        norm_coefficients = self.norm_coefficients
+        norm_coefficients = self.norm_coefficients  # Python bool captured in closure
 
-        #@register_keras_serializable(package="Custom")
         class WeightChannelsTF(NemsKerasLayer):
             def call(self, inputs):
-                coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=tf.float32)
-
                 if norm_coefficients:
-                    n = tf.math.reduce_mean(coefs_tensor**2)**0.5
-                    c = tf.math.divide_no_nan(coefs_tensor, n)
+                    n = tf.math.reduce_mean(self.coefficients**2)**0.5
+                    c = tf.math.divide_no_nan(self.coefficients, n)
                     out = tf.tensordot(inputs, c, axes=[[2], [0]])
                 else:
-                    out = tf.tensordot(inputs, coefs_tensor, axes=[[2], [0]])
+                    out = tf.tensordot(inputs, self.coefficients, axes=[[2], [0]])
                 return out
-        
+
         return WeightChannelsTF(self, **kwargs)
 
     @property
@@ -273,19 +267,18 @@ class WeightChannelsMulti(WeightChannels):
         return output
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs"""
+        """Return a Keras layer that applies per-channel weighted mixing."""
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
         class WeightChannelsMultiTF(NemsKerasLayer):
-            @tf.function
             def call(self, inputs):
-                # reshape inputs and coefficients so that mult can happen on last
-                # two dimensions. Broadcasting seems to work fine this way
+                # Reshape inputs and coefficients so that matmul operates on the
+                # last two dimensions. Handles tiled multi-channel inputs.
                 if inputs.shape[-1] > self.coefficients.shape[0]:
-                    d = int(inputs.shape[-1]/self.coefficients.shape[0])
+                    d = int(inputs.shape[-1] / self.coefficients.shape[0])
                     inputs_ = tf.experimental.numpy.swapaxes(
-                        tf.reshape(tf.convert_to_tensor(inputs), [-1, inputs.shape[1], d, self.coefficients.shape[0]]), -2, -1)
+                        tf.reshape(inputs, [-1, inputs.shape[1], d, self.coefficients.shape[0]]), -2, -1)
                 else:
                     inputs_ = inputs
 
@@ -293,9 +286,9 @@ class WeightChannelsMulti(WeightChannels):
                     tf.matmul(
                         tf.experimental.numpy.moveaxis(inputs_, [1, 2], [-2, -1]),
                         tf.experimental.numpy.moveaxis(self.coefficients, [0, 1], [-2, -1])
-                        ),
+                    ),
                     [-2, -1], [1, 2]
-                    )
+                )
                 return out
 
         return WeightChannelsMultiTF(self, **kwargs)
@@ -369,13 +362,16 @@ class WeightChannelsGaussian(WeightChannels):
         return normalized
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs"""
+        """Return a Keras layer that applies gaussian-weighted channel mixing.
+
+        sd parameters are scaled by 10 internally to improve gradient stability,
+        then divided back in `weights_to_values` when copying back to NEMS.
+        """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        # TODO: Ask SVD about this kludge in old NEMS code. Is this still needed?
-        # If so, explain: I think this was to keep gradient from "blowing up"?
-        # Scale up sd bound
+        # Scale up sd to improve gradient stability (sd is divided back by 10
+        # in weights_to_values).
         sd, = self.get_parameter_values('sd')
         sd_lower, sd_upper = self.parameters['sd'].bounds
         new_values = {'sd': sd*10}
@@ -436,7 +432,7 @@ class WeightChannelsMultiGaussian(WeightChannels):
     """
 
     def initial_parameters(self):
-        """Get initial values for `WeightChannelsGaussian.parameters`.
+        """Get initial values for `WeightChannelsMultiGaussian.parameters`.
 
         Layer parameters
         ----------------
@@ -523,45 +519,44 @@ class WeightChannelsMultiGaussian(WeightChannels):
         return output
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs"""
+        """Return a Keras layer that applies gaussian-weighted per-channel mixing."""
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        class WeightChannelsMultiTF(NemsKerasLayer):
-            @tf.function
+        class WeightChannelsMultiGaussianTF(NemsKerasLayer):
             def call(self, inputs):
-                # reshape inputs and coefficients so that mult can happen on last
-                # two dimensions. Broadcasting seems to work fine this way
-                #out = tf.matmul(inputs, self.coefficients)
                 out = tf.transpose(
                     tf.matmul(
                         tf.transpose(inputs, perm=[0, 3, 1, 2]),
                         tf.transpose(self.coefficients, perm=[2, 0, 1])
-                        ),
+                    ),
                     perm=[0, 2, 3, 1]
-                    )
+                )
                 return out
 
-        return WeightChannelsMultiTF(self, **kwargs)
+        return WeightChannelsMultiGaussianTF(self, **kwargs)
 
 
 class WeightGaussianExpand(Layer):
     """As WeightChannels, but sample coefficients from gaussian functions."""
 
     def initial_parameters(self):
-        """Get initial values for `WeightChannelsGaussian.parameters`.
+        """Get initial values for `WeightGaussianExpand.parameters`.
 
         Layer parameters
         ----------------
         mean : scalar or ndarray
-            Mean of gaussian, shape is `self.shape[1:]`.
+            Mean of gaussian, shape is `(shape[0],) + shape[2:]`.
             Prior:  TODO  # Currently using defaults
             Bounds: (0, 1)
         sd : scalar or ndarray
-            Standard deviation of gaussian, shape is `self.shape[1:]`.
+            Standard deviation of gaussian, same shape as mean.
             Prior:  TODO  # Currently using defaults
-            Bounds: (0*, np.inf)
-            * Actually set to machine epsilon to avoid division by zero.
+            Bounds: (0.2, np.inf)
+        amp : scalar or ndarray
+            Amplitude scaling of each gaussian, same shape as mean.
+            Prior:  TODO  # Currently using defaults
+            Bounds: (0.05, np.inf)
 
         Returns
         -------
@@ -660,13 +655,16 @@ class WeightGaussianExpand(Layer):
         return output
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs"""
+        """Return a Keras layer that expands inputs via gaussian-weighted channels.
+
+        sd parameters are scaled by 10 internally to improve gradient stability,
+        then divided back in `weights_to_values` when copying back to NEMS.
+        """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        # TODO: Ask SVD about this kludge in old NEMS code. Is this still needed?
-        # If so, explain: I think this was to keep gradient from "blowing up"?
-        # Scale up sd bound
+        # Scale up sd to improve gradient stability (sd is divided back by 10
+        # in weights_to_values).
         sd, = self.get_parameter_values('sd')
         sd_lower, sd_upper = self.parameters['sd'].bounds
         new_values = {'sd': sd*10}
