@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
-from tensorflow.python.keras import regularizers
+from keras import regularizers
 import logging
 
 from ..base import Backend, FitResults
@@ -138,7 +138,7 @@ class TensorFlowBackend(Backend):
             # Construct TF layer, provide input_shape for Layers that need that
             # extra information. If inputs is a singleton, unwrap it. Otherwise,
             # layers that expect a single input can break.
-            input_shape = [keras.backend.int_shape(x) for x in layer_inputs]
+            input_shape = [tuple(x.shape) for x in layer_inputs]
             if len(layer_inputs) == 1:
                 layer_inputs = layer_inputs[0]
                 input_shape = input_shape[0]

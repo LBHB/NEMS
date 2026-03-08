@@ -1,6 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Layer
-from tensorflow.keras.constraints import Constraint
+from keras.layers import Layer
+from keras.constraints import Constraint
 
 
 # TODO: handle frozen parameters
