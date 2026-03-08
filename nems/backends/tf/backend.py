@@ -240,8 +240,29 @@ class TensorFlowBackend(Backend):
         # TODO: support more keys in `fitter_options`.
         # Store initial parameters.
         initial_parameters = self.nems_model.get_parameter_vector()
-        loss_name = 'loss'  # overridden to 'val_loss' in branches that use validation
-        print(f"~~~~~~~~~~~~~~~Using grad_clipnorm={grad_clipnorm}")
+        log.info(f"grad_clipnorm={grad_clipnorm}")
+        loss_name = 'loss'  # overridden to 'val_loss' in the array+validation branch
+
+        # Compile once here; all branches (including the custom training loop,
+        # which needs compile() so that evaluate() works in Keras 3) use the
+        # same optimizer settings.
+        self.model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
+            loss=cost_function
+        )
+
+        def _make_callbacks(loss_name):
+            cbs = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
+                   TerminateOnNaNWeights()]
+            if early_stopping_tolerance != 0:
+                cbs.append(DelayedStopper(
+                    monitor=loss_name, patience=early_stopping_patience,
+                    min_delta=early_stopping_tolerance, verbose=1, mode='min',
+                    restore_best_weights=True, start_epoch=early_stopping_delay))
+            return cbs
+
+        def _to_array(err):
+            return np.array([err]) if isinstance(err, float) else err
 
         # TODO: This assumes a single output (like our usual models).
         #       Need to tweak this to be able to fit outputs from multiple
@@ -253,19 +274,9 @@ class TensorFlowBackend(Backend):
         if data.data_format == 'array':
             if len(data.targets) > 1:
                 raise NotImplementedError("Only one target supported currently.")
-            elif len(list(data.targets.values())) == 0:
-                target = None
-            else:
-                target = list(data.targets.values())[0]
+            target = list(data.targets.values())[0] if data.targets else None
 
-            # Keras 3 requires compile() before evaluate(), even for custom training loops.
-            self.model.compile(
-                optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-                loss=cost_function
-            )
-            initial_error = self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False)
-            if type(initial_error) is float:
-                initial_error = np.array([initial_error])
+            initial_error = _to_array(self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
 
             if validation_split == 0 and validation_data is None:
@@ -321,73 +332,31 @@ class TensorFlowBackend(Backend):
                         best_loss = loss_val
                         best_weights = self.model.get_weights()
 
-                class _History:
-                    def __init__(self, losses):
-                        self.history = {'loss': losses}
-                history = _History(loss_history)
+                history = type('_History', (), {'history': {'loss': loss_history}})()
 
             else:
-                # Validation requested: fall back to model.fit() (already compiled above).
+                # Validation requested: fall back to model.fit().
                 loss_name = 'val_loss'
-                callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
-                             TerminateOnNaNWeights()]
-                if early_stopping_tolerance != 0:
-                    callbacks.append(DelayedStopper(
-                        monitor=loss_name, patience=early_stopping_patience,
-                        min_delta=early_stopping_tolerance, verbose=1, mode='min',
-                        restore_best_weights=True, start_epoch=early_stopping_delay))
                 history = self.model.fit(inputs, target, epochs=epochs, verbose=0,
-                    validation_split=validation_split, callbacks=callbacks,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                     validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
 
         elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-            loss_name = 'loss'
-            self.model.compile(
-                optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-                loss=cost_function
-            )
-            callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
-                         TerminateOnNaNWeights()]
-            if early_stopping_tolerance != 0:
-                callbacks.append(DelayedStopper(
-                    monitor=loss_name, patience=early_stopping_patience,
-                    min_delta=early_stopping_tolerance, verbose=1, mode='min',
-                    restore_best_weights=True, start_epoch=early_stopping_delay))
-
-            initial_error = self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False)
-            if type(initial_error) is float:
-                initial_error = np.array([initial_error])
+            initial_error = _to_array(self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
-
             history = self.model.fit(
                 data, epochs=epochs, verbose=0,
-                validation_split=validation_split, callbacks=callbacks,
+                validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                 validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
         else:
-            loss_name = 'loss'
-            self.model.compile(
-                optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-                loss=cost_function
-            )
-            callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
-                         TerminateOnNaNWeights()]
-            if early_stopping_tolerance != 0:
-                callbacks.append(DelayedStopper(
-                    monitor=loss_name, patience=early_stopping_patience,
-                    min_delta=early_stopping_tolerance, verbose=1, mode='min',
-                    restore_best_weights=True, start_epoch=early_stopping_delay))
-
             X_ = inputs['input'][0][0]
             Y_ = inputs['input'][0][1]
-            initial_error = self.model.evaluate({'input': X_}, Y_, return_dict=False,
-                                                verbose=self.verbose)
-            if type(initial_error) is float:
-                initial_error=np.array([initial_error])
-            log.info(f"Initial loss: {initial_error[0]} batch_size: {batch_size} shuffle: {shuffle}")
-            if validation_split==0:
+            initial_error = _to_array(self.model.evaluate({'input': X_}, Y_, return_dict=False, verbose=self.verbose))
+            log.info(f"Init loss: {initial_error[0]:.3f}, batch_size: {batch_size}, shuffle: {shuffle}")
+            if validation_split == 0:
                 history = self.model.fit(
                     inputs['input'], None, epochs=epochs, verbose=0,
-                    validation_split=validation_split, callbacks=callbacks,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                     validation_data=validation_data, batch_size=batch_size, shuffle=shuffle
                 )
             else:
@@ -399,7 +368,7 @@ class TensorFlowBackend(Backend):
                     g_est,
                     validation_data=g_val, batch_size=batch_size,
                     epochs=epochs, verbose=0,
-                    callbacks=callbacks,
+                    callbacks=_make_callbacks(loss_name),
                     shuffle=shuffle
                 )
 
