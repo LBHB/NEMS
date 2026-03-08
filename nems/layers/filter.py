@@ -780,6 +780,7 @@ class STRF(FiniteImpulseResponse):
         activation = self.activation
         skip_alpha = self.skip_alpha
         fir_len = self.fshape[0]
+        wcoef_ndim = len(self.wshape)  # 2 for (C, R), 3 for (C, R, N)
 
         class STRFTF(NemsKerasLayer):
             def weights_to_values(self):
@@ -787,7 +788,7 @@ class STRF(FiniteImpulseResponse):
                 unflipped = np.flip(c, axis=0)  # Undo flip time
                 unshaped = np.reshape(unflipped, old_c.shape)
 
-                return {'coefficients': unshaped, 
+                return {'coefficients': unshaped,
                         'wcoefficients': self.parameter_values['wcoefficients'],
                         'shift': self.parameter_values['shift']}
 
@@ -800,14 +801,23 @@ class STRF(FiniteImpulseResponse):
                     else:
                         return out + inputs[:, :, :out.shape[-1]] * self.alpha
 
-                inputs1 = tf.tensordot(inputs, self.wcoefficients, axes=[[2], [0]])
+                # Use einsum rather than tensordot: Keras 3 can trace einsum
+                # subscripts statically, whereas tf.tensordot on a KerasTensor
+                # requires eager execution and fails during graph building.
+                if wcoef_ndim == 3:
+                    # wcoefficients: (C, R, N) → result: (batch, time, R, N)
+                    rank_4 = tf.einsum('bti,irn->btrn', inputs, self.wcoefficients)
+                else:
+                    # wcoefficients: (C, R) → (batch, time, R) → (batch, time, R, 1)
+                    rank_4 = tf.expand_dims(
+                        tf.einsum('bti,ir->btr', inputs, self.wcoefficients), axis=-1
+                    )
+
                 if fir_len > 1:
-                    input_width = tf.shape(inputs1)[1]
                     coefficients = broadcast_coefficients(self.coefficients)
-                    rank_4 = tf.reshape(inputs1, [-1, input_width, rank, n_outputs])
                     out = convolve(rank_4, coefficients) + self.shift
                 else:
-                    out = inputs1
+                    out = rank_4 + self.shift
 
                 if skip_alpha < 0:
                     out = apply_skip(out)
