@@ -115,7 +115,7 @@ class MultiTaskModel(Model):
         import tensorflow as tf
         import tensorflow.keras as keras
         from tensorflow.keras import Input
-        from tensorflow.python.keras import regularizers
+        from keras import regularizers
         import logging
         from nems.backends.base import Backend, FitResults
         from nems.backends.tf.cost import get_cost

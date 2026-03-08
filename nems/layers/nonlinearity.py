@@ -80,17 +80,16 @@ class StaticNonlinearity(Layer):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        norm = self.normalize_output
+        normalize = self.normalize_output  # Python bool captured in closure
 
         class StaticNonlinearityTF(NemsKerasLayer):
             def call(self, inputs):
-                # TODO: why identity?
-                if norm:
+                if normalize:
                     s = tf.math.reduce_std(inputs, axis=-1, keepdims=True)
                     s = tf.where(tf.equal(s, 0), 1, s)
-                    return tf.identity(inputs + self.shift) / s
+                    return (inputs + self.shift) / s
                 else:
-                    return tf.identity(inputs + self.shift)
+                    return inputs + self.shift
 
         return StaticNonlinearityTF(self, **kwargs)
 
@@ -108,15 +107,15 @@ class LevelShift(StaticNonlinearity):
     """
 
     def initial_parameters(self):
-        """Get initial values for `StaticNonlinearity.parameters`.
-        
+        """Get initial values for `LevelShift.parameters`.
+
         Layer parameters
         ----------------
         shift : scalar or ndarray
-            Value(s) that are added to input(s) prior to rectification. Shape
-            (N,) must match N channels per input.
-            Prior:  TODO
-        
+            Value(s) added to input(s). Shape (N,) must match N channels per
+            input.
+            Prior:  Normal(mean=0, sd=0.01)
+
         """
         # TODO: explain choice of priors.
         prior = Normal(
@@ -193,7 +192,7 @@ class LevelShift(StaticNonlinearity):
 
 
 class DoubleExponential(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply a double-exponential sigmoid to input(s): b + a*exp(-exp(-exp(k)*(x+s)))."""
 
     def initial_parameters(self):
         """Get initial values for `DoubleExponential.parameters`.
@@ -215,7 +214,7 @@ class DoubleExponential(StaticNonlinearity):
             Prior:  Normal(mean=0, sd=1)
             Bounds: TODO
         kappa : scalar or ndarray
-            Sigmoid curvature. Larger numbers mean steeper slop.
+            Sigmoid curvature. Larger numbers mean steeper slope.
             Prior:  Normal(mean=1, sd=10)
             Bounds: TODO
 
@@ -298,27 +297,22 @@ class DoubleExponential(StaticNonlinearity):
 
 
 class LogCompress(StaticNonlinearity):
-    """
-    dlog imported from old NEMS
-    
-    TODO: doc here? maybe just copy .evaluate?
-    """
+    """Apply logarithmic compression to input(s): log((x + d) / d), where d = 10**shift."""
 
     def initial_parameters(self):
-        """Get initial values for `DoubleExponential.parameters`.
-        
+        """Get initial values for `LogCompress.parameters`.
+
         Layer parameters
         ----------------
-
-        shift s : scalar or ndarray
-            Centerpoint of the sigmoid along x axis
-            Prior:  Normal(mean=1, sd=.02)
-            Bounds: TODO
+        shift : scalar or ndarray
+            Log-compression offset as a power of 10 (d = 10**shift).
+            Shape (N,) must match N channels per input.
+            Prior:  Normal(mean=0, sd=0.02)
 
         Returns
         -------
         nems.layers.base.Phi
-        
+
         """
         # TODO: explain choices for priors.
         zero = np.zeros(shape=self.shape)
@@ -329,11 +323,7 @@ class LogCompress(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Apply sigmoid transform to input x: $b+a*exp[-exp(-exp(k)(x-s)]$.
-        
-        See Thorson, Liénard, David (2015).
-        
-        """
+        """Apply log compression: log((x + d) / d), where d = 10**shift."""
         shift, = self.get_parameter_values()
 
         # call preprocessing.normalization.log_compress to execute:
@@ -361,7 +351,7 @@ class LogCompress(StaticNonlinearity):
         """
         options = keyword.split('.')
         shape = pop_shape(options)
-        
+
         return LogCompress(shape=shape)
 
     def as_tensorflow_layer(self, **kwargs):
@@ -384,7 +374,7 @@ class LogCompress(StaticNonlinearity):
 
 
 class Sigmoid(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply a logistic sigmoid to input(s): offset + gain / (1 + exp(-input - shift))."""
 
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
@@ -399,21 +389,20 @@ class Sigmoid(StaticNonlinearity):
         self.set_permanent_values(**fixed_parameters)
 
     def initial_parameters(self):
-        """Get initial values for `RectifiedLinear.parameters`.
+        """Get initial values for `Sigmoid.parameters`.
 
         Layer parameters
         ----------------
         shift : scalar or ndarray
-            Value(s) that are added to input prior to rectification. Shape
-            (N,) must match N channels per input.
-            Prior:  Normal(mean=-0.1, sd=1/sqrt(N))
+            Value(s) added to input prior to sigmoid. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
         offset : scalar or ndarray
-            Value(s) that are added to input after rectification.
-            Prior:  TODO
+            Value(s) added to output after sigmoid.
+            Prior:  Normal(mean=-0.05, sd=0.01)
         gain : scalar or ndarray
-            Rectified input(s) will be multiplied by this (i.e. slope of the
-            linear portion for each output).
-            Prior:  TODO
+            Output is multiplied by this value.
+            Prior:  Normal(mean=1, sd=0.01)
 
         """
         # TODO: explain choice of prior.
@@ -431,15 +420,10 @@ class Sigmoid(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Implements `y = offset + gain * rectify(x - shift)`.
+        """Implements `y = offset + gain / (1 + exp(-input - shift))`.
 
-        By default, `offset=0, shift=0, gain=1` and this is equivalent to
-        standard linear rectification: `y = 0 if x < 0, else x`.
-
-        Notes
-        -----
-        The negative of `shift` is used so that its interpretation in
-        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+        By default, `offset=0, shift=0, gain=1` and this is a standard
+        logistic sigmoid: `y = 1 / (1 + exp(-x))`.
 
         """
 
@@ -463,10 +447,10 @@ class Sigmoid(StaticNonlinearity):
         Keyword options
         ---------------
         {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
-        s : Enable shift parameter.
-        o : Enable offset parameter.
-        os : Enable both shift and offset parameters.
-        g : Enable gain parameter.
+        s : fit shift parameter (default: fixed at 0).
+        o : fit offset parameter (default: fixed at 0).
+        os : fit both shift and offset.
+        g : fit gain parameter (default: fixed at 1).
 
         Returns
         -------
@@ -522,7 +506,7 @@ class Sigmoid(StaticNonlinearity):
 
 
 class RectifiedLinear(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply rectified-linear activation to input(s): offset + gain * relu(input + shift)."""
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
         fixed_parameters = {}
@@ -646,11 +630,6 @@ class RectifiedLinear(StaticNonlinearity):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        if type(self.output) is list:
-            output_count = len(self.output)
-        else:
-            output_count = 1
-
         if self._skip_nonlinearity:
             return super().as_tensorflow_layer(**kwargs)
         elif self.no_shift & self.no_offset & self.no_gain:
@@ -660,14 +639,145 @@ class RectifiedLinear(StaticNonlinearity):
         else:
             class RectifiedLinearTF(NemsKerasLayer):
                 def call(self, inputs):
-                    rectified  = tf.nn.relu(inputs + self.shift)
-                    return self.offset + self.gain * rectified
+                    return self.offset + self.gain * tf.nn.relu(inputs + self.shift)
 
         return RectifiedLinearTF(self, **kwargs)
 
 # Optional alias
 class ReLU(RectifiedLinear):
     pass
+
+
+class SoftRelu(StaticNonlinearity):
+    """Apply softplus activation to input(s): offset + gain * log(1 + exp(input + shift)).
+
+    A smooth approximation to RectifiedLinear that is differentiable everywhere,
+    including at x=0.
+    """
+
+    def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
+        super().__init__(**kwargs)
+        fixed_parameters = {}
+        self.no_shift = no_shift
+        self.no_offset = no_offset
+        self.no_gain = no_gain
+        shift, offset, gain = self.get_parameter_values()
+        if no_shift: fixed_parameters['shift'] = np.full_like(shift, 0)
+        if no_offset: fixed_parameters['offset'] = np.full_like(offset, 0)
+        if no_gain: fixed_parameters['gain'] = np.full_like(gain, 1)
+        self.set_permanent_values(**fixed_parameters)
+
+    def initial_parameters(self):
+        """Get initial values for `SoftRelu.parameters`.
+
+        Layer parameters
+        ----------------
+        shift : scalar or ndarray
+            Value(s) added to input prior to softplus. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
+        offset : scalar or ndarray
+            Value(s) added to output after softplus.
+            Prior:  Normal(mean=-0.05, sd=0.01)
+        gain : scalar or ndarray
+            Softplus output is multiplied by this value (slope of linear portion).
+            Prior:  Normal(mean=1, sd=0.01)
+
+        Returns
+        -------
+        nems.layers.base.Phi
+
+        """
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+        shift_prior = {'mean': zero + 0.05, 'sd': one / 100}
+        offset_prior = {'mean': zero - 0.05, 'sd': one / 100}
+        gain_prior = {'mean': one, 'sd': one / 100}
+        phi = Phi(
+            Parameter('shift', shape=self.shape, prior=Normal(**shift_prior)),
+            Parameter('offset', shape=self.shape, prior=Normal(**offset_prior)),
+            Parameter('gain', shape=self.shape, prior=Normal(**gain_prior))
+        )
+        return phi
+
+    def nonlinearity(self, input):
+        """Implements `y = offset + gain * softplus(input + shift)`.
+
+        Uses `np.logaddexp(0, x)` as the numerically stable softplus, which
+        computes `log(1 + exp(x))` and matches `tf.math.softplus` exactly.
+
+        By default, `offset=0, shift=0, gain=1` and this reduces to
+        `y = log(1 + exp(x))`.
+
+        """
+        shift, offset, gain = self.get_parameter_values()
+        return offset + gain * np.logaddexp(0, input + shift)
+
+    @layer('srelu')
+    def from_keyword(keyword):
+        """Construct SoftRelu from a keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : fit shift parameter (default: fixed at 0).
+        o : fit offset parameter (default: fixed at 0).
+        os : fit both shift and offset.
+        g : fit gain parameter (default: fixed at 1).
+
+        Returns
+        -------
+        SoftRelu
+
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        options = keyword.split('.')
+        no_shift = True
+        no_offset = True
+        no_gain = True
+        shape = pop_shape(options)
+
+        for op in options[1:]:
+            if op == 's':
+                no_shift = False
+            elif op == 'o':
+                no_offset = False
+            elif op == 'os':
+                no_shift = False
+                no_offset = False
+            elif op == 'g':
+                no_gain = False
+
+        return SoftRelu(
+            shape=shape, no_shift=no_shift, no_offset=no_offset,
+            no_gain=no_gain
+        )
+
+    def as_tensorflow_layer(self, **kwargs):
+        """Return a Keras layer applying softplus activation.
+
+        Implements `offset + gain * tf.math.softplus(input + shift)`.
+        `tf.math.softplus` computes `log(1 + exp(x))` and matches the NumPy
+        implementation `np.logaddexp(0, x)` used in `SoftRelu.nonlinearity`.
+        """
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        if self._skip_nonlinearity:
+            return super().as_tensorflow_layer(**kwargs)
+        elif self.no_shift and self.no_offset and self.no_gain:
+            class SoftReluTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return tf.math.softplus(inputs)
+        else:
+            class SoftReluTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return self.offset + self.gain * tf.math.softplus(inputs + self.shift)
+
+        return SoftReluTF(self, **kwargs)
 
 
 class Hinge(StaticNonlinearity):
@@ -691,14 +801,17 @@ class Hinge(StaticNonlinearity):
             self.set_permanent_values(**fixed_parameters)
 
     def initial_parameters(self):
-        """
-        :return: phi, nems.layer.base.parameter.Parameter with values for shift and alpha
-        """
-        """Get initial values for `RectifiedLinear.parameters`.
+        """Get initial values for `Hinge.parameters`.
 
         Layer parameters
         ----------------
-        alpha : slope of negative portion
+        shift : scalar or ndarray
+            Value(s) added to input prior to hinge. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
+        alpha : scalar or ndarray
+            Slope of the negative portion (divided by 10).
+            Prior:  Normal(mean=0.1, sd=0.05); Bounds: (0, inf)
 
         """
         zero = np.zeros(shape=self.shape)
@@ -713,15 +826,9 @@ class Hinge(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Implements `y = offset + gain * rectify(x - shift)`.
+        """Implements a hinge (leaky-ReLU): pos(x+s) + (alpha/10) * neg(x+s).
 
-        By default, `offset=0, shift=0, gain=1` and this is equivalent to
-        standard linear rectification: `y = 0 if x < 0, else x`.
-
-        Notes
-        -----
-        The negative of `shift` is used so that its interpretation in
-        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+        Positive portion has slope 1; negative portion has slope alpha/10.
 
         """
         shift, alpha = self.get_parameter_values()
