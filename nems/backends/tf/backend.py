@@ -244,7 +244,7 @@ class TensorFlowBackend(Backend):
         print(f"~~~~~~~~~~~~~~~Using grad_clipnorm={grad_clipnorm}")
         self.model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-            loss={final_layer: cost_function}
+            loss=cost_function
         )
         #, metrics = [pearsonR]
         log.info(f"TF model compiled")
@@ -288,7 +288,7 @@ class TensorFlowBackend(Backend):
                 initial_error = np.array([initial_error])
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
 
-            history = self.model.fit(inputs, {final_layer: target}, epochs=epochs, verbose=0,
+            history = self.model.fit(inputs, target, epochs=epochs, verbose=0,
                 validation_split=validation_split, callbacks=callbacks,
                 validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
 
