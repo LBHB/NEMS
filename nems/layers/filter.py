@@ -553,20 +553,18 @@ class STRF(FiniteImpulseResponse):
 
         # separate shapes for spectral weighting and fir transformations
         shape = list(kwargs['shape'])
-        self.wshape = [shape[0], shape[1]]  # compatible with WeightChannels
-        self.fshape = [shape[2], shape[1]]  # compatible with FiniteImpulseResponse
-        if len(shape)==4:
-            self.wshape.append(shape[3])
-            self.fshape.append(shape[3])
-            if self.fshape[0]>1:
-                self.nout=(1,shape[3])
-            else:
-                self.nout=(1,shape[2])
+        if len(shape)==2:
+            # reduce to full-rank FIR
+            raise NotImplementedError('TODO only run FIR')
+        elif len(shape)==3:
+            self.wshape = [shape[0], shape[1]]  # compatible with WeightChannels
+            self.fshape = [shape[2], shape[1]]  # compatible with FiniteImpulseResponse
+            self.nout=(1,1)
+
         else:
-            if self.fshape[0]>1:
-                self.nout=(1,1)
-            else:
-                self.nout=(1,shape[1])
+            self.wshape = [shape[0], shape[1], shape[3]]  # compatible with WeightChannels
+            self.fshape = [shape[2], shape[1], shape[3]]  # compatible with FiniteImpulseResponse
+            self.nout=(1,shape[3])
 
         super().__init__(**kwargs)
 

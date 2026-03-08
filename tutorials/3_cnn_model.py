@@ -3,7 +3,7 @@ import numpy as np
 
 import nems
 from nems import Model
-from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
+from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear, STRF
 from nems import visualization
 from nems.metrics import correlation
 from nems.models.LN import LN_plot_strf
@@ -63,6 +63,15 @@ cnn.add_layers(
     WeightChannels(shape=(3, 1)),  # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
+
+cnnskip = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
+cnnskip.add_layers(
+    STRF(shape=(18, 1, 15, 3)),  # 18 inputs, 15 taps, 3 filters, 1 outpu
+    RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)),  # Another set of weights to apply
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
+)
+
 
 
 ############ADVANCED###############
@@ -131,3 +140,8 @@ fig.tight_layout()
 # ln = LN.LN_STRF(15,18,3)
 # ln = ln.fit_LBHB(X=spectrogram_fit[np.newaxis], Y=response_fit[np.newaxis])
 # ln.plot_strf()
+cnnskip = cnnskip.sample_from_priors()
+fitted_cnnskip = cnnskip.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
+
+
+
