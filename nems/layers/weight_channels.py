@@ -172,17 +172,21 @@ class WeightChannels(Layer):
         """
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
+        #from keras.utils import register_keras_serializable
+
         norm_coefficients = self.norm_coefficients
 
+        #@register_keras_serializable(package="Custom")
         class WeightChannelsTF(NemsKerasLayer):
-            @tf.function
             def call(self, inputs):
+                coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=tf.float32)
+
                 if norm_coefficients:
-                    n = tf.math.reduce_mean(self.coefficients**2)**0.5
-                    c = tf.math.divide_no_nan(self.coefficients, n)
+                    n = tf.math.reduce_mean(coefs_tensor**2)**0.5
+                    c = tf.math.divide_no_nan(coefs_tensor, n)
                     out = tf.tensordot(inputs, c, axes=[[2], [0]])
                 else:
-                    out = tf.tensordot(inputs, self.coefficients, axes=[[2], [0]])
+                    out = tf.tensordot(inputs, coefs_tensor, axes=[[2], [0]])
                 return out
         
         return WeightChannelsTF(self, **kwargs)

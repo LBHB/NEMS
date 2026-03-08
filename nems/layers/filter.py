@@ -265,6 +265,7 @@ class FiniteImpulseResponse(Layer):
 
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
+        #from keras.utils import register_keras_serializable
 
         old_c = self.parameters['coefficients']
         coefficients = self.coefficients
@@ -290,6 +291,7 @@ class FiniteImpulseResponse(Layer):
             tf, filter_width, rank, n_outputs
             )
 
+        #@register_keras_serializable(package="Custom")
         class FiniteImpulseResponseTF(NemsKerasLayer):
             def weights_to_values(self):
                 c = self.parameter_values['coefficients']
@@ -303,7 +305,10 @@ class FiniteImpulseResponse(Layer):
                 input_width = tf.shape(inputs)[1] # tf.shape(inputs)[1] or inputs.shape[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
-                coefficients = broadcast_coefficients(self.coefficients)
+                coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=tf.float32)
+
+                coefficients = broadcast_coefficients(coefs_tensor)
+                #coefficients = broadcast_coefficients(self.coefficients)
                 # Make None shape explicit
                 rank_4 = tf.reshape(inputs, [-1, input_width, rank, n_outputs])
                 return convolve(rank_4, coefficients)
@@ -395,7 +400,7 @@ class FiniteImpulseResponse(Layer):
 
         if new_coefs_shape[-1] > new_c.shape[-1]:
             # Coefficients outputs increased, need to broadcast coefs in call.
-            @tf.function
+            #@tf.function
             def broadcast_coefficients(coefficients):
                 return tf.broadcast_to(coefficients, new_coefs_shape)
         else:

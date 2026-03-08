@@ -30,7 +30,7 @@ git clone https://github.com/LBHB/NEMS.git
 - 2a. **Option 1.** Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
 
 ```bash
-conda create -n nems python=3.9 ipython
+conda create -n nems python=3.10 ipython
 conda activate nems
 ```
 
@@ -42,10 +42,10 @@ source nems-env/bin/activate
 ```
 
 3. **Install NEMS.**
-Include development tools to permit testing.
+Include development tools to permit testing. Make sure you run `pip` in the `nems` environment you just created.
 
 - 3a. **Option 1.** Lightweight, without Tensorflow support
-
+`
 ```console
 pip install -e NEMS[dev]
 ```
@@ -64,7 +64,7 @@ conda activate nems
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 echo 'export OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}' > \
     $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib/:$OLD_LD_LIBRARY_PATH' >> \
+echo 'export LD_LIBRARY_PATH=$(find $CONDA_PREFIX -name "lib" | grep "nvidia" | tr '\n' ':' | sed 's/:$//'):$OLD_LD_LIBRARY_PATH' >> \
     $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
