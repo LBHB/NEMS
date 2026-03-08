@@ -258,6 +258,11 @@ class TensorFlowBackend(Backend):
             else:
                 target = list(data.targets.values())[0]
 
+            # Keras 3 requires compile() before evaluate(), even for custom training loops.
+            self.model.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
+                loss=cost_function
+            )
             initial_error = self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False)
             if type(initial_error) is float:
                 initial_error = np.array([initial_error])
@@ -322,12 +327,8 @@ class TensorFlowBackend(Backend):
                 history = _History(loss_history)
 
             else:
-                # Validation requested: fall back to model.fit()
+                # Validation requested: fall back to model.fit() (already compiled above).
                 loss_name = 'val_loss'
-                self.model.compile(
-                    optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-                    loss=cost_function
-                )
                 callbacks = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
                              TerminateOnNaNWeights()]
                 if early_stopping_tolerance != 0:
