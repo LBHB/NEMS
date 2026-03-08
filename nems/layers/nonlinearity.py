@@ -107,15 +107,15 @@ class LevelShift(StaticNonlinearity):
     """
 
     def initial_parameters(self):
-        """Get initial values for `StaticNonlinearity.parameters`.
-        
+        """Get initial values for `LevelShift.parameters`.
+
         Layer parameters
         ----------------
         shift : scalar or ndarray
-            Value(s) that are added to input(s) prior to rectification. Shape
-            (N,) must match N channels per input.
-            Prior:  TODO
-        
+            Value(s) added to input(s). Shape (N,) must match N channels per
+            input.
+            Prior:  Normal(mean=0, sd=0.01)
+
         """
         # TODO: explain choice of priors.
         prior = Normal(
@@ -192,7 +192,7 @@ class LevelShift(StaticNonlinearity):
 
 
 class DoubleExponential(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply a double-exponential sigmoid to input(s): b + a*exp(-exp(-exp(k)*(x+s)))."""
 
     def initial_parameters(self):
         """Get initial values for `DoubleExponential.parameters`.
@@ -214,7 +214,7 @@ class DoubleExponential(StaticNonlinearity):
             Prior:  Normal(mean=0, sd=1)
             Bounds: TODO
         kappa : scalar or ndarray
-            Sigmoid curvature. Larger numbers mean steeper slop.
+            Sigmoid curvature. Larger numbers mean steeper slope.
             Prior:  Normal(mean=1, sd=10)
             Bounds: TODO
 
@@ -297,27 +297,22 @@ class DoubleExponential(StaticNonlinearity):
 
 
 class LogCompress(StaticNonlinearity):
-    """
-    dlog imported from old NEMS
-    
-    TODO: doc here? maybe just copy .evaluate?
-    """
+    """Apply logarithmic compression to input(s): log((x + d) / d), where d = 10**shift."""
 
     def initial_parameters(self):
-        """Get initial values for `DoubleExponential.parameters`.
-        
+        """Get initial values for `LogCompress.parameters`.
+
         Layer parameters
         ----------------
-
-        shift s : scalar or ndarray
-            Centerpoint of the sigmoid along x axis
-            Prior:  Normal(mean=1, sd=.02)
-            Bounds: TODO
+        shift : scalar or ndarray
+            Log-compression offset as a power of 10 (d = 10**shift).
+            Shape (N,) must match N channels per input.
+            Prior:  Normal(mean=0, sd=0.02)
 
         Returns
         -------
         nems.layers.base.Phi
-        
+
         """
         # TODO: explain choices for priors.
         zero = np.zeros(shape=self.shape)
@@ -328,11 +323,7 @@ class LogCompress(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Apply sigmoid transform to input x: $b+a*exp[-exp(-exp(k)(x-s)]$.
-        
-        See Thorson, Liénard, David (2015).
-        
-        """
+        """Apply log compression: log((x + d) / d), where d = 10**shift."""
         shift, = self.get_parameter_values()
 
         # call preprocessing.normalization.log_compress to execute:
@@ -343,7 +334,7 @@ class LogCompress(StaticNonlinearity):
         
     @layer('dlog')
     def from_keyword(keyword):
-        """Construct DoubleExponential from keyword.
+        """Construct LogCompress from keyword.
 
         Keyword options
         ---------------
@@ -351,16 +342,16 @@ class LogCompress(StaticNonlinearity):
 
         Returns
         -------
-        DoubleExponential
+        LogCompress
 
         See also
         --------
         Layer.from_keyword
-        
+
         """
         options = keyword.split('.')
         shape = pop_shape(options)
-        
+
         return LogCompress(shape=shape)
 
     def as_tensorflow_layer(self, **kwargs):
@@ -383,7 +374,7 @@ class LogCompress(StaticNonlinearity):
 
 
 class Sigmoid(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply a logistic sigmoid to input(s): offset + gain / (1 + exp(-input - shift))."""
 
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
@@ -398,21 +389,20 @@ class Sigmoid(StaticNonlinearity):
         self.set_permanent_values(**fixed_parameters)
 
     def initial_parameters(self):
-        """Get initial values for `RectifiedLinear.parameters`.
+        """Get initial values for `Sigmoid.parameters`.
 
         Layer parameters
         ----------------
         shift : scalar or ndarray
-            Value(s) that are added to input prior to rectification. Shape
-            (N,) must match N channels per input.
-            Prior:  Normal(mean=-0.1, sd=1/sqrt(N))
+            Value(s) added to input prior to sigmoid. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
         offset : scalar or ndarray
-            Value(s) that are added to input after rectification.
-            Prior:  TODO
+            Value(s) added to output after sigmoid.
+            Prior:  Normal(mean=-0.05, sd=0.01)
         gain : scalar or ndarray
-            Rectified input(s) will be multiplied by this (i.e. slope of the
-            linear portion for each output).
-            Prior:  TODO
+            Output is multiplied by this value.
+            Prior:  Normal(mean=1, sd=0.01)
 
         """
         # TODO: explain choice of prior.
@@ -430,15 +420,10 @@ class Sigmoid(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Implements `y = offset + gain * rectify(x - shift)`.
+        """Implements `y = offset + gain / (1 + exp(-input - shift))`.
 
-        By default, `offset=0, shift=0, gain=1` and this is equivalent to
-        standard linear rectification: `y = 0 if x < 0, else x`.
-
-        Notes
-        -----
-        The negative of `shift` is used so that its interpretation in
-        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+        By default, `offset=0, shift=0, gain=1` and this is a standard
+        logistic sigmoid: `y = 1 / (1 + exp(-x))`.
 
         """
 
@@ -457,15 +442,19 @@ class Sigmoid(StaticNonlinearity):
 
     @layer('sig')
     def from_keyword(keyword):
-        """Construct RectifiedLinear from a keyword.
+        """Construct Sigmoid from a keyword.
 
         Keyword options
         ---------------
         {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : fit shift parameter (default: fixed at 0).
+        o : fit offset parameter (default: fixed at 0).
+        os : fit both shift and offset.
+        g : fit gain parameter (default: fixed at 1).
 
         Returns
         -------
-        RectifiedLinear
+        Sigmoid
 
         See also
         --------
@@ -517,7 +506,7 @@ class Sigmoid(StaticNonlinearity):
 
 
 class RectifiedLinear(StaticNonlinearity):
-    """TODO: doc here? maybe just copy .evaluate?"""
+    """Apply rectified-linear activation to input(s): offset + gain * relu(input + shift)."""
     def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
         super().__init__(**kwargs)
         fixed_parameters = {}
@@ -675,14 +664,17 @@ class Hinge(StaticNonlinearity):
             self.set_permanent_values(**fixed_parameters)
 
     def initial_parameters(self):
-        """
-        :return: phi, nems.layer.base.parameter.Parameter with values for shift and alpha
-        """
-        """Get initial values for `RectifiedLinear.parameters`.
+        """Get initial values for `Hinge.parameters`.
 
         Layer parameters
         ----------------
-        alpha : slope of negative portion
+        shift : scalar or ndarray
+            Value(s) added to input prior to hinge. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
+        alpha : scalar or ndarray
+            Slope of the negative portion (divided by 10).
+            Prior:  Normal(mean=0.1, sd=0.05); Bounds: (0, inf)
 
         """
         zero = np.zeros(shape=self.shape)
@@ -697,15 +689,9 @@ class Hinge(StaticNonlinearity):
         return phi
 
     def nonlinearity(self, input):
-        """Implements `y = offset + gain * rectify(x - shift)`.
+        """Implements a hinge (leaky-ReLU): pos(x+s) + (alpha/10) * neg(x+s).
 
-        By default, `offset=0, shift=0, gain=1` and this is equivalent to
-        standard linear rectification: `y = 0 if x < 0, else x`.
-
-        Notes
-        -----
-        The negative of `shift` is used so that its interpretation in
-        `StaticNonlinearity.evaluate` is the same as for other subclasses.
+        Positive portion has slope 1; negative portion has slope alpha/10.
 
         """
         shift, alpha = self.get_parameter_values()
@@ -717,7 +703,7 @@ class Hinge(StaticNonlinearity):
 
     @layer('prelu')
     def from_keyword(keyword):
-        """Construct RectifiedLinear from a keyword.
+        """Construct Hinge from a keyword.
 
         Keyword options
         ---------------
