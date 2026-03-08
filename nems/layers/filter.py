@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 import scipy.signal
+from numpy.lib.stride_tricks import sliding_window_view
 from scipy import interpolate
 
 from .base import Layer, Phi, Parameter
@@ -117,31 +118,40 @@ class FiniteImpulseResponse(Layer):
 
     def evaluate(self, input):
         """Convolve `FIR.coefficients` with input."""
+        return self._apply_fir(input)
 
-        # Flip rank, any other dimensions except time & number of outputs.
-        coefficients = self._reshape_coefficients()
-        # Match number of outputs in input and coefficients by broadcasting.
+    def _apply_fir(self, input):
+        """Core FIR convolution used by evaluate() and STRF.evaluate().
+
+        Uses a sliding window view + einsum to vectorize across all filter
+        outputs without a Python loop over filters.
+
+        The causal FIR formula is:
+            output[t] = sum_{lag=0}^{T-1} sum_r  input[t-lag, r] * coef[lag, r]
+        which, after prepending T-1 zeros and indexing with f = T-1-lag, becomes:
+            output[t] = sum_f sum_r  padded[t+f, r] * coef_time_flipped[f, r]
+        """
+        coefficients = self.coefficients
+        if coefficients.ndim == 2:
+            coefficients = coefficients[..., np.newaxis]
+
+        # Broadcast only along the output axis — no rank flip needed here.
         input, coefficients, _ = self._broadcast(input, coefficients)
 
-        # Prepend zeros. (and append, if include_anticausal)
         padding = self._get_filter_padding(input, coefficients)
-        input_with_padding = np.pad(input, padding)
+        padded = np.pad(input, padding)
 
-        # Convolve each filter with the corresponding input channel.
-        outputs = []
-        n_filters = coefficients.shape[-1]
-        for i in range(n_filters):
-            y = scipy.signal.convolve(
-                input_with_padding[...,i], coefficients[...,i], mode='valid'
-                )
-            outputs.append(y)
+        filter_length = coefficients.shape[0]
+        # Flip time axis so coef[0] corresponds to lag=0 (most recent sample).
+        coef_t = np.flip(coefficients, axis=0)
 
-        # Concatenate on n_outputs axis
-        output = np.stack(outputs, axis=-1)
-        # Squeeze out rank dimension
-        output = np.squeeze(output, axis=1)
+        # windowed: (T_out, rank, n_outputs, filter_length) — a zero-copy view.
+        windowed = sliding_window_view(padded, filter_length, axis=0)
+        # Sum over rank (r) and filter time (f) in one vectorized pass.
+        output = np.einsum('trof,fro->to', windowed, coef_t)
+
         if self.stride > 1:
-            output = output[::self.stride, ...]
+            output = output[::self.stride]
         return output
 
     def _reshape_coefficients(self):
@@ -151,15 +161,8 @@ class FiniteImpulseResponse(Layer):
             # Add a dummy filter/output axis
             coefficients = coefficients[..., np.newaxis]
 
-        # Coefficients are applied "backwards" (convolution) relative to how
-        # they are specified (filter), so have to flip all dimensions except
-        # time and number of filters/outputs.
-        flipped_axes = [1]  # Always flip rank
-        other_dims = coefficients.shape[2:-1]
-        for i, d in enumerate(other_dims):
-            # Also flip any additional dimensions
-            flipped_axes.append(i+2)
-        coefficients = np.flip(coefficients, axis=flipped_axes)
+        # Flip all axes between time (0) and outputs (-1): rank and any extras.
+        coefficients = np.flip(coefficients, axis=list(range(1, coefficients.ndim - 1)))
 
         return coefficients
 
@@ -658,62 +661,34 @@ class STRF(FiniteImpulseResponse):
         return np.moveaxis(w @ f, 0, 2)
 
 
-    def evaluate(self, input):
-
-        wcoefficients, coefficients, shift, alpha = self.get_parameter_values()
-        
-        """Weight input with `STRF.wcoefficients`"""
-        input1 = np.tensordot(input, wcoefficients, axes=(1, 0))
-
-        """Convolve `FIR.coefficients` with weighted input."""
-        if self.fshape[0]>1:
-            # Flip rank, any other dimensions except time & number of outputs.
-            coefficients = self._reshape_coefficients()
-            # Match number of outputs in input and coefficients by broadcasting.
-            input1, coefficients, _ = self._broadcast(input1, coefficients)
-    
-            # Prepend zeros. (and append, if include_anticausal)
-            padding = self._get_filter_padding(input1, coefficients)
-            input_with_padding = np.pad(input1, padding)
-    
-            # Convolve each filter with the corresponding input channel.
-            outputs = []
-            n_filters = coefficients.shape[-1]
-            for i in range(n_filters):
-                y = scipy.signal.convolve(
-                    input_with_padding[...,i], coefficients[...,i], mode='valid'
-                    )
-                outputs.append(y)
-    
-            # Concatenate on n_outputs axis
-            output = np.stack(outputs, axis=-1)
-            # Squeeze out rank dimension
-            output = np.squeeze(output, axis=1)
-            if self.stride > 1:
-                output = output[::self.stride, ...]
+    def _apply_skip(self, output, input, alpha):
+        """Add scaled input to output, broadcasting across the channel axis."""
+        if input.shape[-1] < output.shape[-1]:
+            output[:, :input.shape[-1]] += input * alpha
         else:
-            output = input1
+            output += input[:, :output.shape[-1]] * alpha
+        return output
 
-        output += shift
+    def evaluate(self, input):
+        wcoefficients, coefficients, shift, alpha = self.get_parameter_values()
 
-        if self.skip_alpha<0:
-            if input.shape[-1]<output.shape[-1]:
-                #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
-                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
-            else:
-                #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
-                output = output + input[:, :output.shape[-1]] * alpha
+        # Weight input channels down to rank.
+        weighted = np.tensordot(input, wcoefficients, axes=(1, 0))
 
-        if self.activation=='relu':
-            output[output<0]=0
-            
-        if self.skip_alpha>0:
-            if input.shape[-1]<output.shape[-1]:
-                #log.info(f"{input.shape}, {output.shape} {input.shape[-1]}")
-                output[:, :input.shape[-1]] = output[:, :input.shape[-1]] + input * alpha
-            else:
-                #log.info(f"{input.shape}, {output.shape} {output.shape[-1]}")
-                output = output + input[:, :output.shape[-1]] * alpha
+        # Convolve along time (skipped when filter length is 1).
+        if self.fshape[0] > 1:
+            output = self._apply_fir(weighted) + shift
+        else:
+            output = weighted + shift
+
+        if self.skip_alpha < 0:
+            output = self._apply_skip(output, input, alpha)
+
+        if self.activation == 'relu':
+            output[output < 0] = 0
+
+        if self.skip_alpha > 0:
+            output = self._apply_skip(output, input, alpha)
 
         return output
 
@@ -819,64 +794,31 @@ class STRF(FiniteImpulseResponse):
                         'shift': self.parameter_values['shift']}
 
             def call(self, inputs):
-                #print(inputs.shape, self.wcoefficients.shape)
-                #inputs1 = inputs
+                def apply_skip(out):
+                    if inputs.shape[-1] < out.shape[-1]:
+                        head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
+                        tail = out[:, :, inputs.shape[-1]:]
+                        return tf.concat([head, tail], axis=2)
+                    else:
+                        return out + inputs[:, :, :out.shape[-1]] * self.alpha
+
                 inputs1 = tf.tensordot(inputs, self.wcoefficients, axes=[[2], [0]])
-                #print(inputs1.shape)
-                if fir_len>1:
-                    # This will add an extra dim if there is no output dimension.
-                    input_width = tf.shape(inputs1)[1] # tf.shape(inputs)[1] or inputs.shape[1]
-                    #print(input_width)
-                    # Broadcast output shape if needed.
-                    #inputs1 = broadcast_inputs(inputs1)
+                if fir_len > 1:
+                    input_width = tf.shape(inputs1)[1]
                     coefficients = broadcast_coefficients(self.coefficients)
-                    # Make None shape explicit
-                    #print(inputs1.shape)
                     rank_4 = tf.reshape(inputs1, [-1, input_width, rank, n_outputs])
-                    #print(rank_4.shape, coefficients.shape)
-                    
                     out = convolve(rank_4, coefficients) + self.shift
                 else:
                     out = inputs1
-                    
-                if skip_alpha < 0:
-                    if inputs.shape[-1]<out.shape[-1]:
-                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
-                        #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
-                        
-                        # Extract the slice
-                        slice_out = out[:,:,:inputs.shape[-1]]
-                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
-                        
-                        # Add the inputs to the slice
-                        updated_out = slice_out + inputs * self.alpha
 
-                        # Create the updated tensor
-                        out = tf.concat([updated_out, slice_out_remaining], axis=2)
-                    else:
-                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
-                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
+                if skip_alpha < 0:
+                    out = apply_skip(out)
 
                 if activation == 'relu':
                     out = tf.nn.relu(out)
-                    
-                if skip_alpha>0:
-                    if inputs.shape[-1]<out.shape[-1]:
-                        #print(f"{inputs.shape}, {out.shape} {inputs.shape[-1]} alpha={skip_alpha}")
-                        #out[:, :, :inputs.shape[-1] = out[:, :, :inputs.shape[-1]] + inputs
-                        
-                        # Extract the slice
-                        slice_out = out[:, :, :inputs.shape[-1]]
-                        slice_out_remaining = out[:, :, inputs.shape[-1]:]
-                        
-                        # Add the inputs to the slice
-                        updated_out = slice_out + inputs * self.alpha
 
-                        # Create the updated tensor
-                        out = tf.concat([updated_out, slice_out_remaining], axis=2)
-                    else:
-                        #print(f"{inputs.shape}, {out.shape} {out.shape[-1]} alpha={skip_alpha}")
-                        out = out + inputs[:, :, :out.shape[-1]] * self.alpha
+                if skip_alpha > 0:
+                    out = apply_skip(out)
 
                 return out
 
