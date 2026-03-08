@@ -1,5 +1,5 @@
 """
-nems0.uri
+nems.uri
 
 Where the filesystem organization of nems directories are decided,
 and generic methods for saving and loading resources over HTTP or
@@ -125,7 +125,7 @@ def json_numpy_obj_hook(dct):
                 dct[k] = np.asarray(dct[k])
         
     if '_KWR_ARGS' in dct:
-        from nems0.registry import KeywordRegistry
+        from nems_lbhb.nems0.registry import KeywordRegistry
         return KeywordRegistry.from_json(dct)
 
     return dct
