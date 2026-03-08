@@ -1,9 +1,11 @@
+import logging
+from types import SimpleNamespace
+
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import Input
 from keras import regularizers
-import logging
 
 from ..base import Backend, FitResults
 from .cost import get_cost
@@ -332,7 +334,7 @@ class TensorFlowBackend(Backend):
                         best_loss = loss_val
                         best_weights = self.model.get_weights()
 
-                history = type('_History', (), {'history': {'loss': loss_history}})()
+                history = SimpleNamespace(history={'loss': loss_history})
 
             else:
                 # Validation requested: fall back to model.fit().

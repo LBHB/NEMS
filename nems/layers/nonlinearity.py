@@ -79,21 +79,17 @@ class StaticNonlinearity(Layer):
     def as_tensorflow_layer(self, **kwargs):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
-        #from keras.utils import register_keras_serializable
 
-        norm = tf.convert_to_tensor(self.normalize_output, dtype=tf.bool)
+        normalize = self.normalize_output  # Python bool captured in closure
 
-        #@register_keras_serializable(package="Custom")
         class StaticNonlinearityTF(NemsKerasLayer):
             def call(self, inputs):
-                # TODO: why identity?
-                shift_ = tf.convert_to_tensor(self.shift, dtype=tf.float32)
-                if norm:
+                if normalize:
                     s = tf.math.reduce_std(inputs, axis=-1, keepdims=True)
                     s = tf.where(tf.equal(s, 0), 1, s)
-                    return tf.identity(inputs + shift_) / s
+                    return (inputs + self.shift) / s
                 else:
-                    return tf.identity(inputs + shift_)
+                    return inputs + self.shift
 
         return StaticNonlinearityTF(self, **kwargs)
 
@@ -638,30 +634,18 @@ class RectifiedLinear(StaticNonlinearity):
     def as_tensorflow_layer(self, **kwargs):
         """TODO: docs"""
         import tensorflow as tf
-        #from keras.utils import register_keras_serializable
         from nems.backends.tf import NemsKerasLayer
-
-        if type(self.output) is list:
-            output_count = len(self.output)
-        else:
-            output_count = 1
 
         if self._skip_nonlinearity:
             return super().as_tensorflow_layer(**kwargs)
         elif self.no_shift & self.no_offset & self.no_gain:
-            #@register_keras_serializable(package="Custom")
             class RectifiedLinearTF(NemsKerasLayer):
                 def call(self, inputs):
                     return tf.nn.relu(inputs)
         else:
-            #@register_keras_serializable(package="Custom")
             class RectifiedLinearTF(NemsKerasLayer):
                 def call(self, inputs):
-                    shift_ = tf.convert_to_tensor(self.shift, dtype=tf.float32)
-                    offset_ = tf.convert_to_tensor(self.offset, dtype=tf.float32)
-                    gain_ = tf.convert_to_tensor(self.gain, dtype=tf.float32)
-                    rectified  = tf.nn.relu(inputs + shift_)
-                    return offset_ + gain_ * rectified
+                    return self.offset + self.gain * tf.nn.relu(inputs + self.shift)
 
         return RectifiedLinearTF(self, **kwargs)
 
