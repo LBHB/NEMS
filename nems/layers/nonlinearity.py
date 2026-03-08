@@ -643,6 +643,138 @@ class ReLU(RectifiedLinear):
     pass
 
 
+class SoftRelu(StaticNonlinearity):
+    """Apply softplus activation to input(s): offset + gain * log(1 + exp(input + shift)).
+
+    A smooth approximation to RectifiedLinear that is differentiable everywhere,
+    including at x=0.
+    """
+
+    def __init__(self, no_shift=True, no_offset=True, no_gain=True, **kwargs):
+        super().__init__(**kwargs)
+        fixed_parameters = {}
+        self.no_shift = no_shift
+        self.no_offset = no_offset
+        self.no_gain = no_gain
+        shift, offset, gain = self.get_parameter_values()
+        if no_shift: fixed_parameters['shift'] = np.full_like(shift, 0)
+        if no_offset: fixed_parameters['offset'] = np.full_like(offset, 0)
+        if no_gain: fixed_parameters['gain'] = np.full_like(gain, 1)
+        self.set_permanent_values(**fixed_parameters)
+
+    def initial_parameters(self):
+        """Get initial values for `SoftRelu.parameters`.
+
+        Layer parameters
+        ----------------
+        shift : scalar or ndarray
+            Value(s) added to input prior to softplus. Shape (N,) must match N
+            channels per input.
+            Prior:  Normal(mean=0.05, sd=0.01)
+        offset : scalar or ndarray
+            Value(s) added to output after softplus.
+            Prior:  Normal(mean=-0.05, sd=0.01)
+        gain : scalar or ndarray
+            Softplus output is multiplied by this value (slope of linear portion).
+            Prior:  Normal(mean=1, sd=0.01)
+
+        Returns
+        -------
+        nems.layers.base.Phi
+
+        """
+        zero = np.zeros(shape=self.shape)
+        one = np.ones(shape=self.shape)
+        shift_prior = {'mean': zero + 0.05, 'sd': one / 100}
+        offset_prior = {'mean': zero - 0.05, 'sd': one / 100}
+        gain_prior = {'mean': one, 'sd': one / 100}
+        phi = Phi(
+            Parameter('shift', shape=self.shape, prior=Normal(**shift_prior)),
+            Parameter('offset', shape=self.shape, prior=Normal(**offset_prior)),
+            Parameter('gain', shape=self.shape, prior=Normal(**gain_prior))
+        )
+        return phi
+
+    def nonlinearity(self, input):
+        """Implements `y = offset + gain * softplus(input + shift)`.
+
+        Uses `np.logaddexp(0, x)` as the numerically stable softplus, which
+        computes `log(1 + exp(x))` and matches `tf.math.softplus` exactly.
+
+        By default, `offset=0, shift=0, gain=1` and this reduces to
+        `y = log(1 + exp(x))`.
+
+        """
+        shift, offset, gain = self.get_parameter_values()
+        return offset + gain * np.logaddexp(0, input + shift)
+
+    @layer('srelu')
+    def from_keyword(keyword):
+        """Construct SoftRelu from a keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : fit shift parameter (default: fixed at 0).
+        o : fit offset parameter (default: fixed at 0).
+        os : fit both shift and offset.
+        g : fit gain parameter (default: fixed at 1).
+
+        Returns
+        -------
+        SoftRelu
+
+        See also
+        --------
+        Layer.from_keyword
+
+        """
+        options = keyword.split('.')
+        no_shift = True
+        no_offset = True
+        no_gain = True
+        shape = pop_shape(options)
+
+        for op in options[1:]:
+            if op == 's':
+                no_shift = False
+            elif op == 'o':
+                no_offset = False
+            elif op == 'os':
+                no_shift = False
+                no_offset = False
+            elif op == 'g':
+                no_gain = False
+
+        return SoftRelu(
+            shape=shape, no_shift=no_shift, no_offset=no_offset,
+            no_gain=no_gain
+        )
+
+    def as_tensorflow_layer(self, **kwargs):
+        """Return a Keras layer applying softplus activation.
+
+        Implements `offset + gain * tf.math.softplus(input + shift)`.
+        `tf.math.softplus` computes `log(1 + exp(x))` and matches the NumPy
+        implementation `np.logaddexp(0, x)` used in `SoftRelu.nonlinearity`.
+        """
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        if self._skip_nonlinearity:
+            return super().as_tensorflow_layer(**kwargs)
+        elif self.no_shift and self.no_offset and self.no_gain:
+            class SoftReluTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return tf.math.softplus(inputs)
+        else:
+            class SoftReluTF(NemsKerasLayer):
+                def call(self, inputs):
+                    return self.offset + self.gain * tf.math.softplus(inputs + self.shift)
+
+        return SoftReluTF(self, **kwargs)
+
+
 class Hinge(StaticNonlinearity):
     """
     Hinge nonlinearity
