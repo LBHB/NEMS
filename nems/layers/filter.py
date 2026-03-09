@@ -356,15 +356,12 @@ class FiniteImpulseResponse(Layer):
             # dimension of input in call function.
             if new_inputs.ndim > fake_inputs.ndim:
                 # A singleton output dimension needs to be appended as well.
-                @tf.function
                 def expand_inputs(inputs):
                     return tf.expand_dims(inputs, axis=-1)
             else:
-                @tf.function
                 def expand_inputs(inputs):
                     return inputs
 
-            @tf.function()
             def broadcast_inputs(inputs):
                 # Convert None batch shape to int, add singleton output dim
                 # if needed. Then broadcast outputs.
@@ -376,7 +373,6 @@ class FiniteImpulseResponse(Layer):
             # print(new_inputs_shape)
             # print(input_shape)
 
-            @tf.function()
             def broadcast_inputs(inputs):
                 # Convert None batch shape to int, add singleton output dim
                 # if needed. Then broadcast outputs.
@@ -393,7 +389,6 @@ class FiniteImpulseResponse(Layer):
 
         else:
             # Otherwise, don't need to do anything to inputs.
-            @tf.function
             def broadcast_inputs(inputs):
                 # This will still add a singleton output dim if needed.
                 #return tf.reshape(inputs, new_inputs_shape)
@@ -406,7 +401,6 @@ class FiniteImpulseResponse(Layer):
                 return tf.broadcast_to(coefficients, new_coefs_shape)
         else:
             # Otherwise, don't need to do anything to coefficients.
-            @tf.function
             def broadcast_coefficients(coefficients): return coefficients
         
         return broadcast_inputs, broadcast_coefficients, n_outputs
@@ -432,7 +426,6 @@ class FiniteImpulseResponse(Layer):
         stride = self.stride
         if num_gpus == 0:
             # Use CPU-compatible (but slower) version.
-            @tf.function
             def convolve(inputs, coefficients):
                 # Reorder coefficients to shape (n outputs, time, rank, 1)
                 new_coefs = tf.expand_dims(
@@ -464,7 +457,6 @@ class FiniteImpulseResponse(Layer):
                 return z
         else:
             # Use GPU-only version (grouped convolutions), much faster.
-            @tf.function
             def convolve(inputs, coefficients):
                 input_width = tf.shape(inputs)[1]
                 # Reshape will group by output before rank w/o transpose.
