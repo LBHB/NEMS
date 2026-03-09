@@ -623,17 +623,17 @@ class STRF(FiniteImpulseResponse):
         wprior     = Normal(wmean, wsd)
         fprior     = Normal(fmean, fsd)
         shiftprior = Normal(np.zeros(shape=nout), np.ones(shape=nout) / 100)
-        if np.abs(self.skip_alpha) > 0:
-            alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
-        else:
-            alphaprior = Normal(np.array([0.0]), np.array([1.0]))
 
-        return Phi(
+        params = [
             Parameter(name='wcoefficients', shape=wshape, prior=wprior),
             Parameter(name='coefficients',  shape=fshape, prior=fprior),
             Parameter(name='shift',         shape=nout,   prior=shiftprior),
-            Parameter(name='alpha',         shape=(1,),   prior=alphaprior),
-        )
+        ]
+        if np.abs(self.skip_alpha) > 0:
+            alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
+            params.append(Parameter(name='alpha', shape=(1,), prior=alphaprior))
+
+        return Phi(*params)
 
     @property
     def wcoefficients(self):
@@ -811,12 +811,14 @@ class STRF(FiniteImpulseResponse):
                 c        = self.parameter_values['coefficients']
                 unflipped = np.flip(c, axis=0)          # undo time-flip
                 unshaped  = np.reshape(unflipped, old_c_shape)
-                return {
+                vals = {
                     'coefficients':  unshaped,
                     'wcoefficients': self.parameter_values['wcoefficients'],
                     'shift':         self.parameter_values['shift'],
-                    'alpha':         self.parameter_values['alpha'],
                 }
+                if 'alpha' in self.parameter_values:
+                    vals['alpha'] = self.parameter_values['alpha']
+                return vals
 
             def call(self, inputs):
                 def apply_skip(out):
