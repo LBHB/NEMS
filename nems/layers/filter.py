@@ -814,7 +814,8 @@ class STRF(FiniteImpulseResponse):
                     )
 
                 if fir_len > 1:
-                    coefficients = broadcast_coefficients(self.coefficients)
+                    coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=tf.float32)
+                    coefficients = broadcast_coefficients(coefs_tensor)
                     out = convolve(rank_4, coefficients) + self.shift
                 else:
                     out = rank_4 + self.shift
