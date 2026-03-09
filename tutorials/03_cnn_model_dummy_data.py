@@ -48,8 +48,15 @@ cellid="DUMMY"
 spectrogram_fit = np.random.randn(10000,18)
 spectrogram_test = np.random.randn(10000,18)
 
-response_fit = spectrogram_fit[:,[8]]+np.random.randn(10000,1)
-response_test = spectrogram_test[:,[8]]+np.random.randn(10000,1)
+def gen_resp(s):
+    r1= s[:,[8]]
+    r1[r1<0]=0
+    r2= np.roll(s[:,[3]],1)
+    r2[r2<0]=0
+    r = r1+r2+np.random.randn(s.shape[0],1)
+    return r
+response_fit = gen_resp(spectrogram_fit)
+response_test = gen_resp(spectrogram_test)
 
 ############GETTING STARTED###############
 ###########################
@@ -62,16 +69,16 @@ response_test = spectrogram_test[:,[8]]+np.random.randn(10000,1)
 ###########################
 cnn = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
 cnn.add_layers(
-    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
+    WeightChannels(shape=(18, 1, 3),regularizer='l2'),  # 18 spectral channels->2 composite channels->3rd dimension channel
     FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
     RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
     WeightChannels(shape=(3, 1)),  # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
 
-cnnskip = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
+cnnskip = Model(name=f"{cellid}-Rank3STRF-4Layer")
 cnnskip.add_layers(
-    STRF(shape=(18, 1, 15, 3)),  # 18 inputs, 15 taps, 3 filters, 1 outpu
+    STRF(shape=(18, 1, 15, 3),regularizer='l2'),  # 18 inputs, 15 taps, rank 1, 3 outputs
     RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
     WeightChannels(shape=(3, 1)),  # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input

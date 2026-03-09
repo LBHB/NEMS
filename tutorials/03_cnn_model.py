@@ -57,21 +57,12 @@ response_test = test_dict['response'][:,[cid]]
 ###########################
 cnn = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
 cnn.add_layers(
-    WeightChannels(shape=(18, 1, 3)),  # 18 spectral channels->2 composite channels->3rd dimension channel
-    FiniteImpulseResponse(shape=(15, 1, 3)),  # 15 taps, 1 spectral channels, 3 filters
+    WeightChannels(shape=(18, 1, 3), regularizer='l2'),  # 18 spectral channels->2 composite channels->3rd dimension channel
+    FiniteImpulseResponse(shape=(15, 1, 3), regularizer='l2'),  # 15 taps, 1 spectral channels, 3 filters
     RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
     WeightChannels(shape=(3, 1)),  # Another set of weights to apply
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
-
-cnnskip = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
-cnnskip.add_layers(
-    STRF(shape=(18, 1, 15, 3)),  # 18 inputs, 15 taps, 3 filters, 1 outpu
-    RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
-    WeightChannels(shape=(3, 1)),  # Another set of weights to apply
-    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
-)
-
 
 
 ############ADVANCED###############
@@ -103,6 +94,7 @@ ln_model.add_layers(
 #
 #   sample_from_priors(): Randomizes model parameters & fitter options
 ###########################
+
 ln_model = ln_model.sample_from_priors()
 cnn = cnn.sample_from_priors()
 
@@ -140,8 +132,6 @@ fig.tight_layout()
 # ln = LN.LN_STRF(15,18,3)
 # ln = ln.fit_LBHB(X=spectrogram_fit[np.newaxis], Y=response_fit[np.newaxis])
 # ln.plot_strf()
-cnnskip = cnnskip.sample_from_priors()
-fitted_cnnskip = cnnskip.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
 
 
 

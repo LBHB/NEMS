@@ -12,7 +12,7 @@ from nems.metrics import correlation
 # We also recommend having a GPU set up for these fits
 options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
                   'early_stopping_tolerance': 1e-3, 'validation_split': 0,
-                  'learning_rate': 5e-3, 'epochs': 2000}
+                  'learning_rate': 1e-3, 'epochs': 2000}
 
 # Setting up Demo Data
 training_dict, test_dict = nems.load_demo("TAR010c_data.npz")
@@ -50,7 +50,11 @@ cnn.add_layers(
 cnn = cnn.sample_from_priors()
 
 # As you can see here, we have many overlapping inputs attempting to fit to our target data
+cnn.layers[-1].skip_nonlinearity()
 fitted_cnn = cnn.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
+fitted_cnn.layers[-1].unskip_nonlinearity()
+fitted_cnn = fitted_cnn.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
+
 visualization.plot_model(fitted_cnn, spectrogram_test, response_test)
 
 # A quick print out of our prediction, stimulus, and response data
@@ -59,4 +63,4 @@ pred_cnn = fitted_cnn.predict(spectrogram_test)
 visualization.plot_predictions(pred_cnn, spectrogram_test, response_test)
 
 predxc_per_unit = correlation(pred_cnn, response_test)
-print(f"mean correlation: {predxc_per_unit.mean():.3f} across {len(predxc_per_unit)} neurons")
+print(f"Mean correlation: {predxc_per_unit.mean():.3f} across {len(predxc_per_unit)} neurons")
