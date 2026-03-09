@@ -13,6 +13,10 @@ from nems import visualization
 
 # Basic fitter options for testing
 fitter_options = {'options': {'maxiter': 100, 'ftol': 1e-5}}
+tf_fit_options = {'cost_function': 'squared_error', 'early_stopping_delay': 10, 'early_stopping_patience': 5,
+           'early_stopping_tolerance': 1e-3, 'validation_split': 0,
+           'learning_rate': 5e-3, 'epochs': 500}
+
 
 ###########################
 # States
@@ -54,7 +58,7 @@ model_no_state.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     LevelShift(shape=(1,))
 )
-model_no_state.name = "Standard Model"
+model_no_state.name = "StandardModel"
 # StateGain is the basis of a our model that needs to account for some state data
 # nems.layers.state contains several layer types that can account for state in different ways
 model_state = Model()
@@ -62,14 +66,14 @@ model_state.add_layers(
     WeightChannels(shape=(18, 1)),  # Input size of 18, Output size of 1
     StateGain(shape=(2,1))
 )
-model_state.name = "State Model"
+model_state.name = "StateModel"
 
 fit_model_no_state = model_no_state.fit(spectrogram, target=response,
                                     fitter_options=fitter_options)
 fit_model_state = model_state.fit({'stim': spectrogram,'state': state}, target=response, input_name='stim', state_name='state',
                                     fitter_options=fitter_options)
 fit_model_state_tf = model_state.fit({'stim': spectrogram,'state': state}, target=response, input_name='stim', state_name='state',
-                                    fitter_options=fitter_options, backend='tf')
+                                    fitter_options=tf_fit_options, backend='tf')
 
 pred_no_state = fit_model_no_state.predict(spectrogram)
 pred_state = fit_model_state.predict(spectrogram, state=state)
