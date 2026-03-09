@@ -165,8 +165,9 @@ class TensorFlowBackend(Backend):
         tf_inputs = [v for k, v in tf_input_dict.items() if k not in unused_inputs]
         # For outputs, get all data entries that aren't inputs
         tf_outputs = [v for k, v in tf_data.items() if k not in tf_input_dict]
-        model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs,
-                               name=self.nems_model.name)
+        import re
+        safe_name = re.sub(r'[^A-Za-z0-9_./>-]', '_', self.nems_model.name or 'nems_model')
+        model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs, name=safe_name)
 
         log.info(f'TF model built. (verbose={self.verbose})')
         if self.verbose:
@@ -181,7 +182,8 @@ class TensorFlowBackend(Backend):
     def _fit(self, data, eval_kwargs=None, cost_function='squared_error',
              epochs=1000, learning_rate=0.001, early_stopping_delay=100,
              early_stopping_patience=150, early_stopping_tolerance=5e-4,
-             validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0):
+             validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0,
+             **kwargs):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
         
         Currently the use of other TensorFlow optimizers is not exposed as an
@@ -229,6 +231,8 @@ class TensorFlowBackend(Backend):
 
         """
         log.info("Starting tf.backend.fit...")
+        if kwargs:
+            log.warning(f"TF backend ignoring unrecognized fitter_options: {list(kwargs.keys())}")
         batch_size = eval_kwargs.get('batch_size', 0)
         if (batch_size == 0) and (data.data_format != 'tf.data.Dataset'):
             data = data.prepend_samples()
