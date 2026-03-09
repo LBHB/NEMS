@@ -89,14 +89,15 @@ class StateGain(Layer):
     @layer('stategain')
     def from_keyword(keyword):
         """Construct StateGain from keyword.
-        
+
         Keyword options
         ---------------
-        {digit}x{digit} : specifies shape, (n state channels, n stim channels)
+        {digit}x{digit} : specifies shape, (n state channels, n stim channels).
             n stim channels can also be 1, in which case the same weighted
             channel will be broadcast to all stim channels (if there is more
             than 1).
-        
+        l2{value} : L2 regularizer, e.g. 'l2e-3'.
+
         See also
         --------
         Layer.from_keyword
@@ -466,15 +467,16 @@ class StateHinge(Layer):
     @layer('statehinge')
     def from_keyword(keyword):
         """Construct StateHinge from keyword.
-        
+
         Keyword options
         ---------------
-        {digit}x{digit} : specifies shape, (n state channels, n stim channels)
+        {digit}x{digit} : specifies shape, (n state channels, n stim channels).
             n stim channels can also be 1, in which case the same weighted
             channel will be broadcast to all stim channels (if there is more
             than 1).
-        'm' : match sign of gain and offset on both sides of hinge point.
-        
+        m : Match sign of gain and offset on both sides of hinge point
+            (matched_sign=True).
+
         See also
         --------
         Layer.from_keyword

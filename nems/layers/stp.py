@@ -281,7 +281,13 @@ class ShortTermPlasticity(Layer):
 
     @layer('stp')
     def from_keyword(keyword):
-        """TODO: docs"""
+        """Construct ShortTermPlasticity from keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+
+        """
         options = keyword.split('.')
         shape = pop_shape(options)
 

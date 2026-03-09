@@ -583,6 +583,11 @@ class RectifiedLinear(StaticNonlinearity):
         Keyword options
         ---------------
         {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        s : Enable shift parameter.
+        o : Enable offset parameter.
+        os : Enable both shift and offset parameters.
+        g : Enable gain parameter.
+        n : Normalize output.
 
         Returns
         -------
@@ -835,7 +840,7 @@ class Hinge(StaticNonlinearity):
 
     @layer('prelu')
     def from_keyword(keyword):
-        """Construct Hinge from a keyword.
+        """Construct Hinge (parametric ReLU) from a keyword.
 
         Keyword options
         ---------------

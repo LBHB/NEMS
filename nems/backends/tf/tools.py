@@ -58,14 +58,22 @@ class simple_generator(tf.keras.utils.Sequence):
             
     def stim_shape(self):
         return self.X['input'].shape
-    
+
+    @property
+    def inputs(self):
+        return self.input_names
+
+    @property
+    def input_keys(self):
+        return self.input_names
+
     def __data_generation(self, indexes):
         'Generates data containing batch_size samples' 
         # X : (n_samples, *dim, n_channels)
         # Initialization
         # stim.shape, resp.shape
         # (300, 2000, 19)), ((300, 2000, 30)
-        if len(self.input_names)==1:
+        if len(self.input_names)==0:
             X = self.X[self.input_names[0]][indexes]
         else:
             X = {i: self.X[i][indexes] for i in self.input_names}

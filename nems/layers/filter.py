@@ -219,13 +219,17 @@ class FiniteImpulseResponse(Layer):
 
         Keyword options
         ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-            (time, input channels a.k.a. rank, ..., output channels) 
+        {digit}x{digit}x ... x{digit} : N-dimensional shape
+            (time, input channels a.k.a. rank, ..., output channels).
+        p{N}z{M}fs{F} : Use PoleZeroFIR with N poles, M zeros, and
+            sample rate F (e.g. 'p2z3fs100').
+        s{N} : Temporal stride of N bins.
+        l2{value} : L2 regularizer, e.g. 'l2e-3'.
 
         See also
         --------
         Layer.from_keyword
-        
+
         """
         kwargs = {}
         fir_class = FiniteImpulseResponse
@@ -719,17 +723,24 @@ class STRF(FiniteImpulseResponse):
 
     @layer('strf')
     def from_keyword(keyword):
-        """Construct STRF bank layer from keyword
+        """Construct STRF bank layer from keyword.
 
         Keyword options
         ---------------
-        {digit}x{digit}x ... x{digit} : N-dimensional shape.
-            (time, input channels a.k.a. rank, ..., output channels) 
+        {digit}x{digit}x ... x{digit} : N-dimensional shape
+            (time, input channels a.k.a. rank, ..., output channels).
+        lvl / dexp / relu : Activation function applied after filtering.
+        sk : Skip connection with alpha=0.5.
+        skl : Skip connection with alpha=-0.5.
+        sk{N} : Skip connection with alpha=N/100.
+        skl{N} : Skip connection with alpha=-N/100.
+        s{N} : Temporal stride of N bins.
+        l2{value} : L2 regularizer, e.g. 'l2e-3'.
 
         See also
         --------
         Layer.from_keyword
-        
+
         """
         kwargs = {}
 

@@ -46,16 +46,18 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
 
         for c in range(channel_count):
             features = np.reshape(input_dstrf[c, :, :, :], (input_dstrf.shape[1], s[2] * s[3]))
-
+            feature_count0 = features.shape[0]
+            
             if snr_threshold is not None:
                 mean_features = features.mean(axis=0, keepdims=True)
                 noise = np.std(features - mean_features, axis=1) / np.std(mean_features)
 
-                if (noise > snr_threshold).sum() > 0:
-                    log.info(f"Removed {(noise>snr_threshold).sum()}/{len(features)} noisy dSTRFs for PCA calculation")
                 fit_features = features[(noise <= snr_threshold), :]
+                feature_count = fit_features.shape[0]
+                log.info(f"{c}: Computing dPCs with {feature_count}/{feature_count0} dSTRFs")
             else:
                 fit_features = features
+                feature_count = fit_features.shape[0]
 
             if first_lin:
                 m = fit_features.mean(axis=0, keepdims=True)
@@ -88,6 +90,9 @@ def compute_dpcs(dstrf, pc_count=3, norm_mag=False, snr_threshold=5, first_lin=F
                     # Do we really want sqrt??
                     variance = variance ** 0.5
             else:
+                if feature_count==0:
+                    print('Zero features?')
+
                 if method == 'pca':
                     p = PCA(n_components=pc_count)
                     p = p.fit(fit_features)
