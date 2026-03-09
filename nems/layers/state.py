@@ -1,5 +1,6 @@
 import numpy as np
 import numexpr as ne
+import scipy.signal
 import logging
 
 from nems.registry import layer
@@ -112,33 +113,33 @@ class StateGain(Layer):
 
         return StateGain(**kwargs)
 
-    def as_tensorflow_layer(self, input_shape=None, **kwargs):
+    def as_tensorflow_layer(self, **kwargs):
         """TODO: docs"""
         import tensorflow as tf
         from nems.backends.tf.layer_tools import NemsKerasLayer
-        if input_shape is None:
-            raise ValueError(f"input_shape=[input.shape, staet.shape] required")
-        stim_shape=input_shape[0]
-        state_shape=input_shape[1]
-        gain_len=self['gain'].shape[0]
-        offset_len=self['offset'].shape[0]
-        
+
+        # shape[0] = n_state_channels; if gain/offset has an extra row it's a bias term
+        n_state = self.shape[0]
+        has_gain_bias = (self['gain'].shape[0] != n_state)
+        has_offset_bias = (self['offset'].shape[0] != n_state)
+
         class StateGainTF(NemsKerasLayer):
 
             def call(self, inputs):
-                # Assume inputs is a list of two tensors, with state second.
-                # TODO: Use tensor names to not require this arbitrary order.
-                input = inputs[0]
+                # inputs is [input, state], state second (state_arg = 'state')
+                inp = inputs[0]
                 state = inputs[1]
-                if gain_len==state_shape[1]:
-                    with_gain = tf.multiply(tf.matmul(state, self.gain), input)
+                if not has_gain_bias:
+                    with_gain = tf.matmul(state, self.gain) * inp
                 else:
-                    with_gain = tf.multiply(tf.slice(self.gain,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.gain,[1,0],[-1,-1])), input)
-                if offset_len==state_shape[1]:
+                    with_gain = (tf.slice(self.gain, [0, 0], [1, -1]) +
+                                 tf.matmul(state, tf.slice(self.gain, [1, 0], [-1, -1]))) * inp
+                if not has_offset_bias:
                     with_offset = with_gain + tf.matmul(state, self.offset)
                 else:
-                    with_offset = with_gain + tf.slice(self.offset,[0,0],[1,-1]) + tf.matmul(state, tf.slice(self.offset,[1,0],[-1,-1]))
-
+                    with_offset = (with_gain +
+                                   tf.slice(self.offset, [0, 0], [1, -1]) +
+                                   tf.matmul(state, tf.slice(self.offset, [1, 0], [-1, -1])))
                 return with_offset
 
         return StateGainTF(self, **kwargs)
@@ -307,15 +308,8 @@ class StateDexp(Layer):
         Layer.from_keyword
 
         """
-
-        # TODO: other options from old NEMS
         options = keyword.split('.')
-        shape = None
-        for op in options[1:]:
-            if op[0].isdigit():
-                dims = op.split('x')
-                shape = tuple([int(d) for d in dims])
-
+        shape = pop_shape(options)
         return StateDexp(shape=shape)
 
     def as_tensorflow_layer(self, **kwargs):
@@ -486,16 +480,12 @@ class StateHinge(Layer):
         Layer.from_keyword
 
         """
-        # TODO: other options from old NEMS?
         options = keyword.split('.')
+        shape = pop_shape(options)
         opts = {}
-        
         for op in options:
             if op == 'm':
-                opts['matched_sign']=True
-            else:
-                shape = pop_shape(options)
-
+                opts['match_sign'] = True
         return StateHinge(shape=shape, **opts)
 
     def as_tensorflow_layer(self, **kwargs):
@@ -503,20 +493,42 @@ class StateHinge(Layer):
         import tensorflow as tf
         from nems.backends.tf.layer_tools import NemsKerasLayer
 
-        class StateGainTF(NemsKerasLayer):
+        match_sign = self.match_sign
+
+        class StateHingeTF(NemsKerasLayer):
 
             def call(self, inputs):
-                # Assume inputs is a list of two tensors, with state second.
-                # TODO: Use tensor names to not require this arbitrary order.
-                input = inputs[0]
+                # inputs is [input, state], state second (state_arg = 'state')
+                inp = inputs[0]
                 state = inputs[1]
 
-                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
-                with_offset = with_gain + tf.matmul(state, self.offset)
-                
-                return with_offset
+                gain1 = tf.convert_to_tensor(self.gain1, dtype=tf.float32)
+                gain2 = tf.convert_to_tensor(self.gain2, dtype=tf.float32)
+                offset1 = tf.convert_to_tensor(self.offset1, dtype=tf.float32)
+                offset2 = tf.convert_to_tensor(self.offset2, dtype=tf.float32)
+                x0 = tf.convert_to_tensor(self.x0, dtype=tf.float32)
 
-        return StateGainTF(self, **kwargs)
+                if match_sign:
+                    gain2 = tf.abs(gain2) * tf.sign(gain1)
+                    offset2 = tf.abs(offset2) * tf.sign(offset1)
+
+                # state: (..., T, S), x0: (S, N)
+                # s_: (..., T, S, N) — deviation from hinge point per state/output
+                s_ = tf.expand_dims(state, -1) - x0
+                sp = s_ * tf.cast(s_ > 0, tf.float32)
+                sn = s_ * tf.cast(s_ < 0, tf.float32)
+
+                # Contract S dim (axis -2 of sp/sn, axis 0 of gain).
+                # Mirrors numpy: tensordot(sn, gain1, (1,0))[:,0,:]
+                # Result: (..., T, N_sn, N_gain) → take index 0 of N_sn → (..., T, N_gain)
+                g = (tf.einsum('...tsn,sm->...tnm', sn, gain1)[..., 0, :] +
+                     tf.einsum('...tsn,sm->...tnm', sp, gain2)[..., 0, :])
+                d = (tf.einsum('...tsn,sm->...tnm', sn, offset1)[..., 0, :] +
+                     tf.einsum('...tsn,sm->...tnm', sp, offset2)[..., 0, :])
+
+                return g * inp + d
+
+        return StateHingeTF(self, **kwargs)
 
 
 class HRTF(Layer):
@@ -634,7 +646,7 @@ class HRTF(Layer):
         # Concatenate on n_outputs axis
         output_ = np.stack(outputs, axis=-1)
         # output_ = time X <totalchans> X bankcount
-        output_ = np.rehsape(output_, [-1, self.channels, self.speaker_count, self.speaker_count])
+        output_ = np.reshape(output_, [-1, self.channels, self.speaker_count, self.speaker_count])
         output_ = np.mean(output_, axis=2)
 
         output = input.copy()
@@ -661,83 +673,10 @@ class HRTF(Layer):
         # TODO: other options from old NEMS
         options = keyword.split('.')
         shape = pop_shape(options)
-        kwargs = {}
-        for op in options[1:]:
-            if op[0]=='c':
-                kwargs['speaker_count']=int(op[1:])
-
-        return HRTF(shape=shape, **kwargs)
+        return HRTF(shape=shape)
 
     def as_tensorflow_layer(self, **kwargs):
-        """TODO: docs"""
-        import tensorflow as tf
-        from nems.backends.tf.layer_tools import NemsKerasLayer
-
-        class hrtfTF(NemsKerasLayer):
-
-            def call(self, inputs):
-
-                geometry = inputs[0]
-
-                # stub from ChatGPT
-
-                def generate_tensor_and_select_values(numpy_array_3d, index_matrix_3_by_T):
-                    # Convert NumPy array to TensorFlow constant tensor
-                    tf_tensor = tf.constant(numpy_array_3d, dtype=tf.float32)
-
-                    # Get the dimensions of the input arrays
-                    depth, height, width = numpy_array_3d.shape
-                    _, T = index_matrix_3_by_T.shape
-
-                    # Round values to the nearest integer and clip to valid index range
-                    rounded_indices = tf.clip_by_value(tf.round(index_matrix_3_by_T), 0,
-                                                       tf.constant([depth - 1, height - 1, width - 1],
-                                                                   dtype=tf.float32))
-
-                    # Convert to integer indices
-                    flattened_indices = tf.cast(tf.reshape(rounded_indices, [-1]), dtype=tf.int32)
-
-                    # Generate indices for tf.gather_nd
-                    indices = tf.transpose(tf.reshape(flattened_indices, [T, -1]))
-
-                    # Use tf.gather_nd to select values from the 3D tensor
-                    selected_values = tf.gather_nd(tf_tensor, indices)
-
-                    return selected_values
-
-                # Example usage:
-                # Create a random 3D NumPy array
-                numpy_array_3d = np.random.rand(2, 3, 4)
-
-                # Create a random 3-by-T index matrix with continuous values
-                index_matrix_3_by_T = np.array([[0.3, 1.6], [1.1, 2.8], [0.9, 2.4]])
-
-                # Call the function
-                result = generate_tensor_and_select_values(numpy_array_3d, index_matrix_3_by_T)
-
-                # Start a TensorFlow session and evaluate the result
-                with tf.Session() as sess:
-                    result_value = sess.run(result)
-
-                print("Original 3D Tensor:")
-                print(numpy_array_3d)
-                print("\nIndex Matrix (continuous values):")
-                print(index_matrix_3_by_T)
-                print("\nSelected Values:")
-                print(result_value)
-
-
-                # Assume inputs is a list of two tensors, with state second.
-                # TODO: Use tensor names to not require this arbitrary order.
-                input = inputs[0]
-                state = inputs[1]
-
-                with_gain = tf.multiply(tf.matmul(state, self.gain), input)
-                with_offset = with_gain + tf.matmul(state, self.offset)
-
-                return with_offset
-
-        return hrtfTF(self, **kwargs)
+        raise NotImplementedError("HRTF TF backend not yet implemented.")
 
 
 class HRTFGainLayer(Layer):
@@ -925,178 +864,82 @@ class HRTFGainLayer(Layer):
         return c0 * (1 - xd) + c1 * xd
 
     def as_tensorflow_layer(self, **kwargs):
-        """Build TensorFlow equivalent of HRTF gain layer."""
+        """Build TensorFlow equivalent of HRTFGainLayer (pure spatial gains, no distance)."""
         import tensorflow as tf
-        from nems.backends.tf import NemsKerasLayer
+        from nems.backends.tf.layer_tools import NemsKerasLayer
 
         location_ranges = self.location_ranges
-        dist_atten = self.dist_atten
         num_sources = self.num_sources
-        parent_layer = self  # Capture the parent layer
 
         class HRTFGainLayerTF(NemsKerasLayer):
             def call(self, inputs):
                 dlc = inputs  # (batch, time, 4)
 
-                # Handle extra sample dimension during training
-                input_shape = tf.shape(dlc)
-                ndim = len(dlc.shape)
-
-                if ndim == 3:  # Extra sample dimension present during training
-                    dlc = dlc[0]  # Remove sample dimension
-                    # After removing sample dim, dlc is now (time, 4), need to add batch dim back
-                    dlc = tf.expand_dims(dlc, 0)  # Make it (1, time, 4)
+                if len(dlc.shape) == 3:  # extra sample dim present
+                    dlc = tf.expand_dims(dlc[0], 0)  # (1, time, 4)
 
                 batch_size = tf.shape(dlc)[0]
                 time_steps = tf.shape(dlc)[1]
 
-                # Access the TensorFlow variable through NEMS mechanism
-                # NEMS should automatically create TF variables for parameters
-                # Try to find the hrtf_gains weight by name
-                hrtf_gains = None
-                for weight in self.weights:
-                    if 'hrtf_gains' in weight.name:
-                        hrtf_gains = weight
-                        break
+                hrtf_gains = tf.convert_to_tensor(self.hrtf_gains, dtype=tf.float32)
+                freq_bins = hrtf_gains.shape[2]
+                ears = hrtf_gains.shape[3]
 
-                if hrtf_gains is None:
-                    raise ValueError("Could not find hrtf_gains weight in TensorFlow layer")
+                # 1. PARSE DLC → azimuth coords, ignore distances (pure spatial)
+                # locations: (batch, num_sources, time, 2) — [az, el]
+                az1 = dlc[:, tf.newaxis, :, 1]  # (batch, 1, time)
+                az2 = dlc[:, tf.newaxis, :, 3]  # (batch, 1, time)
+                az = tf.concat([az1, az2], axis=1)  # (batch, 2, time)
+                el = tf.zeros_like(az)              # elevation = 0
 
-                freq_bins, ears = hrtf_gains.shape[2], hrtf_gains.shape[3]
-
-                # 1. PARSE DLC: (batch, time, 4)  locations for each source
-                # Create locations tensor: (batch, num_sources, time, 3)
-                locations = tf.zeros([batch_size, num_sources, time_steps, 3])
-
-                # Source 1: [dist1, az1]  [az1, el=0, dist1]
-                # Create batch and time index grids with correct shapes
-                batch_indices = tf.tile(tf.range(batch_size)[:, None, None],
-                                        [1, 1, time_steps])  # [batch_size, 1, time_steps]
-                time_indices = tf.tile(tf.range(time_steps)[None, None, :],
-                                       [batch_size, 1, 1])  # [batch_size, 1, time_steps]
-
-                indices_az1 = tf.stack([
-                    batch_indices,
-                    tf.zeros([batch_size, 1, time_steps], dtype=tf.int32),  # source index = 0
-                    time_indices,
-                    tf.zeros([batch_size, 1, time_steps], dtype=tf.int32)  # coordinate index = 0 (azimuth)
-                ], axis=-1)
-                locations = tf.tensor_scatter_nd_update(locations, indices_az1, dlc[:, None, :, 1])
-
-                indices_dist1 = tf.stack([
-                    batch_indices,
-                    tf.zeros([batch_size, 1, time_steps], dtype=tf.int32),  # source index = 0
-                    time_indices,
-                    tf.fill([batch_size, 1, time_steps], 2)  # coordinate index = 2 (distance)
-                ], axis=-1)
-                locations = tf.tensor_scatter_nd_update(locations, indices_dist1, dlc[:, None, :, 0])
-
-                # Source 2: [dist2, az2]  [az2, el=0, dist2]
-                indices_az2 = tf.stack([
-                    batch_indices,
-                    tf.ones([batch_size, 1, time_steps], dtype=tf.int32),  # source index = 1
-                    time_indices,
-                    tf.zeros([batch_size, 1, time_steps], dtype=tf.int32)  # coordinate index = 0 (azimuth)
-                ], axis=-1)
-                locations = tf.tensor_scatter_nd_update(locations, indices_az2, dlc[:, None, :, 3])
-
-                indices_dist2 = tf.stack([
-                    batch_indices,
-                    tf.ones([batch_size, 1, time_steps], dtype=tf.int32),  # source index = 1
-                    time_indices,
-                    tf.fill([batch_size, 1, time_steps], 2)  # coordinate index = 2 (distance)
-                ], axis=-1)
-                locations = tf.tensor_scatter_nd_update(locations, indices_dist2, dlc[:, None, :, 2])
-
-                # 2. CALCULATE DISTANCE ATTENUATION (dB)
-                distance = locations[..., 2:3]  # (batch, sources, time, 1)
-                distance_gain_db = -(distance - 1.0) * dist_atten
-
-                # 3. BILINEAR INTERPOLATION ON HRTF GRID (dB)
+                # 2. NORMALIZE TO GRID INDICES
                 az_min, az_max = location_ranges['azimuth']
                 el_min, el_max = location_ranges['elevation']
-                az_bins, el_bins = hrtf_gains.shape[0], hrtf_gains.shape[1]
+                az_bins = tf.cast(tf.shape(hrtf_gains)[0], tf.float32)
+                el_bins = tf.cast(tf.shape(hrtf_gains)[1], tf.float32)
 
-                az_coords = (locations[..., 0] - az_min) / (az_max - az_min) * (az_bins - 1)
-
-                # Handle elevation normalization
+                az_coords = (az - az_min) / (az_max - az_min) * (az_bins - 1)
                 el_range = el_max - el_min
                 if el_range > 0:
-                    el_coords = (locations[..., 1] - el_min) / el_range * (el_bins - 1)
+                    el_coords = (el - el_min) / el_range * (el_bins - 1)
                 else:
-                    el_coords = tf.zeros_like(locations[..., 1])
+                    el_coords = tf.zeros_like(el)
 
-                # Flatten coordinates for interpolation
-                total_points = batch_size * num_sources * time_steps
-                az_flat = tf.reshape(az_coords, [total_points])
-                el_flat = tf.reshape(el_coords, [total_points])
-
-                # Stack coordinates for TF interpolation
+                # 3. BILINEAR INTERPOLATION — flatten, interpolate, reshape
+                total = batch_size * num_sources * time_steps
+                az_flat = tf.reshape(az_coords, [total])
+                el_flat = tf.reshape(el_coords, [total])
                 coords = tf.stack([az_flat, el_flat], axis=1)
 
-                # Bilinear interpolation on HRTF grid
-                interpolated_hrtf_db = self._tf_bilinear_interpolation(hrtf_gains, coords)
-
-                # Reshape to spatial dimensions
-                hrtf_gains_interp_db = tf.reshape(
-                    interpolated_hrtf_db,
-                    [batch_size, num_sources, time_steps, freq_bins, ears]
+                interpolated = _tf_bilinear_interpolation(hrtf_gains, coords)
+                hrtf_interp = tf.reshape(
+                    interpolated, [batch_size, num_sources, time_steps, freq_bins, ears]
                 )
 
-                # 4. ADD DISTANCE + HRTF GAINS (dB space)
-                distance_gain_db_expanded = tf.broadcast_to(
-                    distance_gain_db[..., tf.newaxis, :],
-                    [batch_size, num_sources, time_steps, freq_bins, ears]
-                )
+                # 4. TRANSPOSE to (batch, time, sources, freq_bins, ears)
+                return tf.transpose(hrtf_interp, [0, 2, 1, 3, 4])
 
-                combined_gains_db = hrtf_gains_interp_db + distance_gain_db_expanded
-
-                # # 5. CONVERT TO LINEAR SCALE
-                # linear_gains = tf.pow(10.0, combined_gains_db / 10.0)
-
-                # Transpose to (batch, time, sources, freq_bins, ears) for output
-                return tf.transpose(combined_gains_db, [0, 2, 1, 3, 4])
-
-            def _tf_bilinear_interpolation(self, grid, coords):
-                """TensorFlow bilinear interpolation."""
-                x_coords = coords[:, 0]
-                y_coords = coords[:, 1]
-
-                # Ensure consistent data types
-                coord_dtype = x_coords.dtype
-                x_dim = tf.cast(tf.shape(grid)[0], coord_dtype)
-                y_dim = tf.cast(tf.shape(grid)[1], coord_dtype)
-
-                # Clamp coordinates
-                x_coords = tf.clip_by_value(x_coords, 0.0, x_dim - 1.0)
-                y_coords = tf.clip_by_value(y_coords, 0.0, y_dim - 1.0)
-
-                # Get integer coordinates and fractional parts
-                x0 = tf.cast(tf.floor(x_coords), tf.int32)
-                x1 = tf.minimum(x0 + 1, tf.cast(x_dim - 1, tf.int32))
-                y0 = tf.cast(tf.floor(y_coords), tf.int32)
-                y1 = tf.minimum(y0 + 1, tf.cast(y_dim - 1, tf.int32))
-
-                xd = x_coords - tf.cast(x0, coord_dtype)
-                yd = y_coords - tf.cast(y0, coord_dtype)
-
-                # Get corner values using tf.gather
-                g0 = tf.gather(grid, x0, axis=0)  # (n_points, el_bins, freq_bins, 2)
-                g1 = tf.gather(grid, x1, axis=0)  # (n_points, el_bins, freq_bins, 2)
-
-                c00 = tf.gather(g0, y0, axis=1, batch_dims=1)  # (n_points, freq_bins, 2)
-                c01 = tf.gather(g0, y1, axis=1, batch_dims=1)  # (n_points, freq_bins, 2)
-                c10 = tf.gather(g1, y0, axis=1, batch_dims=1)  # (n_points, freq_bins, 2)
-                c11 = tf.gather(g1, y1, axis=1, batch_dims=1)  # (n_points, freq_bins, 2)
-
-                # Bilinear interpolation
-                xd = tf.expand_dims(tf.expand_dims(xd, -1), -1)  # (n_points, 1, 1)
-                yd = tf.expand_dims(tf.expand_dims(yd, -1), -1)  # (n_points, 1, 1)
-
-                c0 = c00 * (1 - yd) + c01 * yd
-                c1 = c10 * (1 - yd) + c11 * yd
-
-                return c0 * (1 - xd) + c1 * xd
+        def _tf_bilinear_interpolation(grid, coords):
+            x_coords = coords[:, 0]
+            y_coords = coords[:, 1]
+            coord_dtype = x_coords.dtype
+            x_dim = tf.cast(tf.shape(grid)[0], coord_dtype)
+            y_dim = tf.cast(tf.shape(grid)[1], coord_dtype)
+            x_coords = tf.clip_by_value(x_coords, 0.0, x_dim - 1.0)
+            y_coords = tf.clip_by_value(y_coords, 0.0, y_dim - 1.0)
+            x0 = tf.cast(tf.floor(x_coords), tf.int32)
+            x1 = tf.minimum(x0 + 1, tf.cast(x_dim - 1, tf.int32))
+            y0 = tf.cast(tf.floor(y_coords), tf.int32)
+            y1 = tf.minimum(y0 + 1, tf.cast(y_dim - 1, tf.int32))
+            xd = tf.expand_dims(tf.expand_dims(x_coords - tf.cast(x0, coord_dtype), -1), -1)
+            yd = tf.expand_dims(tf.expand_dims(y_coords - tf.cast(y0, coord_dtype), -1), -1)
+            g0 = tf.gather(grid, x0, axis=0)
+            g1 = tf.gather(grid, x1, axis=0)
+            c00 = tf.gather(g0, y0, axis=1, batch_dims=1)
+            c01 = tf.gather(g0, y1, axis=1, batch_dims=1)
+            c10 = tf.gather(g1, y0, axis=1, batch_dims=1)
+            c11 = tf.gather(g1, y1, axis=1, batch_dims=1)
+            return (c00 * (1 - yd) + c01 * yd) * (1 - xd) + (c10 * (1 - yd) + c11 * yd) * xd
 
         return HRTFGainLayerTF(self, **kwargs)
 
