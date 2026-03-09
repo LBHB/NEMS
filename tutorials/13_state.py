@@ -66,8 +66,10 @@ model_state.name = "State Model"
 
 fit_model_no_state = model_no_state.fit(spectrogram, target=response,
                                     fitter_options=fitter_options)
-fit_model_state = model_state.fit(spectrogram, target=response, state=state,
+fit_model_state = model_state.fit({'stim': spectrogram,'state': state}, target=response, input_name='stim', state_name='state',
                                     fitter_options=fitter_options)
+fit_model_state_tf = model_state.fit({'stim': spectrogram,'state': state}, target=response, input_name='stim', state_name='state',
+                                    fitter_options=fitter_options, backend='tf')
 
 pred_no_state = fit_model_no_state.predict(spectrogram)
 pred_state = fit_model_state.predict(spectrogram, state=state)
