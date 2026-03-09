@@ -3,7 +3,7 @@ import numpy as np
 
 import nems
 from nems import Model
-from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear
+from nems.layers import WeightChannels, FiniteImpulseResponse, RectifiedLinear, STRF
 from nems import visualization
 from nems.metrics import correlation
 from nems.models.LN import LN_plot_strf
@@ -69,6 +69,15 @@ cnn.add_layers(
     RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
 )
 
+cnnskip = Model(name=f"{cellid}-Rank3LNSTRF-5Layer")
+cnnskip.add_layers(
+    STRF(shape=(18, 1, 15, 3)),  # 18 inputs, 15 taps, 3 filters, 1 outpu
+    RectifiedLinear(shape=(3,)),  # Takes FIR 3 output filter and applies ReLU function
+    WeightChannels(shape=(3, 1)),  # Another set of weights to apply
+    RectifiedLinear(shape=(1,), no_shift=False, no_offset=False) # A final ReLU applied to our last input
+)
+
+
 
 ############ADVANCED###############
 ###########################
@@ -101,6 +110,12 @@ ln_model.add_layers(
 ###########################
 ln_model = ln_model.sample_from_priors()
 cnn = cnn.sample_from_priors()
+cnnskip = cnnskip.sample_from_priors()
+
+print('fitting cnnskip first since this is work in progress')
+fitted_cnnskip = cnnskip.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')
+
+
 
 # We can also see the additional dimension added to our FIR layer,
 # compared to how our simpler model is set up
