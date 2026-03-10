@@ -330,10 +330,6 @@ class TensorFlowBackend(Backend):
                 tf_target = tf.constant(target, dtype=tf.float32)
                 tf_val_inputs = tf_val_target = None
 
-            use_validation = tf_val_inputs is not None
-            if use_validation:
-                loss_name = 'val_loss'
-
             @tf.function
             def _train_step():
                 with tf.GradientTape() as tape:
@@ -346,6 +342,8 @@ class TensorFlowBackend(Backend):
                 return loss
 
             if use_validation:
+                loss_name = 'val_loss'
+
                 @tf.function
                 def _val_step():
                     preds = model_ref(tf_val_inputs, training=False)
