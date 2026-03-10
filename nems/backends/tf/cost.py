@@ -103,30 +103,20 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
      tensor is of shape (), else tensor if of shape (n_cells,) (i.e. last dimension of the resp/pred tensor)
     """
     # hardcoded to use 10 jackknifes for error estimate
-    s = prediction.get_shape().as_list()
-    n_drop = s[1] % 10
-    n_per = int(s[1]/10)
-    if n_drop:
-        # use slices to handle varying tensor shapes
-        drop_slice = [slice(None) for i in range(len(response.shape))]
+    # Use dynamic shape for time dim (may be unknown at trace time with generators)
+    s_static = prediction.get_shape().as_list()
+    s_dyn = tf.shape(prediction)
+    n_time = s_dyn[1]
+    n_cells = s_static[2] if s_static[2] is not None else s_dyn[2]
+    n_per = n_time // 10
+    n_usable = n_per * 10
 
-        # second dim is time
-        drop_slice[1] = slice(None, -n_drop)
-        drop_slice = tuple(drop_slice)
+    # Trim time dimension to be divisible by 10
+    _response = response[:, :n_usable, :]
+    _prediction = prediction[:, :n_usable, :]
 
-        _response = response[drop_slice]
-        _prediction = prediction[drop_slice]
-    else:
-        _response = response
-        _prediction = prediction
-
-    #if allow_nan:
-    #    print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop, "(Allowing nan)")
-    #else:
-    #    print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop)
-
-    _response = tf.reshape(_response, shape=(-1, 10, n_per, s[2]))
-    _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, s[2]))
+    _response = tf.reshape(_response, shape=(-1, 10, n_per, n_cells))
+    _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, n_cells))
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if per_cell:
@@ -137,8 +127,8 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         _prediction = tf.transpose(_prediction, perm=[1, 3, 0, 2])
         #print("After move:", _response.shape, _prediction.shape)
 
-        _response = tf.reshape(_response, shape=(10*s[2], -1))
-        _prediction = tf.reshape(_prediction, shape=(10*s[2], -1))
+        _response = tf.reshape(_response, shape=(10*n_cells, -1))
+        _prediction = tf.reshape(_prediction, shape=(10*n_cells, -1))
     else:
         # put dimensions not to compute error over first - axis 0
         #_response = tf.experimental.numpy.moveaxis(_response, [1], [0])

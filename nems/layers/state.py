@@ -1907,12 +1907,13 @@ class HRTFGainLayerMLP(Layer):
         self.output_bias = output_bias    # Center the dB range
         self.num_sources = num_sources
 
+        _had_parameters = 'parameters' in kwargs and kwargs['parameters'] is not None
+
         super().__init__(**kwargs)
 
-        # CRITICAL FIX: Initialize parameter values from priors
-        # NEMS only auto-initializes when priors are passed via kwargs, not when defined in initial_parameters()
-        # This ensures parameters have actual values instead of remaining as zero arrays
-        self.parameters.sample(inplace=True)  # Sample from priors for random initialization
+        # Only sample from priors on fresh construction, NOT during JSON restore
+        if not _had_parameters:
+            self.parameters.sample(inplace=True)
 
     @layer('hrtfmlp')
     def from_keyword(keyword):
@@ -1929,13 +1930,14 @@ class HRTFGainLayerMLP(Layer):
         if len(shape) != 2:
             raise ValueError(f"HRTFGainLayerMLP requires 2D shape (freq_bins, ears), got {shape}")
 
-        hidden_units = [int(opt[1:]) for opt in options if opt.startswith('h')]
+        # Skip options[0] (keyword name 'hrtfmlp') when scanning for h-prefixed hidden units
+        hidden_units = [int(opt[1:]) for opt in options[1:] if opt.startswith('h')]
         if not hidden_units:
             hidden_units = [32, 16]
 
         output_scale = 20.0
         output_bias = -10.0
-        for option in options:
+        for option in options[1:]:
             if option.startswith('scale'):
                 output_scale = float(option[5:])
             elif option.startswith('bias'):
@@ -2197,10 +2199,14 @@ class HRTFGainLayerMLPReg(Layer):
                 generic_hrtf_params.get('f_max', 20000)
             )
 
+        # Check if parameters were provided (e.g. from JSON restore)
+        _had_parameters = 'parameters' in kwargs and kwargs['parameters'] is not None
+
         super().__init__(**kwargs)
 
-        # CRITICAL FIX: Initialize parameter values from priors
-        self.parameters.sample(inplace=True)
+        # Only sample from priors on fresh construction, NOT during JSON restore
+        if not _had_parameters:
+            self.parameters.sample(inplace=True)
 
     def _load_generic_hrtf(self, f_min, f_max):
         """
@@ -2259,14 +2265,15 @@ class HRTFGainLayerMLPReg(Layer):
         if len(shape) != 2:
             raise ValueError(f"HRTFGainLayerMLPReg requires 2D shape (freq_bins, ears), got {shape}")
 
-        hidden_units = [int(opt[1:]) for opt in options if opt.startswith('h')]
+        # Skip options[0] (keyword name 'hrtfmlpreg') when scanning for h-prefixed hidden units
+        hidden_units = [int(opt[1:]) for opt in options[1:] if opt.startswith('h')]
         if not hidden_units:
             hidden_units = [32, 16]
 
         output_scale = 20.0
         output_bias = -10.0
         reg_weight = 0.0
-        for option in options:
+        for option in options[1:]:
             if option.startswith('scale'):
                 output_scale = float(option[5:])
             elif option.startswith('bias'):
@@ -2378,9 +2385,6 @@ class HRTFGainLayerMLPReg(Layer):
 
             def call(self, inputs):
                 dlc = inputs
-                if len(dlc.shape) == 3:
-                    dlc = dlc[0]
-                    dlc = tf.expand_dims(dlc, 0)
 
                 batch_size, time_steps = tf.shape(dlc)[0], tf.shape(dlc)[1]
 
@@ -2539,6 +2543,552 @@ class HRTFGainLayerMLPReg(Layer):
         return HRTFGainLayerMLPRegTF(self, **kwargs)
 
 
+class HRTFGainLayerFourier(Layer):
+    """
+    Calculates pure spatial HRTF gains from sin/cos encoded angles using a
+    truncated Fourier series, with optional regularization.
+
+    A truncated Fourier series is a natural, compact parameterization for HRTF
+    gains as a function of azimuth:
+
+        gain_k(θ) = a_0 + Σ_{n=1}^{N} [a_n·cos(nθ) + b_n·sin(nθ)]
+
+    The cos(nθ) and sin(nθ) terms are computed from the sin(θ)/cos(θ) inputs
+    via Chebyshev recurrence — no atan2 needed, fully differentiable.
+
+    With order N=8: 17 coefficients × 18 freq × 2 ears = 612 parameters,
+    compared to ~44k for an equivalent MLP.
+
+    Input format: [dist1, az1_sin, az1_cos, dist2, az2_sin, az2_cos] (6 channels)
+    Note: Distance values are ignored by this layer.
+
+    Parameters
+    ----------
+    shape : tuple
+        (freq_bins, ears) for the output gains.
+    fourier_order : int
+        Number of Fourier harmonics N (default 8, giving 2N+1=17 basis functions).
+    output_scale : float
+        Not used directly (kept for API compatibility with MLPReg).
+    output_bias : float
+        Default DC offset for gains in dB (default -10.0). Used to initialize
+        the a_0 coefficient when no generic HRTF is provided.
+    hrtf_regularization : dict, optional
+        Regularization weights. Keys:
+        - 'freq_smooth': penalize frequency gradients (default 0.0)
+        - 'symmetry': penalize L/R asymmetry (default 0.0)
+        - 'hrtf_prior': penalize divergence from generic HRTF coefficients (default 0.0)
+        - 'laplacian': penalize 2D Laplacian of reconstructed HRTF surface (default 0.0)
+        - 'dft_smooth': penalize high-frequency 2D DFT energy of HRTF surface (default 0.0)
+    az_samples : int
+        Number of azimuth samples for loading generic HRTF (default 36).
+    freq_centers : array-like, optional
+        Center frequencies in Hz (kept for API compatibility).
+    generic_hrtf_params : dict, optional
+        Parameters to load generic ferret HRTF. Keys: 'f_min', 'f_max'.
+    generic_hrtf_table : ndarray, optional
+        Pre-computed generic HRTF table with shape (az_samples, freq_bins, 2).
+    """
+
+    def __init__(self, fourier_order=8, output_scale=20.0, output_bias=-10.0,
+                 num_sources=2, hrtf_regularization=None, az_samples=36,
+                 freq_centers=None, generic_hrtf_params=None,
+                 generic_hrtf_table=None,
+                 reg_config=None,  # Ignored - for backwards compatibility with saved models
+                 **kwargs):
+        require_shape(self, kwargs, minimum_ndim=2)  # (freq_bins, ears)
+
+        self.shape = kwargs.get('shape')
+        self.fourier_order = fourier_order
+        self.output_scale = output_scale
+        self.output_bias = output_bias
+        self.num_sources = num_sources
+        self.az_samples = az_samples
+        self.freq_centers = freq_centers
+        self.generic_hrtf_params = generic_hrtf_params
+
+        # Regularization config with defaults
+        self.hrtf_regularization = hrtf_regularization or {}
+        self.reg_config = {
+            'freq_smooth': self.hrtf_regularization.get('freq_smooth', 0.0),
+            'symmetry': self.hrtf_regularization.get('symmetry', 0.0),
+            'hrtf_prior': self.hrtf_regularization.get('hrtf_prior', 0.0),
+            'laplacian': self.hrtf_regularization.get('laplacian', 0.0),
+            'dft_smooth': self.hrtf_regularization.get('dft_smooth', 0.0),
+        }
+
+        # Store or generate generic HRTF table for initialization and/or prior
+        self.generic_hrtf_table = None
+        if generic_hrtf_table is not None:
+            self.generic_hrtf_table = np.array(generic_hrtf_table, dtype=np.float32)
+        elif generic_hrtf_params is not None:
+            self.generic_hrtf_table = self._load_generic_hrtf(
+                generic_hrtf_params.get('f_min', 200),
+                generic_hrtf_params.get('f_max', 20000)
+            )
+
+        _had_parameters = 'parameters' in kwargs and kwargs['parameters'] is not None
+
+        super().__init__(**kwargs)
+
+        # Only sample from priors on fresh construction, NOT during JSON restore
+        if not _had_parameters:
+            self.parameters.sample(inplace=True)
+
+        # If generic HRTF available, overwrite coeffs with FFT-derived values
+        if self.generic_hrtf_table is not None:
+            coeffs_init = self._init_coeffs_from_hrtf(
+                self.generic_hrtf_table, self.fourier_order
+            )
+            self.parameters['coeffs'] = coeffs_init
+
+        # Compute normalization constants from generic HRTF for regularization
+        self._lap_norm = 1.0
+        self._dft_norm = 1.0
+        if self.generic_hrtf_table is not None:
+            self._compute_regularization_norms()
+
+    def _compute_regularization_norms(self):
+        """Compute laplacian and DFT normalization constants from the generic HRTF.
+
+        Each norm is the raw regularization metric evaluated on the generic
+        HRTF surface. Dividing by this makes strength=1.0 mean "penalize
+        roughness equal to the generic HRTF's own roughness."
+        """
+        surface = self.generic_hrtf_table  # (n_az, freq_bins, ears)
+        n_az, freq_bins, ears = surface.shape
+
+        # --- Laplacian norm ---
+        # 2nd derivative in azimuth (periodic)
+        d2_az = np.roll(surface, -1, axis=0) - 2 * surface + np.roll(surface, 1, axis=0)
+        # 2nd derivative in frequency (interior only)
+        d2_freq = surface[:, 2:, :] - 2 * surface[:, 1:-1, :] + surface[:, :-2, :]
+        # Trim azimuthal to match frequency dimension
+        d2_az_trimmed = d2_az[:, 1:-1, :]
+        laplacian = d2_az_trimmed + d2_freq
+        lap_val = np.mean(laplacian ** 2)
+        self._lap_norm = float(lap_val) if lap_val > 1e-12 else 1.0
+
+        # --- DFT smoothness norm ---
+        dft_vals = []
+        for e in range(ears):
+            ear_surface = surface[:, :, e].astype(np.float32)
+            fft_2d = np.fft.fft2(ear_surface)
+            # Build spectral weight mask (k^2 + m^2)
+            kk = np.arange(n_az, dtype=np.float32)
+            mm = np.arange(freq_bins, dtype=np.float32)
+            kk = np.minimum(kk, n_az - kk)
+            mm = np.minimum(mm, freq_bins - mm)
+            kk_grid, mm_grid = np.meshgrid(kk, mm, indexing='ij')
+            spectral_weight = kk_grid ** 2 + mm_grid ** 2
+            power = np.abs(fft_2d) ** 2
+            dft_vals.append(np.mean(spectral_weight * power))
+        dft_val = np.mean(dft_vals)
+        self._dft_norm = float(dft_val) if dft_val > 1e-12 else 1.0
+
+    def _load_generic_hrtf(self, f_min, f_max):
+        """Load generic ferret HRTF and sample at uniform azimuths.
+
+        Returns
+        -------
+        hrtf_table : ndarray
+            Shape (az_samples, freq_bins, 2) with left/right ear gains in dB.
+        """
+        from scipy import interpolate
+        try:
+            from nems_lbhb.free_tools import load_hrtf
+        except ImportError:
+            log.warning("Could not import load_hrtf from nems_lbhb.free_tools. "
+                        "Generic HRTF initialization will be disabled.")
+            return None
+
+        freq_bins = self.shape[0]
+
+        L0, R0, c, A = load_hrtf(format='az', fmin=f_min, fmax=f_max, num_freqs=freq_bins)
+        f_left = interpolate.interp1d(A, L0, axis=1, kind='linear', fill_value='extrapolate')
+        f_right = interpolate.interp1d(A, R0, axis=1, kind='linear', fill_value='extrapolate')
+
+        az_deg = np.linspace(-180, 180, self.az_samples, endpoint=False)
+        L_interp = f_left(az_deg)
+        R_interp = f_right(az_deg)
+
+        hrtf_table = np.stack([L_interp.T, R_interp.T], axis=-1).astype(np.float32)
+        log.info(f"Loaded generic HRTF for Fourier init: shape {hrtf_table.shape}")
+        return hrtf_table
+
+    @staticmethod
+    def _build_fourier_basis(sin_theta, cos_theta, order):
+        """Build Fourier basis [1, cos(θ), sin(θ), cos(2θ), sin(2θ), ...] via
+        Chebyshev recurrence.
+
+        Parameters
+        ----------
+        sin_theta : ndarray
+            sin(θ) values, shape (N,).
+        cos_theta : ndarray
+            cos(θ) values, shape (N,).
+        order : int
+            Number of harmonics.
+
+        Returns
+        -------
+        basis : ndarray
+            Shape (N, 2*order+1).
+        """
+        basis = [np.ones_like(sin_theta)]  # a_0 term
+
+        cos_prev = np.ones_like(cos_theta)
+        cos_curr = cos_theta.copy()
+        sin_prev = np.zeros_like(sin_theta)
+        sin_curr = sin_theta.copy()
+
+        for n in range(1, order + 1):
+            if n == 1:
+                basis.extend([cos_theta, sin_theta])
+            else:
+                cos_next = 2 * cos_theta * cos_curr - cos_prev
+                sin_next = 2 * cos_theta * sin_curr - sin_prev
+                basis.extend([cos_next, sin_next])
+                cos_prev, cos_curr = cos_curr, cos_next
+                sin_prev, sin_curr = sin_curr, sin_next
+
+        return np.stack(basis, axis=-1)
+
+    @staticmethod
+    def _init_coeffs_from_hrtf(generic_hrtf_table, order):
+        """Extract Fourier coefficients from HRTF table via FFT.
+
+        Parameters
+        ----------
+        generic_hrtf_table : ndarray
+            Shape (az_samples, freq_bins, ears).
+        order : int
+            Number of harmonics.
+
+        Returns
+        -------
+        coeffs : ndarray
+            Shape (2*order+1, freq_bins*ears).
+        """
+        az_samples, freq_bins, ears = generic_hrtf_table.shape
+        coeffs = np.zeros((2 * order + 1, freq_bins * ears))
+
+        for k in range(freq_bins):
+            for e in range(ears):
+                signal = generic_hrtf_table[:, k, e]
+                fft = np.fft.rfft(signal)
+
+                col = k * ears + e
+                coeffs[0, col] = fft[0].real / az_samples  # DC / a_0
+                for n in range(1, min(order + 1, len(fft))):
+                    # (-1)^n corrects for HRTF table starting at -π not 0
+                    sign = (-1) ** n
+                    coeffs[2 * n - 1, col] = sign * 2 * fft[n].real / az_samples  # a_n
+                    coeffs[2 * n, col] = sign * (-2) * fft[n].imag / az_samples   # b_n
+
+        return coeffs.astype(np.float64)
+
+    @layer('hrtffourier')
+    def from_keyword(keyword):
+        """Construct HRTFGainLayerFourier from a keyword string.
+
+        Format: 'hrtffourier.{freq_bins}x{ears}[.o{order}][.reg{weight}]'
+
+        Examples
+        --------
+        - 'hrtffourier.18x2' — order 8 (default), no regularization
+        - 'hrtffourier.18x2.o12' — order 12
+        - 'hrtffourier.18x2.o8.reg01' — order 8, regularization weight 0.01
+        """
+        options = keyword.split('.')
+        shape = pop_shape(options)
+        if len(shape) != 2:
+            raise ValueError(
+                f"HRTFGainLayerFourier requires 2D shape (freq_bins, ears), got {shape}"
+            )
+
+        fourier_order = 8
+        reg_weight = 0.0
+        for option in options:
+            if option.startswith('o') and option[1:].isdigit():
+                fourier_order = int(option[1:])
+            elif option.startswith('reg'):
+                reg_weight = float('0.' + option[3:])
+
+        hrtf_regularization = None
+        if reg_weight > 0:
+            hrtf_regularization = {
+                'freq_smooth': reg_weight,
+                'symmetry': reg_weight * 0.5,
+                'hrtf_prior': reg_weight,
+            }
+
+        return HRTFGainLayerFourier(
+            shape=shape, fourier_order=fourier_order,
+            hrtf_regularization=hrtf_regularization
+        )
+
+    def initial_parameters(self):
+        """Initialize Fourier coefficients.
+
+        Single parameter 'coeffs' with shape (2*order+1, freq_bins*ears).
+        Layout: [a_0, a_1, b_1, a_2, b_2, ..., a_N, b_N] per output column.
+        """
+        freq_bins, ears = self.shape
+        n_basis = 2 * self.fourier_order + 1
+        output_size = freq_bins * ears
+
+        # Default: small random init with a_0 set to output_bias
+        mean = np.full((n_basis, output_size), 0.0)
+        mean[0, :] = self.output_bias  # DC component = baseline gain
+
+        sd = np.full((n_basis, output_size), 0.1)
+        sd[0, :] = 0.5  # Slightly wider prior for DC
+
+        prior = Normal(mean, sd)
+        coeffs = Parameter(name='coeffs', shape=(n_basis, output_size), prior=prior)
+
+        return Phi(coeffs)
+
+    def evaluate(self, dlc):
+        """Calculate HRTF gains using Fourier basis in NumPy."""
+        if dlc.ndim == 2:
+            dlc = dlc[np.newaxis, ...]
+
+        batch_size, time_steps, _ = dlc.shape
+        freq_bins, ears = self.shape
+
+        # 1. Parse DLC input
+        sin1, cos1 = dlc[..., 1], dlc[..., 2]
+        sin2, cos2 = dlc[..., 4], dlc[..., 5]
+
+        # 2. Build Fourier basis for each source
+        basis1 = self._build_fourier_basis(
+            sin1.ravel(), cos1.ravel(), self.fourier_order
+        )
+        basis2 = self._build_fourier_basis(
+            sin2.ravel(), cos2.ravel(), self.fourier_order
+        )
+
+        # 3. Linear transform: gains = basis @ coeffs
+        coeffs = self.get_parameter_values()[0]  # (2*N+1, freq_bins*ears)
+        gains1_flat = basis1 @ coeffs  # (batch*time, freq_bins*ears)
+        gains2_flat = basis2 @ coeffs
+
+        # 4. Reshape and concatenate
+        gains1 = gains1_flat.reshape(batch_size, time_steps, freq_bins * ears)
+        gains2 = gains2_flat.reshape(batch_size, time_steps, freq_bins * ears)
+
+        output = np.concatenate([gains1, gains2], axis=-1)
+
+        return output[0] if output.shape[0] == 1 else output
+
+    def as_tensorflow_layer(self, **kwargs):
+        """Build TensorFlow equivalent of the Fourier HRTF gain layer."""
+        import tensorflow as tf
+        from nems.backends.tf import NemsKerasLayer
+
+        freq_bins, ears = self.shape
+        fourier_order = self.fourier_order
+        reg_config = self.reg_config
+        generic_hrtf_table = self.generic_hrtf_table
+        lap_norm = self._lap_norm
+        dft_norm = self._dft_norm
+
+        class HRTFGainLayerFourierTF(NemsKerasLayer):
+
+            @staticmethod
+            def _build_fourier_basis_tf(sin_theta, cos_theta, order):
+                """Build Fourier basis via Chebyshev recurrence in TF."""
+                basis = [tf.ones_like(sin_theta)]
+
+                cos_prev = tf.ones_like(cos_theta)
+                cos_curr = cos_theta
+                sin_prev = tf.zeros_like(sin_theta)
+                sin_curr = sin_theta
+
+                for n in range(1, order + 1):
+                    if n == 1:
+                        basis.extend([cos_theta, sin_theta])
+                    else:
+                        cos_next = 2 * cos_theta * cos_curr - cos_prev
+                        sin_next = 2 * cos_theta * sin_curr - sin_prev
+                        basis.extend([cos_next, sin_next])
+                        cos_prev, cos_curr = cos_curr, cos_next
+                        sin_prev, sin_curr = sin_curr, sin_next
+
+                return tf.stack(basis, axis=-1)
+
+            def call(self, inputs):
+                dlc = inputs
+                batch_size = tf.shape(dlc)[0]
+                time_steps = tf.shape(dlc)[1]
+
+                # Parse sin/cos for each source
+                sin1, cos1 = dlc[:, :, 1], dlc[:, :, 2]
+                sin2, cos2 = dlc[:, :, 4], dlc[:, :, 5]
+
+                # Build basis: (batch*time, 2*N+1)
+                basis1 = self._build_fourier_basis_tf(
+                    tf.reshape(sin1, [-1]),
+                    tf.reshape(cos1, [-1]),
+                    fourier_order
+                )
+                basis2 = self._build_fourier_basis_tf(
+                    tf.reshape(sin2, [-1]),
+                    tf.reshape(cos2, [-1]),
+                    fourier_order
+                )
+
+                # Linear transform: (batch*time, freq_bins*ears)
+                gains1 = tf.matmul(basis1, self.coeffs)
+                gains2 = tf.matmul(basis2, self.coeffs)
+
+                # Add regularization losses
+                if any(v > 0 for v in reg_config.values()):
+                    self._add_fourier_regularization()
+
+                # Concatenate sources: (batch*time, freq_bins*ears*2)
+                flattened = tf.concat([gains1, gains2], axis=1)
+
+                # Reshape to NEMS format: (batch, time, freq_bins*4)
+                final_output = tf.reshape(
+                    flattened, [batch_size, time_steps, freq_bins * 4]
+                )
+                return final_output
+
+            def _add_fourier_regularization(self):
+                """Add regularization losses operating directly on Fourier coefficients."""
+                # coeffs shape: (2*order+1, freq_bins*ears)
+                c = self.coeffs
+                n_basis = 2 * fourier_order + 1
+
+                # Reshape coeffs to (n_basis, freq_bins, ears)
+                c_reshaped = tf.reshape(c, [n_basis, freq_bins, ears])
+
+                # 1. Frequency smoothness: penalize differences between adjacent freq bins
+                if reg_config['freq_smooth'] > 0:
+                    freq_diff = c_reshaped[:, 1:, :] - c_reshaped[:, :-1, :]
+                    loss_freq_raw = tf.reduce_mean(tf.square(freq_diff))
+                    loss_freq = reg_config['freq_smooth'] * loss_freq_raw
+                    self.add_loss(loss_freq)
+                    self.add_metric(loss_freq_raw, name='fourier_freq_smooth')
+
+                # 2. Bilateral symmetry: a_n_L ≈ a_n_R, b_n_L ≈ -b_n_R
+                if reg_config['symmetry'] > 0 and ears == 2:
+                    left = c_reshaped[:, :, 0]   # (n_basis, freq_bins)
+                    right = c_reshaped[:, :, 1]  # (n_basis, freq_bins)
+
+                    # Build sign mask: a_0 same, then for each harmonic:
+                    # a_n (cosine/even) same sign, b_n (sine/odd) flips sign
+                    signs = [1.0]  # a_0
+                    for n in range(1, fourier_order + 1):
+                        signs.extend([1.0, -1.0])  # a_n same, b_n flips
+                    sign_mask = tf.constant(signs, dtype=c.dtype)
+                    sign_mask = sign_mask[:, tf.newaxis]  # (n_basis, 1)
+
+                    sym_error = left - sign_mask * right
+                    loss_sym_raw = tf.reduce_mean(tf.square(sym_error))
+                    loss_sym = reg_config['symmetry'] * loss_sym_raw
+                    self.add_loss(loss_sym)
+                    self.add_metric(loss_sym_raw, name='fourier_symmetry')
+
+                # 3. HRTF prior: penalize divergence from generic HRTF coefficients
+                if reg_config['hrtf_prior'] > 0 and generic_hrtf_table is not None:
+                    from nems.layers.state import HRTFGainLayerFourier
+                    prior_coeffs = HRTFGainLayerFourier._init_coeffs_from_hrtf(
+                        generic_hrtf_table, fourier_order
+                    )
+                    prior_coeffs_tf = tf.constant(prior_coeffs, dtype=c.dtype)
+                    prior_error = c - prior_coeffs_tf
+                    loss_prior_raw = tf.reduce_mean(tf.square(prior_error))
+                    loss_prior = reg_config['hrtf_prior'] * loss_prior_raw
+                    self.add_loss(loss_prior)
+                    self.add_metric(loss_prior_raw, name='fourier_hrtf_prior')
+
+                # 4. Laplacian: penalize 2D Laplacian of reconstructed HRTF surface
+                if reg_config['laplacian'] > 0:
+                    surface = self._reconstruct_hrtf_surface(n_az=36)
+
+                    # 2nd derivative in azimuth (periodic: wrap around)
+                    d2_az = (tf.roll(surface, -1, axis=0)
+                             - 2 * surface
+                             + tf.roll(surface, 1, axis=0))
+
+                    # 2nd derivative in frequency (non-periodic: interior only)
+                    d2_freq = (surface[:, 2:, :]
+                               - 2 * surface[:, 1:-1, :]
+                               + surface[:, :-2, :])
+
+                    # Trim azimuthal Laplacian to match frequency dimension
+                    d2_az_trimmed = d2_az[:, 1:-1, :]
+
+                    # Combined Laplacian: sum of 2nd derivatives
+                    laplacian = d2_az_trimmed + d2_freq
+
+                    loss_lap_raw = tf.reduce_mean(tf.square(laplacian)) / lap_norm
+                    loss_lap = reg_config['laplacian'] * loss_lap_raw
+                    self.add_loss(loss_lap)
+                    self.add_metric(loss_lap_raw, name='fourier_laplacian')
+
+                # 5. DFT smoothness: penalize high-frequency 2D DFT energy
+                if reg_config['dft_smooth'] > 0:
+                    surface = self._reconstruct_hrtf_surface(n_az=36)
+                    compute_dtype = surface.dtype  # float32 or float64
+
+                    dft_loss_parts = []
+                    for e in range(ears):
+                        ear_f32 = tf.cast(surface[:, :, e], tf.float32)
+                        ear_surface = tf.cast(ear_f32, tf.complex64)
+
+                        # 2D FFT
+                        fft_2d = tf.signal.fft2d(ear_surface)
+
+                        # Build spectral weight mask: k^2 distance from DC
+                        n_az_f = tf.cast(tf.shape(ear_f32)[0], tf.float32)
+                        n_freq_f = tf.cast(tf.shape(ear_f32)[1], tf.float32)
+                        kk = tf.cast(tf.range(tf.shape(ear_f32)[0]), tf.float32)
+                        mm = tf.cast(tf.range(tf.shape(ear_f32)[1]), tf.float32)
+                        # Wrap to center DC (frequencies above N/2 are negative)
+                        kk = tf.minimum(kk, n_az_f - kk)
+                        mm = tf.minimum(mm, n_freq_f - mm)
+                        kk_grid, mm_grid = tf.meshgrid(kk, mm, indexing='ij')
+                        spectral_weight = kk_grid**2 + mm_grid**2
+
+                        # Weighted spectral energy (DC gets weight 0 naturally)
+                        power = tf.square(tf.abs(fft_2d))
+                        dft_loss_parts.append(
+                            tf.reduce_mean(spectral_weight * power)
+                        )
+
+                    loss_dft_raw = tf.add_n(dft_loss_parts) / float(ears) / dft_norm
+                    loss_dft_raw = tf.cast(loss_dft_raw, compute_dtype)
+                    loss_dft = reg_config['dft_smooth'] * loss_dft_raw
+                    self.add_loss(loss_dft)
+                    self.add_metric(loss_dft_raw, name='fourier_dft_smooth')
+
+            def _reconstruct_hrtf_surface(self, n_az=36):
+                """Reconstruct HRTF on a (n_az, freq_bins, ears) grid."""
+                az_rad = tf.linspace(-np.pi, np.pi, n_az + 1)[:-1]
+                sin_az = tf.sin(az_rad)
+                cos_az = tf.cos(az_rad)
+
+                # Build basis: (n_az, 2*order+1)
+                basis = self._build_fourier_basis_tf(sin_az, cos_az, fourier_order)
+
+                # Cast basis to match coeffs dtype
+                basis = tf.cast(basis, self.coeffs.dtype)
+
+                # Evaluate: (n_az, freq_bins*ears)
+                surface_flat = tf.matmul(basis, self.coeffs)
+
+                # Reshape: (n_az, freq_bins, ears)
+                surface = tf.reshape(surface_flat, [n_az, freq_bins, ears])
+                return surface
+
+        return HRTFGainLayerFourierTF(self, **kwargs)
+
+
 class DistanceAttenuationLayer(Layer):
     """Calculate distance attenuation from location coordinates.
 
@@ -2634,9 +3184,6 @@ class DistanceAttenuationLayer(Layer):
         class DistanceAttenuationLayerTF(NemsKerasLayer):
             def call(self, inputs):
                 dlc = inputs
-                if len(dlc.shape) == 3:
-                    dlc = dlc[0]
-                    dlc = tf.expand_dims(dlc, 0)
 
                 batch_size, time_steps = tf.shape(dlc)[0], tf.shape(dlc)[1]
 
