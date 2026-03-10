@@ -103,30 +103,29 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
      tensor is of shape (), else tensor if of shape (n_cells,) (i.e. last dimension of the resp/pred tensor)
     """
     # hardcoded to use 10 jackknifes for error estimate
-    s = prediction.get_shape().as_list()
-    n_drop = s[1] % 10
-    n_per = int(s[1]/10)
-    if n_drop:
-        # use slices to handle varying tensor shapes
-        drop_slice = [slice(None) for i in range(len(response.shape))]
+    # Use dynamic shape for time dim (may be unknown at trace time with generators)
+    s_static = prediction.get_shape().as_list()
+    s_dyn = tf.shape(prediction)
+    n_time = s_dyn[1]
+    n_cells = s_static[2] if s_static[2] is not None else s_dyn[2]
+    n_per = n_time // 10
+    n_usable = n_per * 10
+    n_drop = n_time%10
 
-        # second dim is time
-        drop_slice[1] = slice(None, -n_drop)
-        drop_slice = tuple(drop_slice)
+    # Trim time dimension to be divisible by 10
+    _response = response[:, :n_usable, :]
+    _prediction = prediction[:, :n_usable, :]
 
-        _response = response[drop_slice]
-        _prediction = prediction[drop_slice]
-    else:
-        _response = response
-        _prediction = prediction
+    # Printing out loss messages per call is not very helpful and clutters fit log
+    # if allow_nan:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop, "(Allowing nan)")
+    # else:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop)
 
-    if allow_nan:
-        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop, "(Allowing nan)")
-    else:
-        print("In tf_nmse:", _response.shape, _prediction.shape, 'n_drop:', n_drop)
-
-    _response = tf.reshape(_response, shape=(-1, 10, n_per, s[2]))
-    _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, s[2]))
+    _response = tf.reshape(_response, shape=(-1, 10, n_per, n_cells))
+    _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, n_cells))
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if per_cell:
@@ -137,8 +136,8 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         _prediction = tf.transpose(_prediction, perm=[1, 3, 0, 2])
         #print("After move:", _response.shape, _prediction.shape)
 
-        _response = tf.reshape(_response, shape=(10*s[2], -1))
-        _prediction = tf.reshape(_prediction, shape=(10*s[2], -1))
+        _response = tf.reshape(_response, shape=(10*n_cells, -1))
+        _prediction = tf.reshape(_prediction, shape=(10*n_cells, -1))
     else:
         # put dimensions not to compute error over first - axis 0
         #_response = tf.experimental.numpy.moveaxis(_response, [1], [0])
@@ -152,19 +151,24 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if allow_nan:
-        C = _response.shape[0]
-        N = []
-        D = []
-        for i in range(C):
-            r = tf.boolean_mask(_response[i], tf.math.is_finite(_response[i]))
-            p = tf.boolean_mask(_prediction[i], tf.math.is_finite(_response[i]))
+        def masked_row_metrics(args):
+            resp_row, pred_row = args
+            mask = tf.math.is_finite(resp_row)
+            r = tf.boolean_mask(resp_row, mask)
+            p = tf.boolean_mask(pred_row, mask)
+            squared_error = tf.math.square(r - p)
+            return tf.stack([
+                tf.math.reduce_mean(squared_error, axis=-1),
+                tf.math.reduce_mean(r**2, axis=-1),
+            ])
 
-            squared_error = ((r - p) ** 2)
-            N.append(tf.math.reduce_mean(squared_error, axis=-1))
-            D.append(tf.math.reduce_mean(r**2, axis=-1))
-        #print("After mask:", r.shape, p.shape)
-        numers = tf.stack(N, 0)
-        denoms = tf.stack(D, 0)
+        metrics = tf.map_fn(
+            masked_row_metrics,
+            (_response, _prediction),
+            fn_output_signature=tf.TensorSpec((2,), dtype=_response.dtype),
+        )
+        numers = metrics[:, 0]
+        denoms = metrics[:, 1]
     else:
         squared_error = ((_response - _prediction) ** 2)
         numers = tf.math.reduce_mean(squared_error, axis=-1)
