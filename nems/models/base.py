@@ -924,11 +924,11 @@ class Model:
             input, target = (input['input'], input['target'])
             data=DataSet
 
-        elif isinstance(input, tf.data.Dataset):
+        elif backend == 'tf' and isinstance(input, tf.data.Dataset):
             data=input
             data.data_format = 'tf.data.Dataset'
 
-        elif isinstance(input, tf.keras.utils.Sequence):
+        elif backend == 'tf' and isinstance(input, tf.keras.utils.Sequence):
             data=input
             data.data_format = 'tf.keras.utils.Sequence'
 

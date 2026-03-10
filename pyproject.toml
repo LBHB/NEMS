@@ -21,6 +21,7 @@ dependencies = [
     "numpy>=1.24.4",
     "scipy>=1.9.0",
     "matplotlib>=3.5.2",
+    "PyQt5",
     "numexpr>=2.8.3",
     "numba", "pandas", "scikit-learn", "requests","h5py","joblib","jupyterlab",
 ]

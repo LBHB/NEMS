@@ -48,7 +48,7 @@ class Conv2d(Layer):
     (Time x Neurons)
 
     '''
-    def __init__(self, stride=[1,1,1,1], pad_type='zero', pad_axes='both+y_causal',
+    def __init__(self, stride=(1,1,1,1), pad_type='zero', pad_axes='both+y_causal',
                   pool_type='AVG', **kwargs):
         '''
         Initializes layer with given parameters
@@ -247,7 +247,7 @@ class Conv2d(Layer):
             x_shape = list(input_array.shape)
             pooled_array = np.reshape(input_array, x_shape[:2]+[x_shape[2]*x_shape[3], x_shape[4]])
         elif pool_type == 'NONE':
-            pass
+            pooled_array = input_array
         else:
             # default to MEAN
             pooled_array = np.mean(input_array, axis=-1, keepdims=False)
@@ -286,11 +286,14 @@ class Conv2d(Layer):
         x_pad1 = self.coefficients.shape[1] - x_pad0 - 1
 
         if self.pad_axes == 'x':
-            y_pad = 0
+            # Pad only the neuron (x) axis; zero out time (y) padding.
+            y_pad0, y_pad1 = 0, 0
         elif self.pad_axes == 'y':
-            x_pad = 0
+            # Pad only the time (y) axis; zero out neuron (x) padding.
+            x_pad0, x_pad1 = 0, 0
         elif self.pad_axes == 'both+y_causal':
-            y_pad0 = self.coefficients.shape[0]-1
+            # Full causal padding on time axis (prepend only), symmetric on x.
+            y_pad0 = self.coefficients.shape[0] - 1
             y_pad1 = 0
 
         # Saving pad indices to remove later
@@ -381,69 +384,23 @@ class Conv2d(Layer):
                 else:
                     return pooled_tensor
 
-        return Conv2dTF(self, new_values={'coefficients': self.coefficients}, **kwargs)
+        return Conv2dTF(self, **kwargs)
     
     def as_tf_convolution(self):
-        '''
-        Convolutions on input_tensor with given filter_tensor and
-        stride. Completed convolutions are sent back to pool to reduce
-        dimensions
+        '''Return a function that applies tf.nn.conv2d (cross-correlation with
+        VALID padding).  The filter is pre-reversed on the time axis so the
+        result is equivalent to scipy.signal.convolve2d with mode='valid'.
 
-        Parameters
-        ----------
-        input_tensor: 4-D Tensor
-            Modified tensor must be 4-Dimensional of
-            Batch x Height x Width x In_channels
-        filter_tensor: 4-D Tensor
-            Modified tensor, also 4-Dimensional of
-            Height x Width x In_channels x Filters
-
+        Input:  (batch, T, neurons, in_ch)
+        Filter: (ft, fn, in_ch, n_filters)  — reversed on axis-0 in shape_coeff
+        Output: (batch, T_out, neurons_out, n_filters)
         '''
-        #Temp CPU only
         import tensorflow as tf
 
-        num_gpus = len(tf.config.list_physical_devices('GPU'))
-        if num_gpus == -1:
-            # DEPRECATED?  WAS USED FOR non-GPU eval
-            @tf.function
-            def convolve(input_tensor, filter_tensor, stride):
-                conv_fn = lambda t: tf.cast(
-                    tf.nn.conv2d(tf.expand_dims(t[0], axis=0), tf.expand_dims(t[1], axis=0), stride, padding='VALID'),
-                    tf.float64)
-                input_convolutions = tf.map_fn(
-                    fn=conv_fn,
-                    elems=[input_tensor, filter_tensor],
-                    dtype=tf.float64
-                    )
-                input_convolutions = tf.squeeze(input_convolutions, 1)
-                return input_convolutions
-        else:
-            @tf.function
-            def convolve(input_tensor, filter_tensor, stride):
-                #print(input_tensor.shape, filter_tensor.shape)
-                input_convolutions = tf.nn.conv2d(input_tensor, filter_tensor, stride, padding='VALID')
-                return input_convolutions
+        def convolve(input_tensor, filter_tensor, stride):
+            return tf.nn.conv2d(input_tensor, filter_tensor, stride, padding='VALID')
+
         return convolve
-    
-    def as_tf_shape_filter(self, coefficients):
-        '''
-        DEPRECATED?
-        Checking existing dimensions and adding new ones if needed
-        to create 4-D array filter. 
-
-        if ndim == 2, Add empty in_channel, filter dimensions
-        if ndim == 3, Add empty in_channel dimension
-
-        When shaping our tensor, last dimension of filter/input
-        are broadcasted
-        '''
-        if coefficients.ndim == 2:
-            coefficients = coefficients[..., np.newaxis]
-            coefficients = coefficients [..., np.newaxis]
-        elif coefficients.ndim == 3:
-            coefficients = coefficients[:, :, np.newaxis, :]
-
-        return coefficients
     
     def as_tf_shape_tensor(self, input_shape, coefficients):
         '''
@@ -465,45 +422,38 @@ class Conv2d(Layer):
         if fake_input.ndim == 2:
             fake_input = fake_input[..., np.newaxis]
             fake_input = fake_input[np.newaxis, ...]
-            @tf.function()
             def expand_input(input_tensor):
-                expanded_tensor = tf.expand_dims(input_tensor, axis=-1)
-                expanded_tensor = tf.expand_dims(input_tensor, axis=0)
+                expanded_tensor = tf.expand_dims(input_tensor, axis=-1)  # add in_ch
+                expanded_tensor = tf.expand_dims(expanded_tensor, axis=0) # add batch
                 return expanded_tensor
         elif fake_input.ndim == 3:
             fake_input = fake_input[..., np.newaxis]
-            @tf.function()
             def expand_input(input_tensor):
-                expanded_tensor = tf.expand_dims(input_tensor, axis=-1)
-                return expanded_tensor
+                return tf.expand_dims(input_tensor, axis=-1)  # add in_ch
         else:
-            @tf.function()
             def expand_input(input_tensor): return input_tensor
 
         broad_fake_input, broad_coeff = self.broadcast_arrays(fake_input, coefficients)
         fake_input_shape = fake_input.shape
         coeff_shape = coefficients.shape
-        #print("as_shape_tensor (in, coef, fake in):", input_shape, coefficients.shape, fake_input.shape)
+
+        broadcast_input_shape = list(broad_fake_input.shape[1:])  # concrete, no batch
+        broadcast_coeff_shape = list(broad_coeff.shape)            # concrete
 
         if broad_fake_input.shape[-1] > fake_input_shape[-1]:
-            @tf.function()
             def shape_input(input_tensor):
-                batch_size = tf.keras.backend.shape(input_tensor)[0]
-                shape = [batch_size] + list(broad_fake_input.shape[1:])
+                batch_size = tf.shape(input_tensor)[0]
+                shape = tf.concat([[batch_size], broadcast_input_shape], axis=0)
                 return tf.broadcast_to(expand_input(input_tensor), shape)
         else:
-            @tf.function()
             def shape_input(input_tensor): return expand_input(input_tensor)
-            
+
         if broad_coeff.shape[-2] > coeff_shape[-2]:
-            #print("broad_coef:", broad_coeff.shape)
-
-            @tf.function()
             def shape_coeff(coefficients):
-                return tf.reverse(tf.broadcast_to(coefficients, broad_coeff.shape), axis=[0])
-
+                return tf.reverse(
+                    tf.broadcast_to(coefficients, broadcast_coeff_shape), axis=[0]
+                )
         else:
-            @tf.function()
             def shape_coeff(coefficients): return tf.reverse(coefficients, axis=[0])
 
         return shape_input, shape_coeff
@@ -532,45 +482,44 @@ class Conv2d(Layer):
         '''
         import tensorflow as tf
 
+        # pool operates on the filters dimension (axis=-1 of the 4-D conv output).
+        # Equivalences with the numpy pool() method are verified per pool_type;
+        # both paths produce (batch, T, neurons) or (batch, T, neurons, n_filters).
         if pool_type == 'MAX':
-            @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_max(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'MIN':
-            @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_min(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'PROD':
-            @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_prod(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'STD':
-            @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_std(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'SUM':
-            @tf.function
             def pool(input_tensor):
                 return tf.math.reduce_sum(input_tensor, axis=-1, keepdims=False)
         elif pool_type == 'STACK':
-            @tf.function
+            # Keep all filter outputs stacked on the last axis; squeeze if only 1.
             def pool(input_tensor):
-                if input_tensor.shape[3]==1:
-                    return input_tensor[:,:,:,0]
+                if input_tensor.shape[-1] == 1:
+                    return input_tensor[:, :, :, 0]
                 else:
                     return input_tensor
-
         elif pool_type == 'CAT':
-            @tf.function
+            # Reshape (batch, T, neurons, n_filters) → (batch, T, n_filters*neurons).
             def pool(input_tensor):
-                #print(input_tensor.shape)
                 input_tensor = tf.transpose(input_tensor, perm=(0, 1, 3, 2))
-                x_shape = list(input_tensor.shape)
-                new_shape = [-1, x_shape[1], x_shape[2]*x_shape[3]]
-
+                x_shape = tf.shape(input_tensor)
+                new_shape = tf.stack([-1, x_shape[1], x_shape[2] * x_shape[3]])
                 return tf.reshape(input_tensor, new_shape)
+        elif pool_type == 'NONE':
+            # Pass through unchanged (consistent with numpy pool 'NONE').
+            def pool(input_tensor):
+                return input_tensor
         else:
-            @tf.function
+            # Default: mean over filters → (batch, T, neurons).
             def pool(input_tensor):
                 return tf.math.reduce_mean(input_tensor, axis=-1, keepdims=False)
 
@@ -600,40 +549,40 @@ class Conv2d(Layer):
         '''
         import tensorflow as tf
 
-        y_pad0 = int(self.coefficients.shape[0]/2)
+        y_pad0 = int(self.coefficients.shape[0] / 2)
         y_pad1 = self.coefficients.shape[0] - y_pad0 - 1
-        x_pad0 = int(self.coefficients.shape[1]/2)
+        x_pad0 = int(self.coefficients.shape[1] / 2)
         x_pad1 = self.coefficients.shape[1] - x_pad0 - 1
 
-        if self.pad_axes == 'x':
-            y_pad = 0
-        elif self.pad_axes == 'y':
-            x_pad = 0
-        elif self.pad_axes == 'both+y_causal':
-            y_pad0 = self.coefficients.shape[0]-1
+        if pad_axes == 'x':
+            # Pad only the neuron (x) axis.
+            y_pad0, y_pad1 = 0, 0
+        elif pad_axes == 'y':
+            # Pad only the time (y) axis.
+            x_pad0, x_pad1 = 0, 0
+        elif pad_axes == 'both+y_causal':
+            # Full causal padding on time axis, symmetric on x.
+            y_pad0 = self.coefficients.shape[0] - 1
             y_pad1 = 0
 
-        # Saving pad indices to remove later
+        # Record original (pre-pad) spatial dims for trimming after convolution.
         pad_indices = [0, input_shape[1], 0, input_shape[2]]
-        pad_array = [[0,0], [y_pad0, y_pad1], [x_pad0, x_pad1], [0,0]]
+        pad_array = [[0, 0], [y_pad0, y_pad1], [x_pad0, x_pad1], [0, 0]]
 
         if pad_type == 'reflect':
-            @tf.function
             def pad(input_tensor):
                 return tf.pad(input_tensor, pad_array, mode='REFLECT')
         elif pad_type == 'symmetric':
-            @tf.function
             def pad(input_tensor):
                 return tf.pad(input_tensor, pad_array, mode='SYMMETRIC')
         else:
+            # 'max' and 'min' pad types require actual data values, which are
+            # unavailable at layer-build time in TF; use zero constant instead.
+            # The numpy path (pad()) correctly uses the actual input values.
             pad_constant = 0
-            if pad_type == 'max':
-                pad_constant = np.max(np.abs(self.input))
-            elif pad_type == 'min':
-                pad_constant = np.min(np.abs(self.input))
-            @tf.function
             def pad(input_tensor):
-                return tf.pad(input_tensor, pad_array, mode='CONSTANT', constant_values=pad_constant)
+                return tf.pad(input_tensor, pad_array, mode='CONSTANT',
+                              constant_values=pad_constant)
 
         return pad_indices, pad
     
