@@ -100,7 +100,15 @@ class ConcatSkip(WeightChannels):
 
     @layer('skip')
     def from_keyword(keyword):
-        """Construct ConcatSkip from keyword."""
+        """Construct ConcatSkip from keyword.
+
+        Keyword options
+        ---------------
+        {digit}x{digit}x ... x{digit} : N-dimensional shape; required.
+        l2{value} : L2 regularizer, e.g. 'l2e-3'.
+        {name} : Any other option string is added as an input signal name.
+
+        """
 
         options = keyword.split('.')
 
@@ -187,7 +195,15 @@ class ConcatSignals(Layer):
 
     @layer('cat')
     def from_keyword(keyword):
-        """Construct ConcatSignals from keyword."""
+        """Construct ConcatSignals from keyword.
+
+        Keyword options
+        ---------------
+        s : Sum non-primary inputs along concat axis before concatenating
+            (compute_sum=True).
+        {name} : Any other option string is added as an input signal name.
+
+        """
         options = keyword.split('.')
         kwargs={'input': []}
         for op in options[1:]:
@@ -239,7 +255,15 @@ class MultiplySignals(Layer):
 
     @layer('mult')
     def from_keyword(keyword):
-        """Construct MultiplySignals from keyword."""
+        """Construct MultiplySignals from keyword.
+
+        Keyword options
+        ---------------
+        {name1} : First input signal name (default 'hrtf').
+        {name2} : Second input signal name (default 'input').
+        Output is set to 'hstim'.
+
+        """
         options = keyword.split('.')
         kwargs={}
         if len(options)>1:
@@ -277,7 +301,18 @@ class ApplyHRTF(Layer):
 
     @layer('mult')
     def from_keyword(keyword):
-        """Construct MultiplySignals from keyword."""
+        """Construct ApplyHRTF from keyword.
+
+        Keyword options
+        ---------------
+        {name1} : First input signal name (default 'hrtf').
+        {name2} : Second input signal name (default 'stim').
+        Output is set to 'hstim'.
+
+        Note: this shares the 'mult' keyword with MultiplySignals;
+        whichever class is imported last will be active in the registry.
+
+        """
         options = keyword.split('.')
         kwargs = {}
         if len(options) > 1:

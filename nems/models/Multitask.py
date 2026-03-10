@@ -63,6 +63,8 @@ class MultiTaskModel(Model):
 
     def add_heads(self, tasks, task_layers=None):
         # Task-specific output heads
+        import nems_lbhb.initializers
+
         self.task_heads = []
         for i, (siteid, site_data) in enumerate(tasks.items()):
             size = site_data['target'].shape[1]
@@ -76,7 +78,7 @@ class MultiTaskModel(Model):
                     lkw = f'wc.{self.final_shared.shape[0]}x{size}.{reg}-{finalnl}'
                 else:
                     lkw = f'wc.1x{size}.{reg}-{finalnl}'
-            lkw = init.fill_keyword_string_values(lkw)
+            lkw = nems_lbhb.initializers.fill_keyword_string_values(lkw)
             lkw = lkw.split('-')
             head = [keyword_lib[kw] for kw in lkw][0]
 
@@ -113,11 +115,12 @@ class MultiTaskModel(Model):
         import tensorflow as tf
         import tensorflow.keras as keras
         from tensorflow.keras import Input
-        from tensorflow.python.keras import regularizers
+        from keras import regularizers
         import logging
         from nems.backends.base import Backend, FitResults
         from nems.backends.tf.cost import get_cost
         from nems.backends.tf.cost import pearson as pearsonR
+        import nems_lbhb.preprocessing
 
         log = logging.getLogger(__name__)
         from nems.backends import get_backend
@@ -136,7 +139,7 @@ class MultiTaskModel(Model):
         mt_dataset = mt_dataset.map(convert_ragged_output)
 
         # shuffle
-        shuffled_dataset = mt_dataset.shuffle(buffer_size=buffer_size)
+        shuffled_dataset = nems_lbhb.preprocessing.shuffle(buffer_size=buffer_size)
 
         # batch
         batched_data = shuffled_dataset.batch(batch_size, drop_remainder=True)
