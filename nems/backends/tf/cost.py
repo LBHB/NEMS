@@ -116,12 +116,13 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     _response = response[:, :n_usable, :]
     _prediction = prediction[:, :n_usable, :]
 
-    if allow_nan:
-        tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
-                 "n_drop:", n_drop, "(Allowing nan)")
-    else:
-        tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
-                 "n_drop:", n_drop)
+    # Printing out loss messages per call is not very helpful and clutters fit log
+    # if allow_nan:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop, "(Allowing nan)")
+    # else:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop)
 
     _response = tf.reshape(_response, shape=(-1, 10, n_per, n_cells))
     _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, n_cells))
