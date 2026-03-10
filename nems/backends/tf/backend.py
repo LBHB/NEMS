@@ -289,7 +289,7 @@ class TensorFlowBackend(Backend):
         #       Need to tweak this to be able to fit outputs from multiple
         #       layers. _build would need to establish a mapping I guess, since
         #       it has the information about which layer generates which output.
-        if data.data_format != 'tf.data.Dataset':
+        if data.data_format not in ('tf.data.Dataset', 'tf.keras.utils.Sequence'):
             inputs = data.inputs
 
         if data.data_format == 'array':

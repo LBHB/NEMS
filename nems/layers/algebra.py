@@ -570,19 +570,10 @@ class ApplyHRTFGainLayer(Layer):
                 # Expect 3 inputs: [hrtf_gains, distance_gains, stim]
                 hrtf_gains, distance_gains, stim = inputs
 
-                # Handle extra sample dimension during training
-                if len(hrtf_gains.shape) == 3:
-                    hrtf_gains = hrtf_gains[0]  # Remove sample dimension
-                    hrtf_gains = tf.expand_dims(hrtf_gains, 0)
-                if len(distance_gains.shape) == 4:
-                    distance_gains = distance_gains[0]  # Remove sample dimension
-                    distance_gains = tf.expand_dims(distance_gains, 0)
-                elif len(distance_gains.shape) == 3:
+                # Handle unbatched distance_gains (e.g. from non-TF evaluation)
+                if len(distance_gains.shape) == 3:
                     # (time, sources, ears) -> (1, time, sources, ears)
                     distance_gains = tf.expand_dims(distance_gains, 0)
-                if len(stim.shape) == 3:
-                    stim = stim[0]  # Remove sample dimension
-                    stim = tf.expand_dims(stim, 0)
 
                 batch_size = tf.shape(stim)[0]
                 time_steps = tf.shape(stim)[1]
