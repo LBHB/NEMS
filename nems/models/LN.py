@@ -1,9 +1,11 @@
 import logging
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom, gaussian_filter
 import scipy
 import joblib, tempfile
+from pathlib import Path
 
 from .base import Model
 from nems.registry import layer
@@ -17,9 +19,31 @@ from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
 
-cachedir = '/auto/users/svd/data/cache'  # You can specify any directory you want
-#cachedir = tempfile.mkdtemp()  # You can specify any directory you want
-memory = joblib.Memory(cachedir, verbose=False)
+
+def _get_joblib_memory():
+    env_cache = os.environ.get('NEMS_CACHE_DIR')
+    candidates = []
+
+    if env_cache:
+        candidates.append(Path(env_cache).expanduser())
+
+    candidates.extend([
+        Path.home() / '.cache' / 'nems',
+        Path(tempfile.gettempdir()) / 'nems-cache',
+    ])
+
+    for cache_dir in candidates:
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            return joblib.Memory(cache_dir, verbose=False)
+        except OSError:
+            log.warning("Unable to use cache directory %s", cache_dir)
+
+    log.warning("No writable cache directory found; disabling LN joblib cache.")
+    return joblib.Memory(location=None, verbose=False)
+
+
+memory = _get_joblib_memory()
 
 # uncomment to clear joblib cache (if updated gabor fit function)
 #memory.clear()

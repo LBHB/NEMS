@@ -170,10 +170,19 @@ class TensorFlowBackend(Backend):
 
         # Don't include inputs that were never actually passed to any Layers.
         tf_inputs = [v for k, v in tf_input_dict.items() if k not in unused_inputs]
-        # For outputs, get all data entries that aren't inputs
-        tf_outputs = [v for k, v in tf_data.items() if k not in tf_input_dict]
-        model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs,
-                               name=self.nems_model.name)
+        # Only expose the final output. Keras 3 applies the compiled loss to
+        # every model output, so including intermediate outputs causes evaluate()
+        # and fit() to expect matching targets for each one.
+        all_outputs = [v for k, v in tf_data.items() if k not in tf_input_dict]
+        if len(all_outputs) > 1:
+            log.info(
+                f"TF model has {len(all_outputs)} intermediate+final outputs but only the last "
+                f"will be used as the model output for fitting (see tf.backend._build)."
+            )
+        tf_outputs = [last_output]
+        import re
+        safe_name = re.sub(r'[^A-Za-z0-9_.>-]', '_', self.nems_model.name or 'nems_model')
+        model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs, name=safe_name)
 
         log.info(f'TF model built. (verbose={self.verbose})')
         if self.verbose:
@@ -188,7 +197,8 @@ class TensorFlowBackend(Backend):
     def _fit(self, data, eval_kwargs=None, cost_function='squared_error',
              epochs=1000, learning_rate=0.001, early_stopping_delay=100,
              early_stopping_patience=150, early_stopping_tolerance=5e-4,
-             validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0):
+             validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0,
+             **kwargs):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
         
         Currently the use of other TensorFlow optimizers is not exposed as an
@@ -236,6 +246,8 @@ class TensorFlowBackend(Backend):
 
         """
         log.info("Starting tf.backend.fit...")
+        if kwargs:
+            log.warning(f"TF backend ignoring unrecognized fitter_options: {list(kwargs.keys())}")
         batch_size = eval_kwargs.get('batch_size', 0)
         if (batch_size == 0) and (data.data_format != 'tf.data.Dataset'):
             data = data.prepend_samples()
@@ -277,10 +289,14 @@ class TensorFlowBackend(Backend):
         #       Need to tweak this to be able to fit outputs from multiple
         #       layers. _build would need to establish a mapping I guess, since
         #       it has the information about which layer generates which output.
-        if data.data_format != 'tf.data.Dataset':
+        if data.data_format not in ('tf.data.Dataset', 'tf.keras.utils.Sequence'):
             inputs = data.inputs
 
         if data.data_format == 'array':
+            #
+            # This condition was generated with substantial assistantce by Claude code
+            # in order to be compatible with TF2.21 and Keras 3
+            #
             if len(data.targets) > 1:
                 raise NotImplementedError("Only one target supported currently.")
             target = list(data.targets.values())[0] if data.targets else None
@@ -288,69 +304,105 @@ class TensorFlowBackend(Backend):
             initial_error = _to_array(self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
 
-            if validation_split == 0 and validation_data is None:
-                # Custom training loop: avoids Keras 3 per-epoch Python overhead.
-                # In Keras 3, model.fit() has significant Python overhead each epoch
-                # (metrics, history, data pipeline). For small fast-GPU models this
-                # dominates. A @tf.function loop traces once and runs on GPU with
-                # only a single scalar sync per epoch.
-                optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
+            # Custom training loop: avoids Keras 3 per-epoch Python overhead.
+            # A @tf.function loop traces once and runs on GPU with only a
+            # single scalar sync per epoch.
+            optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
+            model_ref = self.model
+
+            # Build train tensors and optional validation tensors.
+            if validation_data is not None:
+                val_x, val_y = validation_data
                 tf_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in inputs.items()}
                 tf_target = tf.constant(target, dtype=tf.float32)
-                model_ref = self.model
+                tf_val_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in val_x.items()} \
+                    if isinstance(val_x, dict) else tf.constant(val_x, dtype=tf.float32)
+                tf_val_target = tf.constant(val_y, dtype=tf.float32)
+            elif validation_split > 0:
+                # Carve off last fraction along sample axis.
+                split_idx = int(target.shape[0] * (1 - validation_split))
+                tf_inputs = {k: tf.constant(v[:split_idx], dtype=tf.float32) for k, v in inputs.items()}
+                tf_target = tf.constant(target[:split_idx], dtype=tf.float32)
+                tf_val_inputs = {k: tf.constant(v[split_idx:], dtype=tf.float32) for k, v in inputs.items()}
+                tf_val_target = tf.constant(target[split_idx:], dtype=tf.float32)
+            else:
+                tf_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in inputs.items()}
+                tf_target = tf.constant(target, dtype=tf.float32)
+                tf_val_inputs = tf_val_target = None
+
+            @tf.function
+            def _train_step():
+                with tf.GradientTape() as tape:
+                    preds = model_ref(tf_inputs, training=True)
+                    if isinstance(preds, (list, tuple)):
+                        preds = preds[-1]
+                    loss = cost_function(tf_target, preds)
+                grads = tape.gradient(loss, model_ref.trainable_variables)
+                optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+                return loss
+
+            if use_validation:
+                loss_name = 'val_loss'
 
                 @tf.function
-                def _train_step():
-                    with tf.GradientTape() as tape:
-                        preds = model_ref(tf_inputs, training=True)
-                        loss = cost_function(tf_target, preds)
-                    grads = tape.gradient(loss, model_ref.trainable_variables)
-                    optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
-                    return loss
+                def _val_step():
+                    preds = model_ref(tf_val_inputs, training=False)
+                    if isinstance(preds, (list, tuple)):
+                        preds = preds[-1]
+                    return cost_function(tf_val_target, preds)
 
-                loss_history = []
-                best_loss = np.inf
-                best_weights = self.model.get_weights()
-                patience_count = 0
-                leading_zeros = int(np.log10(max(epochs, 1))) + 1
+            loss_history = []
+            val_loss_history = [] if use_validation else None
+            best_loss = np.inf
+            best_weights = self.model.get_weights()
+            patience_count = 0
+            leading_zeros = int(np.log10(max(epochs, 1))) + 1
 
-                for epoch in range(epochs):
-                    loss_val = float(_train_step())
-                    loss_history.append(loss_val)
+            for epoch in range(epochs):
+                loss_val = float(_train_step())
+                loss_history.append(loss_val)
 
-                    if epoch % 50 == 0:
-                        log.info(f'Epoch {epoch:0>{leading_zeros}}/{epochs} - loss: {loss_val:.4e}')
+                if use_validation:
+                    val_loss_val = float(_val_step())
+                    val_loss_history.append(val_loss_val)
+                    monitor_val = val_loss_val
+                    log_suffix = f' - val_loss: {val_loss_val:.4e}'
+                else:
+                    monitor_val = loss_val
+                    log_suffix = ''
 
-                    if np.isnan(loss_val) or np.isinf(loss_val):
-                        log.info(f'Epoch {epoch}: NaN/Inf loss, restoring best weights')
-                        self.model.set_weights(best_weights)
-                        break
+                if epoch % 50 == 0:
+                    log.info(f'Epoch {epoch:0>{leading_zeros}}/{epochs} - loss: {loss_val:.4e}{log_suffix}')
 
-                    if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
-                        if loss_val < best_loss - early_stopping_tolerance:
-                            best_loss = loss_val
-                            best_weights = self.model.get_weights()
-                            patience_count = 0
-                        else:
-                            patience_count += 1
-                            if patience_count >= early_stopping_patience:
-                                log.info(f'Early stopping at epoch {epoch}')
-                                self.model.set_weights(best_weights)
-                                break
-                    elif loss_val < best_loss:
-                        best_loss = loss_val
+                if np.isnan(monitor_val) or np.isinf(monitor_val):
+                    log.info(f'Epoch {epoch}: NaN/Inf {loss_name}, restoring best weights')
+                    self.model.set_weights(best_weights)
+                    break
+
+                if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
+                    if monitor_val < best_loss - early_stopping_tolerance:
+                        best_loss = monitor_val
                         best_weights = self.model.get_weights()
+                        patience_count = 0
+                    else:
+                        patience_count += 1
+                        if patience_count >= early_stopping_patience:
+                            log.info(f'Early stopping at epoch {epoch}')
+                            self.model.set_weights(best_weights)
+                            break
+                elif monitor_val < best_loss:
+                    best_loss = monitor_val
+                    best_weights = self.model.get_weights()
 
-                history = SimpleNamespace(history={'loss': loss_history})
-
-            else:
-                # Validation requested: fall back to model.fit().
-                loss_name = 'val_loss'
-                history = self.model.fit(inputs, target, epochs=epochs, verbose=0,
-                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
-                    validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
+            hist_dict = {'loss': loss_history}
+            if use_validation:
+                hist_dict['val_loss'] = val_loss_history
+            history = SimpleNamespace(history=hist_dict)
 
         elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
+            #
+            # TODO: edits required for compatibiltiy with TF2.21 and Keras 3?
+            #
             initial_error = _to_array(self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False))
             log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
             history = self.model.fit(
@@ -358,6 +410,10 @@ class TensorFlowBackend(Backend):
                 validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                 validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
         else:
+            #
+            # TODO: edits required for compatibiltiy with TF2.21 and Keras 3?
+            # TODO: Figure out what conditions cause this block to be used
+            #
             X_ = inputs['input'][0][0]
             Y_ = inputs['input'][0][1]
             initial_error = _to_array(self.model.evaluate({'input': X_}, Y_, return_dict=False, verbose=self.verbose))

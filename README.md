@@ -1,14 +1,16 @@
 # NEMS &middot; ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg) ![Python 3.10](https://img.shields.io/badge/Python-3.10-green) ![Python 3.10](https://img.shields.io/badge/Python-3.9-green)
 
-The Neural Encoding Model System (NEMS) is helpful for fitting a mathematical model to time series data, plotting the model predictions, and comparing the predictive accuracy of multiple models. We use it to [develop and test computational models of how sound is encoded in the brains of behaving mammals](https://hearingbrain.org/), but it will work with many different types of timeseries data.
+The Neural Encoding Model System (NEMS) is helpful for fitting a 
+mathematical model to time series data, plotting the model predictions, 
+and comparing the predictive accuracy of multiple models. We use it to 
+develop and test computational models of how sound is encoded in the 
+brains of behaving mammals ([Laboratory of Brain, Hearing, and Behavior website](https://hearingbrain.org/)), 
+but it will work with many different types of timeseries data.
 
 * **Note:** this is a refactor of a former version of NEMS that is now archived at [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0). Some previously published datasets (e.g., [https://zenodo.org/records/8044773]) require NEMS0 tools that have not yet migrated to NEMS.
 
 ## Table of Contents & Relevant Links
 ### [Install](#installation) &middot; [Visualization](#visualization) &middot; [Examples](#examples) &middot; [Documentation](#documentation) &middot; [Upcoming](#upcoming)   
-
-#### - **Laboratory of Brain, Hearing, and Behavior:**  [https://hearingbrain.org/](https://hearingbrain.org/)    
-#### - **Archived former NEMS version:**   [https://github.com/LBHB/NEMS0](https://github.com/LBHB/NEMS0)   
 
 <br />
 <br />
@@ -27,7 +29,7 @@ git clone https://github.com/LBHB/NEMS.git
 ```
     
 2. **Set up python environment**
-- 2a. **Option 1.** Create an environment using Anaconda. Currently NEMS has been tested with python 3.9. New versions are likely to work but not guranteed.
+- 2a. **Option 1.** Create an environment using Anaconda. Currently NEMS has been tested with python 3.9 and 3.10. New versions are likely to work but not guranteed.
 
 ```bash
 conda create -n nems python=3.10 ipython
@@ -80,8 +82,10 @@ echo 'unset OLD_LD_LIBRARY_PATH' >> \
 pytest NEMS
 ```
 
-## Alternative: `PyPI (pip)` (Beta)
-Install the latest stable version of NEMS.
+## Alternative: `PyPI (pip)` (Alpha)
+
+Install the latest stable version of NEMS. Note this is not actively maintained and will install an old version of NEMS.
+Please contact us if you'd like us to implement this sooner rather than later.
 
 **Create a new environment using your preferred environment manager, then use `pip install`.**
 ```console
@@ -119,23 +123,21 @@ git clone https://github.com/LBHB/NEMS.git
 py -m pytest
 ```
 
-## Alternative: `conda install`.
-**Coming soon.**
-
-(Possibly out of date) Note: the `mkl` library for `numpy` does not play well with `tensorflow`.
-If using `conda` to install dependencies manually, and you want to use the `tensorflow` backend, use `conda-forge` for `numpy` (which uses `openblas` instead of `mkl`):
-```console
-conda install -c conda-forge numpy
-```
-(See: https://github.com/conda-forge/numpy-feedstock/issues/84)
-
-<br />
-<br />
-<br />
-<br />
 
 # Visualization
-A variety of our scripts and tutorials focus on providing plots and graphs to visualize data at various points in time. Viewing and interacting with this data is important to understanding our models and for utilizing all of the tools provided.
+A variety of our scripts and tutorials focus on providing plots and graphs to visualize data at various points in time. Viewing and interacting with this data is important to understanding our models and for utilizing all of the tools provided. 
+We use matplotlib, by default with the PyQt backend. If you have issues with figures not displaying in the tutorials,
+you might need to modify your matplotlib settings. Typically, we turn on interactive mode in the .matplotlibrc file. 
+
+```
+# .matplotlibrc settings for interactive pyqt figures
+backend : Qt5Agg
+interactive : True
+```
+
+The location of the file differs across operating systems, for example in $HOME/.configs/matplotlib/.matplotlibrc. Learn more here:
+[https://matplotlib.org/1.4.2/users/customizing.html](https://matplotlib.org/1.4.2/users/customizing.html)
+
 
 **There are many ways to visualize this data. We recommend using one of our current guides below.**
 
@@ -190,6 +192,11 @@ IPython is an interative python shell, typically know for its use in jupyter not
 <br />
 
 # Examples
+
+A good way to get started is to explore our [tutorials](tutorials), which illustrate 
+how to implement different model architectures and how to format data for
+fitting and testing new models.
+
 Build a basic STRF model, then fit and predict that model to example data
 ```python
 import numpy as np

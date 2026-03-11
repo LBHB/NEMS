@@ -6,7 +6,7 @@ Ex: `from nems.modules import WeightChannels, FIR, DoubleExponential`
 '''
 
 from .nonlinearity import LevelShift, DoubleExponential, RectifiedLinear, ReLU, \
-    Sigmoid, Hinge, PReLU, LogCompress
+    Sigmoid, Hinge, PReLU, LogCompress, SoftRelu
 from .filter import FiniteImpulseResponse, FIR, STRF
 from .weight_channels import WeightChannels, WeightChannelsMulti, WeightChannelsGaussian, \
     WeightChannelsMultiGaussian, WeightGaussianExpand
