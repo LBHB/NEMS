@@ -341,6 +341,7 @@ class TensorFlowBackend(Backend):
                 optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
                 return loss
 
+            use_validation = tf_val_inputs is not None
             if use_validation:
                 loss_name = 'val_loss'
 
