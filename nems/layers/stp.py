@@ -10,8 +10,8 @@ from nems.distributions import Normal, HalfNormal
 
 class ShortTermPlasticity(Layer):
 
-    def __init__(self, quick_eval=False, fs=100.0, crosstalk=0, dep_only=False,
-                 chunksize=5, x0=None, reset_signal=None, **kwargs):
+    def __init__(self, quick_eval=True, fs=100.0, crosstalk=0, dep_only=False,
+                 chunksize=5000, x0=None, reset_signal=None, **kwargs):
         """TODO: docs
 
         TODO: additional context.
@@ -131,15 +131,24 @@ class ShortTermPlasticity(Layer):
                 "preceeding STP with a layer that guarantees positive outputs."
             )
 
-        try:
-            n_times, n_channels = input.shape
-        except ValueError as e:
-            if "not enough values to unpack" in str(e):
-                raise ValueError(
-                    "STP only supports 2D inputs with shape (T, N), where T "
-                    "is the number of time bins and N is the number of output "
-                    "channels."
-                )
+        s = input.shape
+        if len(s)==2:
+            n_times = s[0]
+            n_channels = s[1]
+            n_banks = 1
+            spacer = (1, n_channels)
+        elif len(s)==3:
+            n_times = s[0]
+            n_channels = s[1]
+            n_banks = s[2]
+            spacer = (1, n_channels, n_banks)
+
+        else:
+            raise ValueError(
+                "STP only supports 2D inputs with shape (T, N) or (T, N, B), where T "
+                "is the number of time bins and N is the number of output "
+                "channels."
+            )
 
         u, tau = self.get_parameter_values()
         # TODO: temporary fudge factor to deal with scaling priors, since
@@ -185,6 +194,8 @@ class ShortTermPlasticity(Layer):
 
                 i += self.chunksize
                 j += self.chunksize
+                if np.sum(np.isnan(depression_per_bin))>0:
+                    print('hit a nan')
 
             # Shift depression forward in time by one to allow STP to kick in
             # after the stimulus changes.
@@ -192,7 +203,7 @@ class ShortTermPlasticity(Layer):
                 input, np.concatenate(
                     # Oddly enough, zeros + 1 is twice as fast as using ones
                     # for this size of array (1-6ish usually)
-                    [np.zeros((1, n_channels)) + 1, depression_per_bin[:-1, :]],
+                    [np.zeros(spacer) + 1, depression_per_bin[:-1, :]],
                     axis=0
                     ),
                 )
@@ -274,7 +285,7 @@ class ShortTermPlasticity(Layer):
         
         """
         y = (y[:-1, :] + y[1:, :]) / 2.0
-        y = np.concatenate([np.zeros((1, y.shape[1])), y], axis=0)
+        y = np.concatenate([np.zeros([1]+list(y.shape[1:])), y], axis=0)
         y = np.cumsum(y, axis=0)
 
         return y
@@ -317,10 +328,10 @@ class ShortTermPlasticity(Layer):
         @tf.function
         def _cumtrapz(x, dx=1., initial=0.):
             x = (x[:, :-1] + x[:, 1:]) / 2.0
-            x = tf.pad(
-                x, ((0, 0), (1, 0), (0, 0)), constant_values=initial
-                )
-
+            rank = len(x.shape)
+            pad_spec = [[0, 0]] * rank
+            pad_spec[1] = [1, 0]
+            x = tf.pad(x, pad_spec, constant_values=initial)
             return tf.cumsum(x, axis=1) * dx
 
 
@@ -395,8 +406,11 @@ class ShortTermPlasticity(Layer):
                     td.append(tf.cast(_td, 'float32'))
                 td = tf.concat(td, axis=1)
 
+                rank = len(td.shape)
+                pad_spec = [[0, 0]] * rank
+                pad_spec[1] = [1, 0]
                 ret = tstim * tf.pad(
-                        td[:, :-1, :], ((0, 0), (1, 0), (0, 0)),
+                        td[:, :-1], pad_spec,
                         constant_values=1.0
                         )
                 ret = tf.where(tf.math.is_nan(inputs), _nan, ret)
