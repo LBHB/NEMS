@@ -997,6 +997,27 @@ class Model:
             )
         new_model.results = fit_results
 
+        if backend != 'scipy' and data.data_format == 'array':
+            # test whether model predictions are numerically consistent between the numpy
+            # evaluator and current backend (if not using scipy to fit)
+            numpy_out = new_model.evaluate(tinput, **eval_kwargs)
+            numpy_pred = numpy_out['output']
+            backend_pred = np.squeeze(new_model.backend.predict(tinput))
+            max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
+            diff_eps = 1e-3
+            if max_diff > diff_eps:
+                log.warning(
+                    f'Backend ({backend}) prediction differs from numpy by'
+                    f' max={max_diff:.4e} — parameter copy from backend may be incorrect.'
+                )
+                tf_layer_outputs = new_model.backend.evaluate_all_layers(tinput)
+                for out_key, tf_pred in tf_layer_outputs.items():
+                    np_pred = numpy_out[out_key]
+                    _layer_diff = np.nanmax(np.abs(np_pred.flatten() - tf_pred.flatten()))
+                    log.warning(f'  output {out_key}: max_diff={_layer_diff:.4e}')
+            else:
+                log.info(f'Backend/numpy prediction match (max diff={max_diff:.4e})')
+
         if progress_fun is not None:
             progress_fun()
 

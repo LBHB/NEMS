@@ -402,4 +402,54 @@ def _get_animation_data(fig, input, models, iterations):
     return artists, updated_xdata, updated_ydata
 
 
+def compare_layer_eval(layer, *inputs):
+    """Evaluate a Layer via NumPy and TensorFlow and return both outputs.
+
+    Runs `layer.evaluate(*inputs)` with NumPy, then builds the equivalent
+    Keras layer via `layer.as_tensorflow_layer()` and runs it in eager mode
+    with the same inputs converted to `tf.Tensor`. Results are returned as
+    numpy arrays so they can be compared directly.
+
+    Parameters
+    ----------
+    layer : nems.layers.base.Layer
+        An instantiated Layer with an `as_tensorflow_layer` method.
+    *inputs : np.ndarray
+        One or more arrays to pass to `layer.evaluate`.
+
+    Returns
+    -------
+    numpy_out : np.ndarray
+        Output of `layer.evaluate(*inputs)`.
+    tf_out : np.ndarray
+        Output of the TensorFlow layer called in eager mode, converted to
+        a numpy array via `.numpy()`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from nems.layers import DoubleExponential
+    >>> layer = DoubleExponential(shape=(1,))
+    >>> x = np.random.rand(1000, 1)
+    >>> numpy_out, tf_out = compare_layer_eval(layer, x)
+    >>> np.allclose(numpy_out, tf_out, atol=1e-5)
+    True
+
+    """
+    import tensorflow as tf
+
+    numpy_out = layer.evaluate(*inputs)
+
+    tf_layer = layer.as_tensorflow_layer()
+    dtype = tf_layer.dtype
+    if len(inputs) == 1:
+        tf_input = tf.expand_dims(tf.constant(inputs[0], dtype=dtype), axis=0)
+    else:
+        tf_input = [tf.expand_dims(tf.constant(inp, dtype=dtype), axis=0) for inp in inputs]
+    tf_result = tf_layer(tf_input)
+    tf_out = tf_result.numpy()
+
+    return numpy_out, tf_out
+
+
 # TODO: multiple initial conditions instead of iterations.

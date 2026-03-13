@@ -400,7 +400,6 @@ class FiniteImpulseResponse(Layer):
 
         if new_coefs_shape[-1] > new_c.shape[-1]:
             # Coefficients outputs increased, need to broadcast coefs in call.
-            #@tf.function
             def broadcast_coefficients(coefficients):
                 return tf.broadcast_to(coefficients, new_coefs_shape)
         else:

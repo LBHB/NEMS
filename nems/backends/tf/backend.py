@@ -456,18 +456,6 @@ class TensorFlowBackend(Backend):
                     #log.info(f"fixed order: {nems_layer.name}, {tf_layer.name}")
                     nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
 
-        # OLD
-        #layer_iter = zip(self.nems_model.layers, tf_model_layers)
-        #for nems_layer, tf_layer in layer_iter:
-        #    if nems_layer.name==tf_layer.name:
-        #        log.info(f"worked in order: {nems_layer.name}, {tf_layer.name}")
-        #        nems_layer.set_parameter_values(tf_layer.weights_to_values(), ignore_bounds=True)
-        #    else:
-        #        for tfl in tf_model_layers:
-        #            if nems_layer.name==tfl.name:
-        #                log.info(f"fixed order: {nems_layer.name}, {tfl.name}")
-        #                nems_layer.set_parameter_values(tfl.weights_to_values(), ignore_bounds=True)
-
         final_parameters = self.nems_model.get_parameter_vector()
         final_error = np.nanmin(history.history[loss_name])
         log.info(f'Final loss: {final_error:.4f}')
@@ -478,6 +466,55 @@ class TensorFlowBackend(Backend):
         )
 
         return nems_fit_results
+
+    def evaluate_all_layers(self, input):
+        """Run a forward pass and return a dict of outputs for every NEMS layer.
+
+        Builds a temporary multi-output Keras model that exposes each layer's
+        output tensor, runs one forward pass, and returns results keyed by the
+        NEMS data_map output name — matching the structure of DataSet returned
+        by Model.evaluate().
+
+        Parameters
+        ----------
+        input : dict of ndarray
+            Model inputs without a leading sample dimension (same format as
+            passed to Model.evaluate).
+
+        Returns
+        -------
+        dict
+            Keys are NEMS data_map output names; values are squeezed ndarrays.
+        """
+        tf_layer_map = {l.name: l for l in self.model.layers}
+        debug_outputs = []
+        debug_keys = []
+        for nems_layer in self.nems_model.layers:
+            tf_l = tf_layer_map.get(nems_layer.name)
+            if tf_l is None:
+                continue
+            out_key = nems_layer.data_map.out[0] if nems_layer.data_map.out else None
+            if out_key is None:
+                continue
+            try:
+                debug_outputs.append(tf_l.output)
+                debug_keys.append(out_key)
+            except AttributeError:
+                pass
+        if not debug_outputs:
+            return {}
+        debug_model = tf.keras.Model(inputs=self.model.inputs, outputs=debug_outputs)
+        sample_val = next(iter(input.values())) if isinstance(input, dict) else input
+        model_input_ndim = len(self.model.inputs[0].shape)
+        if sample_val.ndim < model_input_ndim:
+            tf_input = {k: v[np.newaxis] for k, v in input.items()} \
+                if isinstance(input, dict) else input[np.newaxis]
+        else:
+            tf_input = input
+        preds = debug_model.predict(tf_input)
+        if not isinstance(preds, list):
+            preds = [preds]
+        return {key: np.squeeze(pred) for key, pred in zip(debug_keys, preds)}
 
     def predict(self, input, batch_size=0, **eval_kwargs):
         """Get output of `TensorFlowBackend.model` given `input`.
