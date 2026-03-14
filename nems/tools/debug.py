@@ -440,7 +440,8 @@ def compare_layer_eval(layer, *inputs):
 
     numpy_out = layer.evaluate(*inputs)
 
-    tf_layer = layer.as_tensorflow_layer()
+    #if layer.name.startwith('STRF') or layer.name.startwith('FIR'):
+    tf_layer = layer.as_tensorflow_layer(input_shape=[1]+list(inputs[0].shape))
     dtype = tf_layer.dtype
     if len(inputs) == 1:
         tf_input = tf.expand_dims(tf.constant(inputs[0], dtype=dtype), axis=0)
@@ -451,5 +452,18 @@ def compare_layer_eval(layer, *inputs):
 
     return numpy_out, tf_out
 
+
+def generate_random_input(shape=(100,2), low=0, high=1):
+    """
+    generates a matrix with uniformly distributed random numbers.
+    :param shape: tuple
+    :param low: min value
+    :param high: max value
+    :return: matrix of size shape
+    """
+    rng = np.random.default_rng()
+    matrix = rng.uniform(low=low, high=high, size=shape)
+
+    return matrix
 
 # TODO: multiple initial conditions instead of iterations.

@@ -10,7 +10,7 @@ from nems.distributions import Normal, HalfNormal
 from .tools import standardize_axes
 
 
-def stp_test_input(fmt='square', v=0.4, shape=(1,), T=100):
+def stp_test_input(fmt='square', v=0.4, shape=(3,), T=100):
     """Generate synthetic data to probe STP's input/output relationship.
 
     Each channel is structured as:
@@ -32,6 +32,13 @@ def stp_test_input(fmt='square', v=0.4, shape=(1,), T=100):
         input[65:95, :] = v
     elif fmt=='flat':
         input = np.zeros([T]+list(shape)) + v
+    elif fmt=='mix':
+        input = np.zeros([T]+list(shape))
+        input[5:15, 0] = v/2
+        input[20:30, 0] = v
+        input[35:45, 0] = v
+        input[65:95, 0] = v
+        input[:, 1] = v
     else:
         input = np.random.rand(*([T] + list(shape)))
 
