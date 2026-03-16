@@ -310,6 +310,16 @@ class TensorFlowBackend(Backend):
             optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
             model_ref = self.model
 
+            # Determine whether to mini-batch. When batch_size is set and there
+            # are multiple samples (windowed/epoched data), build a
+            # tf.data.Dataset so each epoch iterates over mini-batches instead
+            # of loading the full dataset into GPU at once.
+            n_samples = target.shape[0]
+            use_minibatch = (batch_size is not None) and (batch_size > 0) and (n_samples > 1)
+            if use_minibatch:
+                effective_bs = min(batch_size, n_samples)
+                log.info(f"Mini-batch training: {n_samples} samples, batch_size={effective_bs}")
+
             # Build train tensors and optional validation tensors.
             if validation_data is not None:
                 val_x, val_y = validation_data
@@ -334,16 +344,41 @@ class TensorFlowBackend(Backend):
             if use_validation:
                 loss_name = 'val_loss'
 
-            @tf.function
-            def _train_step():
-                with tf.GradientTape() as tape:
-                    preds = model_ref(tf_inputs, training=True)
-                    if isinstance(preds, (list, tuple)):
-                        preds = preds[-1]
-                    loss = cost_function(tf_target, preds)
-                grads = tape.gradient(loss, model_ref.trainable_variables)
-                optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
-                return loss
+            if use_minibatch:
+                # Build tf.data.Dataset for mini-batched training.
+                train_ds = tf.data.Dataset.from_tensor_slices(
+                    ({k: v for k, v in tf_inputs.items()}, tf_target)
+                )
+                if shuffle:
+                    train_ds = train_ds.shuffle(buffer_size=n_samples)
+                train_ds = train_ds.batch(effective_bs).prefetch(1)
+
+                @tf.function
+                def _train_epoch():
+                    total_loss = tf.constant(0.0)
+                    n_batches = tf.constant(0.0)
+                    for batch_x, batch_y in train_ds:
+                        with tf.GradientTape() as tape:
+                            preds = model_ref(batch_x, training=True)
+                            if isinstance(preds, (list, tuple)):
+                                preds = preds[-1]
+                            loss = cost_function(batch_y, preds)
+                        grads = tape.gradient(loss, model_ref.trainable_variables)
+                        optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+                        total_loss += loss
+                        n_batches += 1.0
+                    return total_loss / n_batches
+            else:
+                @tf.function
+                def _train_step():
+                    with tf.GradientTape() as tape:
+                        preds = model_ref(tf_inputs, training=True)
+                        if isinstance(preds, (list, tuple)):
+                            preds = preds[-1]
+                        loss = cost_function(tf_target, preds)
+                    grads = tape.gradient(loss, model_ref.trainable_variables)
+                    optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+                    return loss
 
             if use_validation:
                 @tf.function
@@ -361,7 +396,10 @@ class TensorFlowBackend(Backend):
             leading_zeros = int(np.log10(max(epochs, 1))) + 1
 
             for epoch in range(epochs):
-                loss_val = float(_train_step())
+                if use_minibatch:
+                    loss_val = float(_train_epoch())
+                else:
+                    loss_val = float(_train_step())
                 loss_history.append(loss_val)
 
                 if use_validation:
