@@ -64,6 +64,8 @@ class FiniteImpulseResponse(Layer):
         self.include_anticausal = include_anticausal
         if not hasattr(self, 'fshape') or self.fshape is None:
             self.fshape = fshape if fshape is not None else kwargs['shape']
+        #if not hasattr(self, 'wshape') or self.wshape is None:
+        #    self.wshape = wshape if wshape is not None else kwargs['shape']
 
         super().__init__(**kwargs)
 
@@ -501,7 +503,8 @@ class STRF(FiniteImpulseResponse):
     TODO: support for activation function?
     """
     def __init__(self, stride=1, include_anticausal=False, activation=None,
-                 skip_alpha=0, skip_layer=None, **kwargs):
+                 skip_alpha=0, skip_layer=None, wshape=None, fshape=None, nout=None,
+                 **kwargs):
         """Spectrotemporal receptive field: fused WeightChannels + FIR layer.
 
         Parameters

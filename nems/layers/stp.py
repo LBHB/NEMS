@@ -5,13 +5,13 @@ from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter
 from nems.layers.tools import require_shape, pop_shape
 from nems.tools.arrays import one_or_more_negative
-from nems.distributions import Normal, HalfNormal
+from nems.distributions import Normal, HalfNormal, Uniform
 
 
 class ShortTermPlasticity(Layer):
 
     def __init__(self, quick_eval=True, fs=100.0, crosstalk=0, dep_only=False,
-                 chunksize=5000, x0=None, reset_signal=None, **kwargs):
+                 chunksize=5000, x0=None, reset_signal=None, pad_onsets=100, **kwargs):
         """TODO: docs
 
         TODO: additional context.
@@ -51,7 +51,7 @@ class ShortTermPlasticity(Layer):
         self.chunksize = chunksize
         self.x0 = x0
         self.reset_signal = reset_signal
-        self.pad_onsets = 100
+        self.pad_onsets = pad_onsets
 
         super().__init__(**kwargs)
 
@@ -78,10 +78,11 @@ class ShortTermPlasticity(Layer):
         u0, tau0 = self.seconds_to_bins(self.fs, 0.05, 0.05)     # 0.1 frac, 100 ms
         _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.001) #   1 ms
 
-        tau_sd = np.full(shape=self.shape, fill_value=tau0)
-        tau_prior = HalfNormal(tau_sd)
-        u_sd = np.full(shape=self.shape, fill_value=u0)
-        u_prior = HalfNormal(u_sd)
+        tau_mn = np.full(shape=self.shape, fill_value=tau0)
+        tau_prior = Uniform(tau_mn/2, tau_mn*3/2)
+        u_mn = np.full(shape=self.shape, fill_value=u0)
+        u_prior = Uniform(u_mn/2, u_mn*3/2)
+        #u_prior = HalfNormal(u_sd)
 
         tau_bounds = (tau_min, np.inf)
         if self.dep_only or self.quick_eval:
