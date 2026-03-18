@@ -310,7 +310,7 @@ class FiniteImpulseResponse(Layer):
                 input_width = tf.shape(inputs)[1] # tf.shape(inputs)[1] or inputs.shape[1]
                 # Broadcast output shape if needed.
                 inputs = broadcast_inputs(inputs)
-                coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=tf.float32)
+                coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=self.dtype)
 
                 coefficients = broadcast_coefficients(coefs_tensor)
                 #coefficients = broadcast_coefficients(self.coefficients)
@@ -400,7 +400,6 @@ class FiniteImpulseResponse(Layer):
 
         if new_coefs_shape[-1] > new_c.shape[-1]:
             # Coefficients outputs increased, need to broadcast coefs in call.
-            #@tf.function
             def broadcast_coefficients(coefficients):
                 return tf.broadcast_to(coefficients, new_coefs_shape)
         else:
@@ -447,14 +446,14 @@ class FiniteImpulseResponse(Layer):
                         )
                 # Reorder input to shape (n outputs, batch, time, rank)
                 x = tf.transpose(padded_input, [3, 0, 1, 2])
-                fn = lambda t: tf.cast(tf.nn.conv1d(  # TODO: don't like forcing dtype here
+                fn = lambda t: tf.nn.conv1d(
                     t[0], t[1], stride=stride, padding='VALID'
-                    ), tf.float64)
+                    )
                 # Apply convolution for each output
                 y = tf.map_fn(
                     fn=fn,
                     elems=(x, new_coefs),
-                    fn_output_signature=tf.float64
+                    fn_output_signature=inputs.dtype
                     )
                 # Reorder output back to (batch, time, n outputs)
                 z = tf.transpose(tf.squeeze(y, axis=3), [1, 2, 0])
@@ -625,9 +624,9 @@ class STRF(FiniteImpulseResponse):
             Parameter(name='coefficients',  shape=fshape, prior=fprior),
             Parameter(name='shift',         shape=nout,   prior=shiftprior),
         ]
-        if np.abs(self.skip_alpha) > 0:
-            alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
-            params.append(Parameter(name='alpha', shape=(1,), prior=alphaprior))
+        #if np.abs(self.skip_alpha) > 0:
+        #    alphaprior = Normal(np.array([np.abs(self.skip_alpha)]), np.array([0.1]))
+        #    params.append(Parameter(name='alpha', shape=(1,), prior=alphaprior))
 
         return Phi(*params)
 
@@ -649,7 +648,8 @@ class STRF(FiniteImpulseResponse):
     @property
     def alpha(self):
         """Skip-connection scale factor."""
-        return self.parameters['alpha'].values
+        #return self.parameters['alpha'].values
+        return np.abs(self.skip_alpha)
 
     @property
     def strf(self):
@@ -743,9 +743,9 @@ class STRF(FiniteImpulseResponse):
                 # default is None
                 kwargs['activation']=op
             elif op == 'skl':
-                kwargs['skip_alpha'] = -0.5
+                kwargs['skip_alpha'] = -0.1
             elif op == 'sk':
-                kwargs['skip_alpha'] = 0.5
+                kwargs['skip_alpha'] = 0.1
             elif op.startswith('skl'):
                 kwargs['skip_alpha'] = -int(op[2:]) / 100
             elif op.startswith('sk'):
@@ -826,11 +826,13 @@ class STRF(FiniteImpulseResponse):
             def call(self, inputs):
                 def apply_skip(out):
                     if inputs.shape[-1] < out.shape[-1]:
-                        head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
+                        #head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
+                        head = out[:, :, :inputs.shape[-1]] + inputs * skip_alpha
                         tail = out[:, :, inputs.shape[-1]:]
                         return tf.concat([head, tail], axis=2)
                     else:
-                        return out + inputs[:, :, :out.shape[-1]] * self.alpha
+                        #return out + inputs[:, :, :out.shape[-1]] * self.alpha
+                        return out + inputs[:, :, :out.shape[-1]] * skip_alpha
 
                 # Channel weighting — mirrors WeightChannels.as_tensorflow_layer.
                 # Use einsum (not tensordot): Keras 3 traces einsum statically.
@@ -847,7 +849,7 @@ class STRF(FiniteImpulseResponse):
                 # FIR convolution — mirrors FiniteImpulseResponse.as_tensorflow_layer.
                 if fir_len > 1:
                     coefs_tensor = tf.convert_to_tensor(
-                        self.coefficients, dtype=tf.float32
+                        self.coefficients, dtype=self.dtype
                     )
                     out = convolve(rank_4, broadcast_coefficients(coefs_tensor))
                 else:

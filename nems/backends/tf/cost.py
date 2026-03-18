@@ -123,6 +123,26 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     # else:
     #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
     #              "n_drop:", n_drop)
+    # Use dynamic shape for time dim (may be unknown at trace time with generators)
+    s_static = prediction.get_shape().as_list()
+    s_dyn = tf.shape(prediction)
+    n_time = s_dyn[1]
+    n_cells = s_static[2] if s_static[2] is not None else s_dyn[2]
+    n_per = n_time // 10
+    n_usable = n_per * 10
+    n_drop = n_time%10
+
+    # Trim time dimension to be divisible by 10
+    _response = response[:, :n_usable, :]
+    _prediction = prediction[:, :n_usable, :]
+
+    # Printing out loss messages per call is not very helpful and clutters fit log
+    # if allow_nan:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop, "(Allowing nan)")
+    # else:
+    #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
+    #              "n_drop:", n_drop)
 
     _response = tf.reshape(_response, shape=(-1, 10, n_per, n_cells))
     _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, n_cells))
