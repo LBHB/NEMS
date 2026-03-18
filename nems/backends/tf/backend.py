@@ -24,7 +24,7 @@ class TensorFlowBackend(Backend):
         super().__init__(nems_model, data, verbose=verbose, eval_kwargs=eval_kwargs)
 
     def _build(self, data, eval_kwargs=None):
-        """Build a TensorFlow Keras model that corresponds to a NEMS Model. 
+        """Build a TensorFlow Keras model that corresponds to a NEMS Model.
 
         Parameters
         ----------
@@ -41,7 +41,7 @@ class TensorFlowBackend(Backend):
         -----
         This method will only work if all Layers in the NEMS Model have
         implemented `as_tensorflow_layer`.
-        
+
         """
         # TODO: what backend options to accept?
 
@@ -53,7 +53,7 @@ class TensorFlowBackend(Backend):
 
         data_format = data.data_format
         batch_size = eval_kwargs.get('batch_size', 0)
-        if (batch_size == 0) and (data_format != 'tf.data.Dataset'):
+        if (batch_size == 0) and (data_format not in ('tf.data.Dataset', 'tf.keras.utils.Sequence')):
             data = data.prepend_samples()
             batch_size = None
 
@@ -200,7 +200,7 @@ class TensorFlowBackend(Backend):
              validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0,
              **kwargs):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
-        
+
         Currently the use of other TensorFlow optimizers is not exposed as an
         option, but that may be added at a later time.
 
@@ -249,7 +249,7 @@ class TensorFlowBackend(Backend):
         if kwargs:
             log.warning(f"TF backend ignoring unrecognized fitter_options: {list(kwargs.keys())}")
         batch_size = eval_kwargs.get('batch_size', 0)
-        if (batch_size == 0) and (data.data_format != 'tf.data.Dataset'):
+        if (batch_size == 0) and (data.data_format not in ('tf.data.Dataset', 'tf.keras.utils.Sequence')):
             data = data.prepend_samples()
             batch_size = None
 
@@ -264,14 +264,6 @@ class TensorFlowBackend(Backend):
         log.info(f"grad_clipnorm={grad_clipnorm}")
         loss_name = 'loss'  # overridden to 'val_loss' in the array+validation branch
 
-        # Compile once here; all branches (including the custom training loop,
-        # which needs compile() so that evaluate() works in Keras 3) use the
-        # same optimizer settings.
-        self.model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm),
-            loss=cost_function
-        )
-
         def _make_callbacks(loss_name):
             cbs = [ProgressCallback(monitor=loss_name, report_frequency=50, epochs=epochs),
                    TerminateOnNaNWeights()]
@@ -285,197 +277,227 @@ class TensorFlowBackend(Backend):
         def _to_array(err):
             return np.array([err]) if isinstance(err, float) else err
 
-        # TODO: This assumes a single output (like our usual models).
-        #       Need to tweak this to be able to fit outputs from multiple
-        #       layers. _build would need to establish a mapping I guess, since
-        #       it has the information about which layer generates which output.
-        if data.data_format not in ('tf.data.Dataset', 'tf.keras.utils.Sequence'):
-            inputs = data.inputs
+        # ----------------------------------------------------------------
+        # Unified training loop (2026-03-17 JCW/claude).
+        # Array data uses plain numpy batching instead of tf.data.Dataset
+        # to avoid a known TF 2.10+ memory leak where Dataset graph
+        # objects accumulate across repeated fits and are not freed by
+        # clear_session() (see keras-team/tf-keras#286).
+        # Dataset/Sequence objects passed in externally are used as-is.
+        # ----------------------------------------------------------------
 
+        # Convert data to numpy arrays for batching.
+        use_numpy_batching = False
         if data.data_format == 'array':
-            #
-            # This condition was generated with substantial assistantce by Claude code
-            # in order to be compatible with TF2.21 and Keras 3
-            #
             if len(data.targets) > 1:
                 raise NotImplementedError("Only one target supported currently.")
+            inputs = data.inputs
             target = list(data.targets.values())[0] if data.targets else None
-
-            initial_error = _to_array(self.model.evaluate(inputs, target, batch_size=batch_size, return_dict=False, verbose=False))
-            log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
-
-            # Custom training loop: avoids Keras 3 per-epoch Python overhead.
-            # A @tf.function loop traces once and runs on GPU with only a
-            # single scalar sync per epoch.
-            optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
-            model_ref = self.model
-
-            # Determine whether to mini-batch. When batch_size is set and there
-            # are multiple samples (windowed/epoched data), build a
-            # tf.data.Dataset so each epoch iterates over mini-batches instead
-            # of loading the full dataset into GPU at once.
             n_samples = target.shape[0]
-            use_minibatch = (batch_size is not None) and (batch_size > 0) and (n_samples > 1)
-            if use_minibatch:
-                effective_bs = min(batch_size, n_samples)
-                log.info(f"Mini-batch training: {n_samples} samples, batch_size={effective_bs}")
+            effective_bs = min(batch_size, n_samples) if (batch_size is not None and batch_size > 0) else n_samples
 
-            # Build train tensors and optional validation tensors.
-            if validation_data is not None:
-                val_x, val_y = validation_data
-                tf_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in inputs.items()}
-                tf_target = tf.constant(target, dtype=tf.float32)
-                tf_val_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in val_x.items()} \
-                    if isinstance(val_x, dict) else tf.constant(val_x, dtype=tf.float32)
-                tf_val_target = tf.constant(val_y, dtype=tf.float32)
-            elif validation_split > 0:
-                # Carve off last fraction along sample axis.
-                split_idx = int(target.shape[0] * (1 - validation_split))
-                tf_inputs = {k: tf.constant(v[:split_idx], dtype=tf.float32) for k, v in inputs.items()}
-                tf_target = tf.constant(target[:split_idx], dtype=tf.float32)
-                tf_val_inputs = {k: tf.constant(v[split_idx:], dtype=tf.float32) for k, v in inputs.items()}
-                tf_val_target = tf.constant(target[split_idx:], dtype=tf.float32)
-            else:
-                tf_inputs = {k: tf.constant(v, dtype=tf.float32) for k, v in inputs.items()}
-                tf_target = tf.constant(target, dtype=tf.float32)
-                tf_val_inputs = tf_val_target = None
+            # Pre-convert to float32 numpy arrays (no tf.data.Dataset).
+            # np.asarray with dtype returns a view when already float32 — no copy.
+            np_inputs = {k: np.asarray(v, dtype=np.float32) for k, v in inputs.items()}
+            np_target = np.asarray(target, dtype=np.float32)
 
-            use_validation = tf_val_inputs is not None
-            if use_validation:
+            # Apply validation_split by carving off the last fraction of samples.
+            # Explicit validation_data (handled below) takes precedence.
+            if validation_split > 0 and validation_data is None:
+                split_idx = int(n_samples * (1 - validation_split))
+                val_np_inputs = {k: v[split_idx:] for k, v in np_inputs.items()}
+                val_np_target = np_target[split_idx:]
+                np_inputs = {k: v[:split_idx] for k, v in np_inputs.items()}
+                np_target = np_target[:split_idx]
                 loss_name = 'val_loss'
-
-            if use_minibatch:
-                # Build tf.data.Dataset for mini-batched training.
-                train_ds = tf.data.Dataset.from_tensor_slices(
-                    ({k: v for k, v in tf_inputs.items()}, tf_target)
-                )
-                if shuffle:
-                    train_ds = train_ds.shuffle(buffer_size=n_samples)
-                train_ds = train_ds.batch(effective_bs).prefetch(1)
-
-                @tf.function
-                def _train_epoch():
-                    total_loss = tf.constant(0.0)
-                    n_batches = tf.constant(0.0)
-                    for batch_x, batch_y in train_ds:
-                        with tf.GradientTape() as tape:
-                            preds = model_ref(batch_x, training=True)
-                            if isinstance(preds, (list, tuple)):
-                                preds = preds[-1]
-                            loss = cost_function(batch_y, preds)
-                        grads = tape.gradient(loss, model_ref.trainable_variables)
-                        optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
-                        total_loss += loss
-                        n_batches += 1.0
-                    return total_loss / n_batches
+                log.info(f"Training: {split_idx} samples, val: {n_samples - split_idx}, batch_size={effective_bs}")
             else:
-                @tf.function
-                def _train_step():
-                    with tf.GradientTape() as tape:
-                        preds = model_ref(tf_inputs, training=True)
-                        if isinstance(preds, (list, tuple)):
-                            preds = preds[-1]
-                        loss = cost_function(tf_target, preds)
-                    grads = tape.gradient(loss, model_ref.trainable_variables)
-                    optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
-                    return loss
+                val_np_inputs = None
+                val_np_target = None
+                log.info(f"Training: {n_samples} samples, batch_size={effective_bs}")
+
+            use_numpy_batching = True
+
+        elif data.data_format in ('tf.data.Dataset', 'tf.keras.utils.Sequence'):
+            train_ds = data
+            use_numpy_batching = False
+
+        else:
+            # 'fn' format — extract the generator/Sequence stored in the DataSet wrapper.
+            inputs = data.inputs
+            train_ds = inputs['input'][0]
+            use_numpy_batching = False
+
+        # Build optional validation data (also avoid tf.data.Dataset).
+        # val_np_inputs/val_np_target may already be set by the array+validation_split
+        # branch above — only initialize them here for non-array paths.
+        if not use_numpy_batching:
+            val_np_inputs = None
+            val_np_target = None
+        val_ds = None
+        if validation_data is not None:
+            if isinstance(validation_data, tf.data.Dataset):
+                # Already batched externally — use as-is, no re-batching.
+                val_ds = validation_data
+            else:
+                val_x, val_y = validation_data
+                if isinstance(val_x, dict):
+                    val_np_inputs = {k: np.asarray(v, dtype=np.float32) for k, v in val_x.items()}
+                    val_np_target = np.asarray(val_y, dtype=np.float32)
+                elif isinstance(val_x, np.ndarray):
+                    val_np_inputs = np.asarray(val_x, dtype=np.float32)
+                    val_np_target = np.asarray(val_y, dtype=np.float32)
+                else:
+                    raise TypeError(
+                        f"validation_data must be a (x, y) tuple or tf.data.Dataset, got {type(val_x)}"
+                    )
+            loss_name = 'val_loss'
+        else:
+            val_ds = None
+
+        def _numpy_batches(np_in, np_tgt, bs, do_shuffle=False):
+            """Yield (dict-of-tensors, tensor) batches from numpy arrays."""
+            n = np_tgt.shape[0]
+            idx = np.random.permutation(n) if do_shuffle else np.arange(n)
+            for start in range(0, n, bs):
+                sl = idx[start:start + bs]
+                bx = {k: tf.constant(v[sl]) for k, v in np_in.items()} if isinstance(np_in, dict) else tf.constant(np_in[sl])
+                by = tf.constant(np_tgt[sl])
+                yield bx, by
+
+        # Compute initial error — same accounting as _train_step (task loss + regularization).
+        init_loss = 0.0
+        init_n = 0
+        for bx, by in (_numpy_batches(np_inputs, np_target, effective_bs) if use_numpy_batching else train_ds):
+            n = by.shape[0]
+            batch_loss = float(cost_function(by, self.model(bx, training=False)))
+            if self.model.losses:
+                batch_loss += float(tf.add_n(self.model.losses))
+            init_loss += batch_loss * n
+            init_n += n
+        initial_error = np.array([init_loss / max(init_n, 1)])
+        log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
+
+        # Custom training loop with GradientTape.
+        optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
+        model_ref = self.model
+
+        # Training step on a single batch — @tf.function with fixed
+        # input signature so TF traces once and reuses across epochs/fits.
+        @tf.function
+        def _train_step(batch_x, batch_y):
+            with tf.GradientTape() as tape:
+                preds = model_ref(batch_x, training=True)
+                if isinstance(preds, (list, tuple)):
+                    preds = preds[-1]
+                loss = cost_function(batch_y, preds)
+                if model_ref.losses:
+                    loss += tf.add_n(model_ref.losses)
+            grads = tape.gradient(loss, model_ref.trainable_variables)
+            optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+            return loss
+
+        @tf.function
+        def _val_step(batch_x, batch_y):
+            preds = model_ref(batch_x, training=False)
+            if isinstance(preds, (list, tuple)):
+                preds = preds[-1]
+            loss = cost_function(batch_y, preds)
+            if model_ref.losses:
+                loss += tf.add_n(model_ref.losses)
+            return loss
+
+        def _run_train_epoch():
+            total_loss = 0.0
+            total_samples = 0
+            if use_numpy_batching:
+                for bx, by in _numpy_batches(np_inputs, np_target, effective_bs, do_shuffle=shuffle):
+                    n = by.shape[0]
+                    total_loss += float(_train_step(bx, by)) * n
+                    total_samples += n
+            else:
+                for bx, by in train_ds:
+                    n = by.shape[0]
+                    total_loss += float(_train_step(bx, by)) * n
+                    total_samples += n
+            return total_loss / max(total_samples, 1)
+
+        def _run_val_epoch():
+            total_loss = 0.0
+            total_samples = 0
+            if val_np_inputs is not None:
+                val_bs = effective_bs if use_numpy_batching else 32
+                for bx, by in _numpy_batches(val_np_inputs, val_np_target, val_bs):
+                    n = by.shape[0]
+                    total_loss += float(_val_step(bx, by)) * n
+                    total_samples += n
+            elif val_ds is not None:
+                for bx, by in val_ds:
+                    n = by.shape[0]
+                    total_loss += float(_val_step(bx, by)) * n
+                    total_samples += n
+            return total_loss / max(total_samples, 1)
+
+        import time
+        fit_start_time = time.time()
+
+        use_validation = (val_ds is not None) or (val_np_inputs is not None)
+        loss_history = []
+        val_loss_history = [] if use_validation else None
+        best_loss = np.inf
+        best_weights = self.model.get_weights()
+        patience_count = 0
+        leading_zeros = int(np.log10(max(epochs, 1))) + 1
+
+        for epoch in range(epochs):
+            loss_val = _run_train_epoch()
+            loss_history.append(loss_val)
+
+            # Reshuffle indices for Sequence objects between epochs.
+            if not use_numpy_batching and hasattr(train_ds, 'on_epoch_end'):
+                train_ds.on_epoch_end()
 
             if use_validation:
-                @tf.function
-                def _val_step():
-                    preds = model_ref(tf_val_inputs, training=False)
-                    if isinstance(preds, (list, tuple)):
-                        preds = preds[-1]
-                    return cost_function(tf_val_target, preds)
+                val_loss_val = _run_val_epoch()
+                val_loss_history.append(val_loss_val)
+                monitor_val = val_loss_val
+                log_suffix = f' - val_loss: {val_loss_val:.4e}'
+            else:
+                monitor_val = loss_val
+                log_suffix = ''
 
-            loss_history = []
-            val_loss_history = [] if use_validation else None
-            best_loss = np.inf
-            best_weights = self.model.get_weights()
-            patience_count = 0
-            leading_zeros = int(np.log10(max(epochs, 1))) + 1
+            if epoch % 50 == 0:
+                log.info(f'Epoch {epoch:0>{leading_zeros}}/{epochs} - loss: {loss_val:.4e}{log_suffix}')
+                # Log individual layer losses (e.g. HRTF regularization terms).
+                if model_ref.losses:
+                    for metric in model_ref.metrics:
+                        if hasattr(metric, 'result'):
+                            log.info(f'  {metric.name}: {float(metric.result()):.4e}')
 
-            for epoch in range(epochs):
-                if use_minibatch:
-                    loss_val = float(_train_epoch())
-                else:
-                    loss_val = float(_train_step())
-                loss_history.append(loss_val)
+            if np.isnan(monitor_val) or np.isinf(monitor_val):
+                log.info(f'Epoch {epoch}: NaN/Inf {loss_name}, restoring best weights')
+                self.model.set_weights(best_weights)
+                break
 
-                if use_validation:
-                    val_loss_val = float(_val_step())
-                    val_loss_history.append(val_loss_val)
-                    monitor_val = val_loss_val
-                    log_suffix = f' - val_loss: {val_loss_val:.4e}'
-                else:
-                    monitor_val = loss_val
-                    log_suffix = ''
-
-                if epoch % 50 == 0:
-                    log.info(f'Epoch {epoch:0>{leading_zeros}}/{epochs} - loss: {loss_val:.4e}{log_suffix}')
-
-                if np.isnan(monitor_val) or np.isinf(monitor_val):
-                    log.info(f'Epoch {epoch}: NaN/Inf {loss_name}, restoring best weights')
-                    self.model.set_weights(best_weights)
-                    break
-
-                if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
-                    if monitor_val < best_loss - early_stopping_tolerance:
-                        best_loss = monitor_val
-                        best_weights = self.model.get_weights()
-                        patience_count = 0
-                    else:
-                        patience_count += 1
-                        if patience_count >= early_stopping_patience:
-                            log.info(f'Early stopping at epoch {epoch}')
-                            self.model.set_weights(best_weights)
-                            break
-                elif monitor_val < best_loss:
+            if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
+                if monitor_val < best_loss - early_stopping_tolerance:
                     best_loss = monitor_val
                     best_weights = self.model.get_weights()
+                    patience_count = 0
+                else:
+                    patience_count += 1
+                    if patience_count >= early_stopping_patience:
+                        log.info(f'Early stopping at epoch {epoch}')
+                        self.model.set_weights(best_weights)
+                        break
+            elif monitor_val < best_loss:
+                best_loss = monitor_val
+                best_weights = self.model.get_weights()
 
-            hist_dict = {'loss': loss_history}
-            if use_validation:
-                hist_dict['val_loss'] = val_loss_history
-            history = SimpleNamespace(history=hist_dict)
-
-        elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-            #
-            # TODO: edits required for compatibiltiy with TF2.21 and Keras 3?
-            #
-            initial_error = _to_array(self.model.evaluate(data, batch_size=batch_size, return_dict=False, verbose=False))
-            log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, batch_size: {batch_size}, shuffle: {shuffle}")
-            history = self.model.fit(
-                data, epochs=epochs, verbose=0,
-                validation_split=validation_split, callbacks=_make_callbacks(loss_name),
-                validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
-        else:
-            #
-            # TODO: edits required for compatibiltiy with TF2.21 and Keras 3?
-            # TODO: Figure out what conditions cause this block to be used
-            #
-            X_ = inputs['input'][0][0]
-            Y_ = inputs['input'][0][1]
-            initial_error = _to_array(self.model.evaluate({'input': X_}, Y_, return_dict=False, verbose=self.verbose))
-            log.info(f"Init loss: {initial_error[0]:.3f}, batch_size: {batch_size}, shuffle: {shuffle}")
-            if validation_split == 0:
-                history = self.model.fit(
-                    inputs['input'], None, epochs=epochs, verbose=0,
-                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
-                    validation_data=validation_data, batch_size=batch_size, shuffle=shuffle
-                )
-            else:
-                g_est = inputs['input'].copy()
-                g_est.frac=1-validation_split
-                g_val = inputs['input'].copy()
-                g_val.frac=-validation_split
-                history = self.model.fit(
-                    g_est,
-                    validation_data=g_val, batch_size=batch_size,
-                    epochs=epochs, verbose=0,
-                    callbacks=_make_callbacks(loss_name),
-                    shuffle=shuffle
-                )
+        hist_dict = {'loss': loss_history}
+        if use_validation:
+            hist_dict['val_loss'] = val_loss_history
+        history = SimpleNamespace(history=hist_dict)
 
         # Save weights back to NEMS model
         # Skip input layers.
@@ -487,7 +509,7 @@ class TensorFlowBackend(Backend):
             layer for layer in self.model.layers
             if not layer.name in [x.name for x in self.model.inputs]
             ]
-        
+
         # SVD fix to allow tf layer order to change randomly (can't force it to match?)
         for nems_layer in self.nems_model.layers:
             for tf_layer in tf_model_layers:
@@ -509,18 +531,29 @@ class TensorFlowBackend(Backend):
 
         final_parameters = self.nems_model.get_parameter_vector()
         final_error = np.nanmin(history.history[loss_name])
-        log.info(f'Final loss: {final_error:.4f}')
+        elapsed = time.time() - fit_start_time
+        log.info(f'Final loss: {final_error:.4f} ({int(elapsed//60)}m {int(elapsed%60)}s, {epoch+1} epochs)')
         nems_fit_results = FitResults(
             initial_parameters, final_parameters, initial_error, final_error,
             backend_name='TensorFlow',
             misc={'TensorFlow History': history.history}
         )
 
+        # Break closure references held by @tf.function traces so that
+        # TF resources can be freed by clear_session + gc.collect in
+        # Model.fit().
+        del _train_step, _val_step, _run_train_epoch, _run_val_epoch
+        del model_ref, optimizer
+        if not use_numpy_batching:
+            del train_ds
+        if val_ds is not None:
+            del val_ds
+
         return nems_fit_results
 
     def predict(self, input, batch_size=0, **eval_kwargs):
         """Get output of `TensorFlowBackend.model` given `input`.
-        
+
         Parameters
         ----------
         input : ndarray or list of ndarray, tensor or list of tensor.
@@ -699,13 +732,13 @@ class TensorFlowBackend(Backend):
         #    oc = tf.constant([out_channel])
         #else:
         #    oc = tf.constant(out_channel)
-            
+
         # support for multiple inputs
         if type(input) is list:
             tensor = [tf.cast(i, tf.float32) for i in input]
         else:
             tensor = tf.cast(input, tf.float32)
-            
+
         with tf.GradientTape(persistent=True) as g:
             g.watch(tensor)
             z = self.model(tensor)
@@ -1338,7 +1371,7 @@ class TerminateOnNaNWeights(tf.keras.callbacks.Callback):
     def __init__(self, **kwargs):
         super(TerminateOnNaNWeights, self).__init__(**kwargs)
         self.safe_weights = None
-        
+
     def on_epoch_end(self, epoch, logs=None):
         """Goes through weights looking for any NaNs."""
         found_nan = None

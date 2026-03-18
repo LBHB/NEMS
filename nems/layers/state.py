@@ -2001,12 +2001,21 @@ class HRTFGainLayerMLPReg(Layer):
         Pre-computed generic HRTF table with shape (az_samples, freq_bins, 2).
         If provided, this is used directly instead of loading from ferret data.
     """
-    def __init__(self, hidden_units=(32, 16), output_scale=20.0, output_bias=-10.0,
+    def __init__(self, hidden_units=(32, 16, 8), output_scale=20.0, output_bias=-10.0,
                  num_sources=2, hrtf_regularization=None, az_samples=36,
                  freq_centers=None, generic_hrtf_params=None, generic_hrtf_table=None,
                  reg_config=None,  # Ignored - for backwards compatibility with saved models
                  **kwargs):
         require_shape(self, kwargs, minimum_ndim=2)  # (freq_bins, ears)
+
+        # The TF implementation hard-codes exactly 3 hidden layers (w1→w2→w3→output).
+        # Unit sizes per layer are flexible, but the count must be 3.
+        if len(hidden_units) != 3:
+            raise ValueError(
+                f"HRTFGainLayerMLPReg requires exactly 3 hidden layers; "
+                f"got hidden_units={hidden_units} (len={len(hidden_units)}). "
+                f"Adjust unit sizes but keep exactly 3 values."
+            )
 
         # Extract shape before super().__init__() since _load_generic_hrtf needs it
         self.shape = kwargs.get('shape')

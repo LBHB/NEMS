@@ -1,4 +1,5 @@
 import copy
+import gc
 import textwrap
 import itertools
 import warnings
@@ -40,9 +41,9 @@ class Model:
             called for this Model.
         backend : Backend or None.
             A container for an equivalent model built using TensorFlow or some
-            other supported backend, cached by the most recent call to
-            `Model.fit()`. This will be `None` if `Model.fit()` has never been
-            called.
+            other supported backend, optionally cached by `Model.fit()`.
+            This will be `None` if `Model.fit()` has never been called, or if
+            a fit cleared backend state after completion.
     
     Methods
     -------
@@ -857,7 +858,7 @@ class Model:
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, progress_fun=None,
-            **eval_kwargs):
+            retain_backend=False, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
         
         TODO: where do jackknife indices fit in? possibly use segmentor idea
@@ -901,6 +902,11 @@ class Model:
             Keyword arguments to pass to the Backend constructor.
         progress_fun : function, None
             Evaluate after fit is complete
+        retain_backend : bool; default=False.
+            If True, keep the instantiated Backend object on the returned
+            Model after fitting. This is mainly relevant for TensorFlow fits,
+            where the default behavior is to clear backend state after a
+            non-`in_place` fit to limit graph and optimizer memory growth.
         eval_kwargs : dict
             Keyword arguments to supply to `Model.evaluate`.
 
@@ -908,8 +914,10 @@ class Model:
         -------
         new_model : Model
             A copy of this Model with updated parameters. The Backend object
-            used during the fit will be saved in `Model.backend`, and a
-            FitResults object will be saved in `Model.results`.
+            used during the fit may be saved in `Model.backend` if
+            `retain_backend=True` or if the fit is run `in_place`; otherwise
+            TensorFlow backend state may be cleared after fitting to reduce
+            memory use. A FitResults object will be saved in `Model.results`.
 
         """
 
@@ -947,17 +955,18 @@ class Model:
         #
         #     tinput = {'input': slice_data[0]}
 
-        elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-            data_iter = iter(input)
-            slice_data = next(data_iter)
-
-            #input_keys = input.input_keys
+        elif data.data_format == 'tf.keras.utils.Sequence':
+            # Sequence supports random access — peek first batch without consuming.
+            slice_data = input[0]
             input_keys = list(slice_data[0].keys())
+            tinput = {k: slice_data[0][k] for k in input_keys}
 
-            if isinstance(slice_data, dict):
-                tinput = {k: slice_data[k] for k in input_keys}
-            elif isinstance(slice_data, tuple):
-                tinput = {k:slice_data[0][k] for k in input_keys}
+        elif data.data_format == 'tf.data.Dataset':
+            # Dataset is re-iterable — fresh iterator just for peeking so the
+            # dataset passed to the backend is not advanced/consumed.
+            slice_data = next(iter(input))
+            input_keys = list(slice_data[0].keys())
+            tinput = {k: slice_data[0][k] for k in input_keys}
 
         else:
             tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
@@ -996,6 +1005,17 @@ class Model:
             data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options
             )
         new_model.results = fit_results
+
+        # Free TF backend resources (Keras model, graph traces, optimizer
+        # state) after parameters have been saved back to the NEMS model.
+        # Prevents GPU/CPU memory from accumulating across repeated fits
+        # (e.g. jackknife iterations). Skip cleanup when the caller intends
+        # to reuse the backend explicitly.
+        if (not in_place) and (not retain_backend) and backend in ('tf', 'tensorflow'):
+            new_model.backend = None
+            import tensorflow as tf
+            tf.keras.backend.clear_session()
+            gc.collect()
 
         if progress_fun is not None:
             progress_fun()
@@ -1919,7 +1939,8 @@ class Model_List:
     
     def fit(self, input, target=None, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+            verbose=1, in_place=False, freeze_layers=None,
+            retain_backend=False, **eval_kwargs):
         """
         Fits all models in list, updates our fit_list, and returns a list of
         fitted models
@@ -1930,9 +1951,10 @@ class Model_List:
         """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit(input, target, target_name, 
+            fit_list[id] = model.fit(input, target, target_name,
             prediction_name, backend, fitter_options, backend_options,
-            verbose, in_place, freeze_layers, **eval_kwargs)
+            verbose, in_place, freeze_layers,
+            retain_backend=retain_backend, **eval_kwargs)
             if self.best_fit == None or self.best_fit.results.final_error < fit_list[id].results.final_error:
                 self.best_fit = fit_list[id]
         self.fit_list = fit_list
