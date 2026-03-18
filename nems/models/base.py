@@ -1006,46 +1006,13 @@ class Model:
             )
         new_model.results = fit_results
 
-<<<<<<< HEAD
-        # Free TF backend resources (Keras model, graph traces, optimizer
-        # state) after parameters have been saved back to the NEMS model.
-        # Prevents GPU/CPU memory from accumulating across repeated fits
-        # (e.g. jackknife iterations). Skip cleanup when the caller intends
-        # to reuse the backend explicitly.
-        if (not in_place) and (not retain_backend) and backend in ('tf', 'tensorflow'):
-            new_model.backend = None
-            import tensorflow as tf
-            tf.keras.backend.clear_session()
-            gc.collect()
-=======
-        if backend != 'scipy' and data.data_format == 'array':
-            # test whether model predictions are numerically consistent between the numpy
-            # evaluator and current backend (if not using scipy to fit)
-            numpy_out = new_model.evaluate(tinput, **eval_kwargs)
-            numpy_pred = numpy_out['output']
-            backend_pred = np.squeeze(new_model.backend.predict(tinput))
-            max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
-            diff_eps = 1e-3
-            if max_diff > diff_eps:
-                log.warning(
-                    f'Backend ({backend}) prediction differs from numpy by'
-                    f' max={max_diff:.4e} — parameter copy from backend may be incorrect.'
-                )
-                tf_layer_outputs = new_model.backend.evaluate_all_layers(tinput)
-                for out_key, tf_pred in tf_layer_outputs.items():
-                    np_pred = numpy_out[out_key]
-                    _layer_diff = np.nanmax(np.abs(np_pred.flatten() - tf_pred.flatten()))
-                    log.warning(f'  output {out_key}: max_diff={_layer_diff:.4e}')
-            else:
-                log.info(f'Backend/numpy prediction match (max diff={max_diff:.4e})')
->>>>>>> origin/new_lib_versions
 
         if backend != 'scipy' and data.data_format == 'array':
             # test whether model predictions are numerically consistent between the numpy
             # evaluator and current backend (if not using scipy to fit)
             numpy_out = new_model.evaluate(tinput, **eval_kwargs)
             numpy_pred = numpy_out['output']
-            backend_pred = np.squeeze(new_model.backend.predict(tinput))
+            backend_pred = new_model.backend.predict(tinput, batch_size=None)
             max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
             diff_eps = 1e-3
             if max_diff > diff_eps:
