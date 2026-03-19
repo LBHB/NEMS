@@ -297,7 +297,7 @@ class TensorFlowBackend(Backend):
             inputs = data.inputs
             target = list(data.targets.values())[0] if data.targets else None
             n_samples = target.shape[0]
-            effective_bs = min(batch_size, n_samples) if (batch_size is not None and batch_size > 0) else n_samples
+            effective_bs = min(batch_size, n_samples) if (batch_size is not None and batch_size > 0) else min(32, n_samples)
 
             # Pre-convert to float32 numpy arrays (no tf.data.Dataset).
             # np.asarray with dtype returns a view when already float32 — no copy.
@@ -313,23 +313,23 @@ class TensorFlowBackend(Backend):
                 np_inputs = {k: v[:split_idx] for k, v in np_inputs.items()}
                 np_target = np_target[:split_idx]
                 loss_name = 'val_loss'
-                log.info(f"Training: {split_idx} samples, val: {n_samples - split_idx}, batch_size={effective_bs}")
+                log.info(f"Training: {split_idx} samples, val: {n_samples - split_idx}, effective batch_size={effective_bs}")
             else:
-                log.info(f"Training: {n_samples} samples, batch_size={effective_bs}")
+                log.info(f"Training: {n_samples} samples, effective batch_size={effective_bs}")
 
             use_numpy_batching = True
 
         elif data.data_format in ('tf.data.Dataset', 'tf.keras.utils.Sequence'):
             train_ds = data
             use_numpy_batching = False
-            log.info(f"Training: data_format: {data.data_format}  batch_count: {len(data)}")
+            log.info(f"Training: data_format: {data.data_format}, batch_count: {len(data)}")
 
         else:
             # 'fn' format — extract the generator/Sequence stored in the DataSet wrapper.
             inputs = data.inputs
             train_ds = inputs['input'][0]
             use_numpy_batching = False
-            #log.info(f"Training: {n_samples} samples, batch_size={effective_bs}")
+            #log.info(f"Training: {n_samples} samples, effective batch_size={effective_bs}")
 
         # Build optional validation data (also avoid tf.data.Dataset).
         # val_np_inputs/val_np_target may already be set by the array+validation_split
@@ -397,7 +397,12 @@ class TensorFlowBackend(Backend):
                     if model_ref.losses:
                         loss += tf.add_n(model_ref.losses)
                 grads = tape.gradient(loss, model_ref.trainable_variables)
-                optimizer.apply_gradients(zip(grads, model_ref.trainable_variables))
+                # Filter None gradients (variables not in the loss graph) so the
+                # Adam step counter is not wasted on no-op updates, matching the
+                # behaviour of Keras compiled train_step. 2026-03-18.
+                grads_and_vars = [(g, v) for g, v in zip(grads, model_ref.trainable_variables)
+                                  if g is not None]
+                optimizer.apply_gradients(grads_and_vars)
                 return loss
 
             @tf.function
@@ -415,6 +420,7 @@ class TensorFlowBackend(Backend):
                 total_samples = 0
                 if use_numpy_batching:
                     for bx, by in _numpy_batches(np_inputs, np_target, effective_bs, do_shuffle=shuffle):
+                        #log.info(f"bx shape: {bx['input'].shape} by shape: {by.shape}")
                         n = by.shape[0]
                         total_loss += float(_train_step(bx, by)) * n
                         total_samples += n
@@ -484,6 +490,14 @@ class TensorFlowBackend(Backend):
                     self.model.set_weights(best_weights)
                     break
 
+                # Do not track best_loss/best_weights during the delay period.
+                # This replicates DelayedStopper (used in fit_algorithm='can'):
+                # best_loss stays at inf until the delay expires, so the first
+                # post-delay epoch always resets the baseline and patience counter.
+                # Previously the elif branch updated best_loss/best_weights during
+                # the delay, causing early stopping to compare against a pre-delay
+                # minimum — a harder threshold that could trigger premature stopping.
+                # Removed 2026-03-18.
                 if epoch >= early_stopping_delay and early_stopping_tolerance != 0:
                     if monitor_val < best_loss - early_stopping_tolerance:
                         best_loss = monitor_val
@@ -495,9 +509,10 @@ class TensorFlowBackend(Backend):
                             log.info(f'Early stopping at epoch {epoch}')
                             self.model.set_weights(best_weights)
                             break
-                elif monitor_val < best_loss:
-                    best_loss = monitor_val
-                    best_weights = self.model.get_weights()
+                # elif monitor_val < best_loss:
+                #     best_loss = monitor_val
+                #     best_weights = self.model.get_weights()
+
 
             hist_dict = {'loss': loss_history}
             if use_validation:
@@ -513,10 +528,10 @@ class TensorFlowBackend(Backend):
             if data.data_format == 'array':
                 # pass inputs, target -- needed so that keras can perform the validation_split
                 # validation_data forced to be None
-                history = self.model.fit(
+                history = model_ref.fit(
                     inputs, {final_layer: target}, epochs=epochs, verbose=0,
                     validation_split=validation_split, callbacks=_make_callbacks(loss_name),
-                    validation_data=None, batch_size=batch_size, shuffle=shuffle)
+                    validation_data=None, batch_size=effective_bs, shuffle=shuffle)
             else:
                 # pass data sequence (batch_size and shuffle ignored?)
                 history = self.model.fit(

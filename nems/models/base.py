@@ -972,7 +972,8 @@ class Model:
             tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
                             prediction_name=prediction_name, **eval_kwargs)
             tinput = input[0][0]
-        if (eval_kwargs.get('batch_size', 0) != 0) and (data.data_format != 'tf.data.Dataset') and (data.data_format != 'tf.keras.utils.Sequence'):
+        batch_size = eval_kwargs.get('batch_size', None)
+        if (batch_size is not None) and (data.data_format != 'tf.data.Dataset') and (data.data_format != 'tf.keras.utils.Sequence'):
             # Broadcast prior to passing to Backend so that those details
             # only have to be tracked once.
             data = data.as_broadcasted_samples()
@@ -1012,7 +1013,14 @@ class Model:
             # evaluator and current backend (if not using scipy to fit)
             numpy_out = new_model.evaluate(tinput, **eval_kwargs)
             numpy_pred = numpy_out['output']
-            backend_pred = new_model.backend.predict(tinput, batch_size=None)
+            if type(tinput) is dict:
+                x = tinput['input']
+            else:
+                x = tinput
+            if len(x.shape)==2:
+                x = x[np.newaxis]
+            log.info(f"tinput shape {x.shape}")
+            backend_pred = new_model.backend.predict(x, batch_size=None)
             max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
             diff_eps = 1e-3
             if max_diff > diff_eps:

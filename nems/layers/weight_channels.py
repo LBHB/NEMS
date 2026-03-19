@@ -60,19 +60,20 @@ class WeightChannels(Layer):
         Returns
         -------
         nems.layers.base.Phi
-
         """
-        # Mean and sd for priors were chosen mostly arbitrarily, to start
-        # with most weights near zero (but not exactly at 0).
-        s = np.prod(self.shape)
-        #v = np.linspace(0.00, 0.05, s)
-        #mean = np.reshape(v, self.shape)
-        #mean[:, ::2] = np.flip(mean[:, ::2], axis=0)
-        #if len(self.shape) > 2:
-        #    mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
+        # mean weights slightly greater than zero, but with larger sd to
+        # permit some to be negative on random initializations
 
-        mean = np.full(shape=self.shape, fill_value=0.01)
-        # temp comment out
+        # sparsely initialize a few weights to be different from the mean,
+        # allows symmetry breaking for mean-intialized models
+        m0 = np.zeros(np.prod(self.shape))
+        n = self.shape[0]+1
+        m0[::(n+1)]=0.01
+        mean = np.reshape(m0, self.shape)
+
+        mean += np.full(shape=self.shape, fill_value=0.01)
+
+        # OLD: Smaller sd. Need to confirm this choice at some point
         #sd = np.full(shape=self.shape, fill_value=0.05)
         sd = np.full(shape=self.shape, fill_value=0.1)
         if self.positive_only:
