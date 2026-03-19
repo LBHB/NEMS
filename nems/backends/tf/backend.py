@@ -194,6 +194,7 @@ class TensorFlowBackend(Backend):
              epochs=1000, learning_rate=0.001, early_stopping_delay=100,
              early_stopping_patience=150, early_stopping_tolerance=5e-4,
              validation_split=0.0, validation_data=None, shuffle=False, verbose=1, grad_clipnorm=1.0,
+             fit_algorithm=None,
              **kwargs):
         """Optimize `TensorFlowBackend.nems_model` using Adam SGD.
 
@@ -235,6 +236,8 @@ class TensorFlowBackend(Backend):
         validation_data : tuple of ndarray or tensors; optional.
             Specify validation data manually (overrides `validation_split`).
             See `tf.keras.Model.fit` for details.
+        fit_algorithm : if None, default
+            'can': use keras.Model.fit()
 
         Returns
         -------
@@ -378,8 +381,10 @@ class TensorFlowBackend(Backend):
         optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)
         model_ref = self.model
 
-        custom_fit_loop=True
-        if custom_fit_loop:
+        if (fit_algorithm is None):  # None, default fit is custom loop
+            
+            log.info("Using custom loop fitter")
+
             # Training step on a single batch — @tf.function with fixed
             # input signature so TF traces once and reuses across epochs/fits.
             @tf.function
@@ -499,16 +504,30 @@ class TensorFlowBackend(Backend):
                 hist_dict['val_loss'] = val_loss_history
             history = SimpleNamespace(history=hist_dict)
 
-        else:
+        elif fit_algorithm=='can':
             # Canned keras.Model.fit()
-            model_ref.compile(optimizer=optimizer, loss=cost_function)
+            log.info("Using keras built-in fitter")
+            final_layer = model_ref.layers[-1].name
+            model_ref.compile(optimizer=optimizer, loss={final_layer: cost_function})
             fit_start_time = time.time()
-            history = self.model.fit(
-                data, epochs=epochs, verbose=0,
-                validation_split=validation_split, callbacks=_make_callbacks(loss_name),
-                validation_data=validation_data, batch_size=batch_size, shuffle=shuffle)
+            if data.data_format == 'array':
+                # pass inputs, target -- needed so that keras can perform the validation_split
+                # validation_data forced to be None
+                history = self.model.fit(
+                    inputs, {final_layer: target}, epochs=epochs, verbose=0,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
+                    validation_data=None, batch_size=batch_size, shuffle=shuffle)
+            else:
+                # pass data sequence (batch_size and shuffle ignored?)
+                history = self.model.fit(
+                    data, epochs=epochs, verbose=0,
+                    validation_split=validation_split, callbacks=_make_callbacks(loss_name),
+                    validation_data=val_ds, batch_size=batch_size, shuffle=shuffle)
             epoch = len(history.history['loss'])
-
+            
+        else:
+            raise ValueError(f"Unkown tf fit_algorithm {fit_algorithm}")
+            
         # Save weights back to NEMS model
         # Skip input layers.
         # TODO: This assumes there aren't any other extra layers added
@@ -540,7 +559,7 @@ class TensorFlowBackend(Backend):
         # Break closure references held by @tf.function traces so that
         # TF resources can be freed by clear_session + gc.collect in
         # Model.fit().
-        if custom_fit_loop:
+        if fit_algorithm is None:
             del _train_step, _val_step, _run_train_epoch, _run_val_epoch
             del model_ref, optimizer
             if not use_numpy_batching:
