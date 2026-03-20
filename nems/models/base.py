@@ -1013,13 +1013,17 @@ class Model:
             # evaluator and current backend (if not using scipy to fit)
             numpy_out = new_model.evaluate(tinput, **eval_kwargs)
             numpy_pred = numpy_out['output']
-            if type(tinput) is dict:
-                x = tinput['input']
+            if isinstance(tinput, dict):
+                x = {
+                    k: (v[np.newaxis, ...] if isinstance(v, np.ndarray) and v.ndim == 2 else v)
+                    for k, v in tinput.items()
+                }
+                log.info(f"tinput shapes { {k: v.shape for k, v in x.items()} }")
             else:
                 x = tinput
-            if len(x.shape)==2:
-                x = x[np.newaxis]
-            log.info(f"tinput shape {x.shape}")
+                if len(x.shape) == 2:
+                    x = x[np.newaxis]
+                log.info(f"tinput shape {x.shape}")
             backend_pred = new_model.backend.predict(x, batch_size=None)
             max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
             diff_eps = 1e-3
