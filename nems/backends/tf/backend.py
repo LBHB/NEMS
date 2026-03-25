@@ -65,7 +65,7 @@ class TensorFlowBackend(Backend):
             tf_input_dict = {}
             for k, v in inputs.items():
                 # Skip trial/sample dimension when determining shape.
-                tf_in = Input(shape=v[0].shape, name=k, batch_size=batch_size,
+                tf_in = Input(shape=v[0].shape, name=k, batch_size=None,
                               dtype=self.nems_model.dtype)
                 tf_input_dict[k] = tf_in
             unused_inputs = list(tf_input_dict.keys())
@@ -82,7 +82,7 @@ class TensorFlowBackend(Backend):
                 inputs = slice_data
             tf_input_dict = {}
             for k, v in inputs.items():
-                tf_in = Input(shape=v[0].shape, name=k, batch_size=batch_size,
+                tf_in = Input(shape=v[0].shape, name=k, batch_size=None,
                               dtype=self.nems_model.dtype)
                 tf_input_dict[k] = tf_in
             unused_inputs = list(tf_input_dict.keys())

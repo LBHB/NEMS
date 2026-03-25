@@ -477,7 +477,7 @@ class Model:
 
         elif data.data_format=='array':
             # Data should be formatted as (S, T, ..., N), where S is the number
-            # of samples/trials.
+            # of samples/trials, which are sometimes divided into batches.
 
             batch_out = list(self.generate_batch_data(
                 input, state=state, input_name=input_name, state_name=state_name,
