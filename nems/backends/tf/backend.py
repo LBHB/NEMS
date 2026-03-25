@@ -183,8 +183,7 @@ class TensorFlowBackend(Backend):
         log.info(f'TF model built. (verbose={self.verbose})')
         if self.verbose:
             stringlist=[]
-            #model.summary(print_fn=lambda x: stringlist.append(x), show_trainable=True)
-            model.summary(print_fn=lambda x: stringlist.append(x))
+            model.summary(print_fn=lambda x: stringlist.append(x), show_trainable=True)
             for s in stringlist:
                 if len(s.strip(" "))>0:
                     log.info(s)
