@@ -124,6 +124,7 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     #     tf.print("In tf_nmse:", tf.shape(_response), tf.shape(_prediction),
     #              "n_drop:", n_drop)
 
+
     _response = tf.reshape(_response, shape=(-1, 10, n_per, n_cells))
     _prediction = tf.reshape(_prediction, shape=(-1, 10, n_per, n_cells))
     #print("After reshape:", _response.shape, _prediction.shape)
@@ -151,42 +152,34 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     #print("After reshape:", _response.shape, _prediction.shape)
 
     if allow_nan:
-        def masked_row_metrics(args):
-            resp_row, pred_row = args
-            mask = tf.math.is_finite(resp_row)
-            r = tf.boolean_mask(resp_row, mask)
-            p = tf.boolean_mask(pred_row, mask)
-            squared_error = tf.math.square(r - p)
-            return tf.stack([
-                tf.math.reduce_mean(squared_error, axis=-1),
-                tf.math.reduce_mean(r**2, axis=-1),
-            ])
+        C = _response.shape[0]
+        N = []
+        D = []
+        for i in range(C):
+            r = tf.boolean_mask(_response[i], tf.math.is_finite(_response[i]))
+            p = tf.boolean_mask(_prediction[i], tf.math.is_finite(_response[i]))
 
-        metrics = tf.map_fn(
-            masked_row_metrics,
-            (_response, _prediction),
-            fn_output_signature=tf.TensorSpec((2,), dtype=_response.dtype),
-        )
-        numers = metrics[:, 0]
-        denoms = metrics[:, 1]
+            squared_error = ((r - p) ** 2)
+            N.append(tf.math.reduce_mean(squared_error, axis=-1))
+            D.append(tf.math.reduce_mean(r**2, axis=-1))
+        numers = tf.stack(N, 0)
+        denoms = tf.stack(D, 0)
     else:
         squared_error = ((_response - _prediction) ** 2)
         numers = tf.math.reduce_mean(squared_error, axis=-1)
         denoms = tf.math.reduce_mean(_response**2, axis=-1)
 
-        #mask = tf.math.is_finite(_response) & tf.math.is_finite(_prediction)
-        #r = tf.boolean_mask(_response, mask)
-        #p = tf.boolean_mask(_prediction, mask)
-
-        #squared_error = ((r - p) ** 2)
-        #numers = tf.math.reduce_mean(squared_error, axis=-1)
-        #denoms = tf.math.reduce_mean(r**2, axis=-1)
-
     denoms = tf.where(tf.equal(denoms, 0), tf.ones_like(denoms), denoms)
 
     nmses = (numers / denoms) ** 0.5
     nmses = tf.reshape(nmses, (10,-1))
-    mE = tf.math.reduce_mean(nmses, axis=0)
+
+    # Exclude all-NaN segments (where boolean_mask produced NaN) from the average
+    finite_mask = tf.math.is_finite(nmses)
+    safe_nmses = tf.where(finite_mask, nmses, tf.zeros_like(nmses))
+    n_finite = tf.reduce_sum(tf.cast(finite_mask, nmses.dtype), axis=0)
+    n_finite = tf.maximum(n_finite, 1.0)
+    mE = tf.reduce_sum(safe_nmses, axis=0) / n_finite
     sE = tf.math.reduce_std(nmses, axis=0) / 10 ** 0.5
 
     return mE, sE

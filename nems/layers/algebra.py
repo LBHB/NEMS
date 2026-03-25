@@ -61,7 +61,6 @@ class SwapDims(Layer):
         dim2 = self.dim2 + 1
     
         class SwapDimsTF(NemsKerasLayer):
-            @tf.function
             def call(self, inputs):
                 out = tf.experimental.numpy.moveaxis(
                     inputs, [dim1, dim2], [dim2, dim1]

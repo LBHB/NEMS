@@ -5,17 +5,18 @@ from nems.registry import layer
 from nems.layers.base import Layer, Phi, Parameter
 from nems.layers.tools import require_shape, pop_shape
 from nems.tools.arrays import one_or_more_negative
-from nems.distributions import Normal, HalfNormal
+from nems.distributions import Normal, HalfNormal, Uniform
 
 
 class ShortTermPlasticity(Layer):
 
     def __init__(self, quick_eval=True, fs=100.0, crosstalk=0, dep_only=False,
-                 chunksize=5000, x0=None, reset_signal=None, **kwargs):
-        """TODO: docs
+                 chunksize=20, x0=None, reset_signal=None, pad_onsets=100, **kwargs):
+        """
+        Simulate effect of short-term plasticity on neural transmission,
+        using the Tsodyks-Markram model
 
-        TODO: additional context.
-        Need @SVD's help filling in all these docs, some parameter renaming
+        TODO: additional context. Need @SVD's help filling in all these docs, some parameter renaming
         would likely be helpful as well.
         
         Parameters
@@ -32,14 +33,20 @@ class ShortTermPlasticity(Layer):
             Frequency of sampling, in Hz. Used to determine reasonable bounds
             for parameters.
         crosstalk : int; default=0;
+            DEPRECATED
             TODO: explain what this does.
             TODO: or remove if this isn't used any more?
         dep_only : bool; default=False.
+            DEPRECATED. Only depression is currently supported
             TODO: explain what this does.
         chunksize : int; default=5.
             TODO: explain what this does.
             NOTE: used to be in units of seconds, now it should be specified
                   in units of bins.
+        pad_onsets : int; default=100
+            pad out pretrial with first value to allow STP to reach stable
+            baseline at trial onset. Deals with data where pre-trial activation
+            can be >0 instead of a traditional no-depression initial state
 
         """
 
@@ -51,6 +58,8 @@ class ShortTermPlasticity(Layer):
         self.chunksize = chunksize
         self.x0 = x0
         self.reset_signal = reset_signal
+        self.pad_onsets = pad_onsets
+
         super().__init__(**kwargs)
 
 
@@ -59,12 +68,13 @@ class ShortTermPlasticity(Layer):
         
         Layer parameters
         ----------------
-        u : np.ndarray.
-            TODO: explain purpose.
-            TODO: expected shape?
+        u : np.ndarray.one per input channel
+            release probability at presynaptic terminal, governs rate of adaptation
             Prior: HalfNormal(sd=0.1)
-            Bounds: (0.0001, np.inf)   TODO: should this use epsilon instead?
+            Bounds: (1e-6, np.inf)
+            TODO: should this use epsilon instead?
         tau : np.ndarray.
+            time constant of return to baseline when input is zero
             TODO: explain purpose.
             TODO: expected shape?
             Prior: HalfNormal(sd=0.1)
@@ -73,17 +83,20 @@ class ShortTermPlasticity(Layer):
         """
 
 
-        u0, tau0 = self.seconds_to_bins(self.fs, 0.1, 0.1)     # 0.1 frac, 100 ms
-        _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.001) #   1 ms
+        u0, tau0 = self.seconds_to_bins(self.fs, 0.025, 0.5)     # 0.1 frac, 100 ms
+        _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.0001) #   10 ms
+        # u0, tau0 = 0.1, 1.0  # 10% rp, 50 ms recovery
+        # tau_min = 0.001  #   1 ms
 
-        tau_sd = np.full(shape=self.shape, fill_value=tau0)
-        tau_prior = HalfNormal(tau_sd)
-        u_sd = np.full(shape=self.shape, fill_value=u0)
-        u_prior = HalfNormal(u_sd)
+        tau_mn = np.full(shape=self.shape, fill_value=tau0)
+        tau_prior = Uniform(tau_mn/2, tau_mn*3/2)
+        u_mn = np.full(shape=self.shape, fill_value=u0)
+        u_prior = Uniform(u_mn/2, u_mn*3/2)
+        #u_prior = HalfNormal(u_sd)
 
         tau_bounds = (tau_min, np.inf)
         if self.dep_only or self.quick_eval:
-            u_bounds = (1e-6, np.inf)
+            u_bounds = (1e-6, 0.2)
         else:
             u_bounds = (-np.inf, np.inf)
 
@@ -111,11 +124,13 @@ class ShortTermPlasticity(Layer):
 
         return u_bins, tau_bins
 
-
     # Authors: SVD, Menoua K.
     # Revision by: JRP.
     def evaluate(self, input):
-        """TODO: docs
+        """
+        Apply closed-form solution of Tsodyks-Markram differential equation
+        simulating the effects of short-term depression on a synapse.
+        TODO: add back facilitation.
 
         TODO: is there a succint equation we can put here to represent what
               STP is doing?
@@ -145,16 +160,25 @@ class ShortTermPlasticity(Layer):
 
         else:
             raise ValueError(
-                "STP only supports 2D inputs with shape (T, N) or (T, N, B), where T "
+                "STP supports 2D inputs with shape (T, N) or (T, N, B), where T "
                 "is the number of time bins and N is the number of output "
                 "channels."
             )
+
+        if self.pad_onsets > 0:
+            pad = np.repeat(input[:1, ...], self.pad_onsets, axis=0)
+            input = np.concatenate([pad, input], axis=0)
+            n_times = input.shape[0]
 
         u, tau = self.get_parameter_values()
         # TODO: temporary fudge factor to deal with scaling priors, since
         #       half-normal can only specify sd. remove this after implementing
         #       a proper parameter scaling system.
         tau *= 100
+        # fudge factor to deal with scaling parameters, since gradient doesn't
+        # deal well with params at different scales
+        # TODO: remove this after implementing a proper parameter scaling system.
+        #tau *= self.fs
 
         # TODO: Refactor if still using, otherwise remove.
         # if self.crosstalk:
@@ -168,8 +192,11 @@ class ShortTermPlasticity(Layer):
             # Values that aren't set get multiplied by 0, so value of empty
             # entries doesn't matter and this is much faster than initializing
             # to ones.
-            depression_per_bin = np.empty_like(input) 
-            x0, imu0 = 0.0, 0.0
+            depression_per_bin = np.zeros_like(input)
+            #x0 = x[[0],:]
+            #imu0 = (u*x0)**0.5 * 5
+            #imu0[imu0<0]=0
+            x0, imu0 = x[[0],:],0
 
             i = 0
             j = self.chunksize
@@ -180,17 +207,23 @@ class ShortTermPlasticity(Layer):
                 xi = x[i:j, :]
                 x1 = xi[:1, :]
 
-                ix = self._cumulative_integral_trapz(a + xi) + a + (x0 + x1)/2
+                ix = self._cumulative_trapezoid(a + xi) + a + (x0 + x1) / 2
                 mu = np.exp(ix)
                 mu1 = mu[:1, :]
-                imu = self._cumulative_integral_trapz(mu * xi) \
+                imu = self._cumulative_trapezoid(mu * xi) \
                         + (x0 + mu1*x1)/2 + imu0
 
                 _nonzero = nonzero[i:j, :]
-                depression_per_bin[i:j, :][_nonzero] = \
-                        1 - imu[_nonzero] / mu[_nonzero]
+                depression_per_bin[i:j, :][_nonzero] = 1 - imu[_nonzero] / mu[_nonzero]
+
+                # save initial conditions for next chunk
                 x0 = xi[-1:, :]
                 imu0 = imu[-1:, :] / mu[-1:, :]
+
+                if np.sum(np.isnan(depression_per_bin))>0:
+                    bad_chan = np.argwhere(np.isnan(depression_per_bin).sum(axis=0)>0)
+                    print('bad chans', bad_chan)
+                    print('hit a nan')
 
                 i += self.chunksize
                 j += self.chunksize
@@ -200,12 +233,12 @@ class ShortTermPlasticity(Layer):
             # Shift depression forward in time by one to allow STP to kick in
             # after the stimulus changes.
             out = np.multiply(
-                input, np.concatenate(
-                    # Oddly enough, zeros + 1 is twice as fast as using ones
-                    # for this size of array (1-6ish usually)
-                    [np.zeros(spacer) + 1, depression_per_bin[:-1, :]],
-                    axis=0
-                    ),
+                input,
+
+                # Oddly enough, zeros + 1 is twice as fast as using ones
+                # for this size of array (1-6ish usually)
+                #np.concatenate([np.zeros(spacer) + 1, depression_per_bin[:-1, :], ], axis=0),
+                depression_per_bin,
                 )
 
         else:
@@ -219,6 +252,9 @@ class ShortTermPlasticity(Layer):
                 out[:, i] = np.multiply(
                     input[:, i], depression_per_bin,
                     )
+
+        if self.pad_onsets > 0:
+            out = out[self.pad_onsets:, ...]
 
         return out
 
@@ -263,15 +299,12 @@ class ShortTermPlasticity(Layer):
 
 
     @staticmethod
-    def _cumulative_integral_trapz(y):
+    def _cumulative_trapezoid(y):
         """Cumulative integral of y(x) using the trapezoid method.
         
-        Compare to `scipy.integrate.cumtrapz`. This method is slightly faster
+        Compare to `scipy.integrate.cumulative_integral_trapz`. This method is slightly faster
         due to supporting fewer options, with fixed parameters:
-            `x = None`
-            `dx = 1`
-            `axis = 0`
-            `initial = 0`
+            `x = None`, `dx = 1`, `axis = 0`, `initial = 0`
         
         Parameters
         ----------
@@ -282,7 +315,6 @@ class ShortTermPlasticity(Layer):
         -------
         np.ndarray
             Integrated values, with the same shape as `y`.
-        
         """
         y = (y[:-1, :] + y[1:, :]) / 2.0
         y = np.concatenate([np.zeros([1]+list(y.shape[1:])), y], axis=0)
@@ -311,7 +343,6 @@ class ShortTermPlasticity(Layer):
         TODO: docs"""
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
-    
 
         parent_x0 = self.x0
         fs = self.fs
@@ -324,9 +355,9 @@ class ShortTermPlasticity(Layer):
                 )
         parent_chunksize = self.chunksize
         reset_signal = self.reset_signal
+        pad_onsets = self.pad_onsets
 
-        @tf.function
-        def _cumtrapz(x, dx=1., initial=0.):
+        def _cumulative_trapezoid_tf(x, dx=1., initial=0.):
             x = (x[:, :-1] + x[:, 1:]) / 2.0
             rank = len(x.shape)
             pad_spec = [[0, 0]] * rank
@@ -344,32 +375,43 @@ class ShortTermPlasticity(Layer):
                 #       different places? Ideally should change all dtype=
                 #       to inputs.dtype to work with the new consistent-dtype
                 #       system.
-                _zero = tf.constant(0.0, dtype='float32')
-                _nan = tf.constant(0.0, dtype='float32')
+                _zero = tf.constant(0.0, dtype=self.dtype)
+                _nan = tf.constant(0.0, dtype=self.dtype)
 
-                s = inputs.shape
+                original_inputs = inputs
+                if pad_onsets > 0:
+                    onset_pad = tf.repeat(inputs[:, :1, :], pad_onsets, axis=1)
+                    inputs = tf.concat([onset_pad, inputs], axis=1)
+
+                s = tf.shape(inputs)
                 tstim = tf.where(tf.math.is_nan(inputs), _zero, inputs)
                 tstim = tf.nn.relu(tstim)
 
-                if parent_x0 is not None:  # x0 should be tf variable to avoid retraces
-                    # TODO: is this expanding along the right dim? tstim dims: (None, time, chans)
-                    tstim = tstim - tf.expand_dims(parent_x0, axis=1)
+                #if parent_x0 is not None:  # x0 should be tf variable to avoid retraces
+                #    # TODO: is this expanding along the right dim? tstim dims: (None, time, chans)
+                #    tstim = tstim - tf.expand_dims(parent_x0, axis=1)
 
                 # convert a & tau units from sec to bins
                 ui = tf.math.abs(tf.reshape(self.u, (1, -1))) / fs * 100
-                taui = tf.math.abs(tf.reshape(self.tau, (1, -1))) * fs
+                taui = tf.math.abs(tf.reshape(self.tau, (1, -1))) * 100
 
                 # convert chunksize from sec to bins
                 chunksize = int(parent_chunksize * fs)
 
-                if crosstalk:
-                    # assumes dim of u is 1 !
-                    tstim = tf.math.reduce_mean(tstim, axis=0, keepdims=True)
+                #if crosstalk:
+                #    # assumes dim of u is 1 !
+                #    tstim = tf.math.reduce_mean(tstim, axis=0, keepdims=True)
 
                 ui = tf.expand_dims(ui, axis=0)
                 taui = tf.expand_dims(taui, axis=0)
 
-                a = tf.cast(1.0 / taui, 'float64')
+                # Cast to float64 for numerical stability; mu = exp(ix) can
+                # overflow float32 when tau or u are large during fitting.
+                tstim = tf.cast(tstim, 'float64')
+                ui = tf.cast(ui, 'float64')
+                taui = tf.cast(taui, 'float64')
+
+                a = 1.0 / taui
                 x = ui * tstim
 
                 # TODO: move these outside __call__ similar to revision of scipy
@@ -382,17 +424,15 @@ class ShortTermPlasticity(Layer):
                         )
 
                 td = []
-                x0, imu0 = 0.0, 0.0
+                x0 = x[:, :1]
+                imu0 = 0.0
                 for j in range(reset_times.shape[0] - 1):
-                    xi = tf.cast(
-                        x[:, reset_times[j]:reset_times[j + 1], :],
-                        'float64'
-                        )
-                    ix = _cumtrapz(a + xi, dx=1, initial=0) \
+                    xi = x[:, reset_times[j]:reset_times[j + 1], :]
+                    ix = _cumulative_trapezoid_tf(a + xi, dx=1, initial=0) \
                          + a + (x0 + xi[:, :1]) / 2.0
 
                     mu = tf.exp(ix)
-                    imu = _cumtrapz(mu * xi, dx=1, initial=0) \
+                    imu = _cumulative_trapezoid_tf(mu * xi, dx=1, initial=0) \
                           + (x0 + mu[:, :1] * xi[:, :1]) / 2.0 + imu0
 
                     valid = tf.logical_and(mu > 0.0, imu > 0.0)
@@ -403,17 +443,20 @@ class ShortTermPlasticity(Layer):
 
                     x0 = xi[:, -1:]
                     imu0 = imu[:, -1:] / mu[:, -1:]
-                    td.append(tf.cast(_td, 'float32'))
+                    td.append(_td)
                 td = tf.concat(td, axis=1)
 
                 rank = len(td.shape)
                 pad_spec = [[0, 0]] * rank
                 pad_spec[1] = [1, 0]
-                ret = tstim * tf.pad(
-                        td[:, :-1], pad_spec,
-                        constant_values=1.0
-                        )
-                ret = tf.where(tf.math.is_nan(inputs), _nan, ret)
+                # ret = tstim * tf.pad(
+                #         td[:, :-1], pad_spec,
+                #         constant_values=1.0
+                #         )
+                ret = tf.cast(tstim * td, self.dtype)
+                if pad_onsets > 0:
+                    ret = ret[:, pad_onsets:, :]
+                ret = tf.where(tf.math.is_nan(original_inputs), _nan, ret)
 
                 return ret
 

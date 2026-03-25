@@ -23,11 +23,6 @@ def get_strf(ln_mdl, channels=None):
 
     return strf
 
-# Basic options to quickly fit our models for tf backend
-# NOTE: This will be explored in the next tutorial
-options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
-           'early_stopping_tolerance': 1e-3, 'validation_split': 0,
-           'learning_rate': 5e-3, 'epochs': 2000}
 ###########################
 # Setting up Demo Data with specific cells
 #   "TAR010c_data.npz": The data parameter to load our different dataset
@@ -104,7 +99,15 @@ print(f'''FIR coefficient shape: {ln_model.layers[1].coefficients.shape}\n
       FIR coefficient shape: {cnn.layers[1].coefficients.shape}
 ''')
 
+#
 # Fit our models to some real data provided by Demo
+#
+# Basic options to quickly fit our models for tf backend
+# NOTE: This will be explored in the next tutorial
+options = {'cost_function': 'squared_error', 'early_stopping_delay': 50, 'early_stopping_patience': 100,
+           'early_stopping_tolerance': 1e-3, 'validation_split': 0,
+           'learning_rate': 5e-3, 'epochs': 2000}
+
 # We use 'tf' backend to improve training speed.
 # See the next tutorial for more info
 fitted_ln = ln_model.fit(spectrogram_fit, response_fit, fitter_options=options, backend='tf')

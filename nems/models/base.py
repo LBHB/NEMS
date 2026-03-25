@@ -1,4 +1,5 @@
 import copy
+import gc
 import textwrap
 import itertools
 import warnings
@@ -24,7 +25,7 @@ del nems.layers
 class Model:
     """
     A structured collection of Layers.
-            
+
     This is the primary class for interacting with NEMS. Conceptually, a
     Model encapsulates all computations needed to transform an input into
     a desired output (or prediction).
@@ -40,10 +41,10 @@ class Model:
             called for this Model.
         backend : Backend or None.
             A container for an equivalent model built using TensorFlow or some
-            other supported backend, cached by the most recent call to
-            `Model.fit()`. This will be `None` if `Model.fit()` has never been
-            called.
-    
+            other supported backend, optionally cached by `Model.fit()`.
+            This will be `None` if `Model.fit()` has never been called, or if
+            a fit cleared backend state after completion.
+
     Methods
     -------
         evaluate(input, ...)
@@ -101,7 +102,7 @@ class Model:
             fit_model = model.fit(input, target)
             # Plot the fitted model
             fig = fit_model.plot(input, target)
-        
+
         """
         self._layers = {}  # layer.name : layer obj, increment on clashes
 
@@ -183,12 +184,12 @@ class Model:
     @property
     def parameter_count(self):
         """Total size of all Parameters from all Layers.
-        
+
         Note that this is the total number of all parameter values, *not* the
         number of Parameter objects. I.e. a model with a single Parameter of
         shape (2,3) has a parameter_count of 6.
 
-        TODO: rename this to avoid ambiguity? value_count? 
+        TODO: rename this to avoid ambiguity? value_count?
 
         Returns
         -------
@@ -198,14 +199,14 @@ class Model:
         --------
             Model.parameter_info
             nems.layers.base.Layer.parameter_count
-        
+
         """
         return sum([layer.parameter_count for layer in self.layers])
 
     @property
     def parameter_info(self):
         """Sizes of frozen, unfrozen and permanent parameters.
-        
+
         Returns
         -------
             dict
@@ -220,7 +221,7 @@ class Model:
         --------
             Model.parameter_count
             nems.layers.base.Layer.parameter_info
-        
+
         """
         info = {layer.name: layer.parameter_info for layer in self.layers}
         model_info = {k: sum([d[k] for d in info.values()])
@@ -249,7 +250,7 @@ class Model:
         See also
         --------
             nems.layers.base.Layer
-        
+
         """
         # TODO: need to track name, layer lists instead? Apparently dictionaries
         #       aren't guaranteed to keep the same order. Hasn't caused problems
@@ -277,7 +278,7 @@ class Model:
             layer._name = key
 
         self.set_dtype(self.dtype)
-        
+
 
     def get_layer_index(self, name):
         """Get integer index for Layer with `.name == name`."""
@@ -301,13 +302,13 @@ class Model:
         See also
         --------
             nems.layers.base.Layer
-        
+
         """
 
         # Maybe we don't need to implement this? Would require some refactoring of
         # Model.layers.
 
-        # Temp solution: pulled base code from add_layer, convert dict to list, 
+        # Temp solution: pulled base code from add_layer, convert dict to list,
         # insert key/value pairs, convert back to dict.
         # TODO: Refactor existing code to implement this without entire conversions
 
@@ -326,7 +327,7 @@ class Model:
                 i = 0
                 key = layer.name + f'{index}'
                 layer.model = self  # each layer gets a reference to parent Model
-                
+
                 while self._layers.get(key) and self._layers[key].name == layer.name:
                     key = layer.name + f'{index + i}'
                     i += 1
@@ -361,7 +362,7 @@ class Model:
 
         During the evaluation process, `input` (and `state` if provided) will
         be packaged into dictionaries, with the following structure:
-            array_name : ndarray. 
+            array_name : ndarray.
                 If `input` is a dict, each array in `input` will be
                 shallow-copied with the same key. Otherwise, arrays `input` and
                 `state` will be added to with default keys specified by
@@ -449,7 +450,7 @@ class Model:
         --------
         Since arrays in `data` share memory with `input`, modifying arrays
         arrays in-place is strongly discouraged.
-        
+
         """
 
         if not isinstance(input, DataSet):
@@ -476,7 +477,7 @@ class Model:
 
         elif data.data_format=='array':
             # Data should be formatted as (S, T, ..., N), where S is the number
-            # of samples/trials.
+            # of samples/trials, which are sometimes divided into batches.
 
             batch_out = list(self.generate_batch_data(
                 input, state=state, input_name=input_name, state_name=state_name,
@@ -507,7 +508,7 @@ class Model:
                             permute_batches=False, use_existing_maps=False,
                             **eval_kwargs):
         """Generate output of final Layer for one batch at a time.
-        
+
         See `Model.evaluate` for detailed documentation of parameters.
 
         Parameters
@@ -525,9 +526,9 @@ class Model:
         batch : DataSet
             Contains all inputs and outputs (and targets if present) for a
             single batch.
-        
+
         """
-    
+
         if not isinstance(input, DataSet):
             # Package arrays and/or dicts in a DataSet
             data = DataSet(input=input, **eval_kwargs)
@@ -567,13 +568,13 @@ class Model:
     def generate_layer_data(self, input, copy_data=False, debug_nans=False,
                             use_existing_maps=False, **eval_kwargs):
         """Generate input and output arrays for each Layer in Model.
-        
+
         This method serves as the core loop for `Model.evaluate`, but is exposed
         separately for use in plotting, debugging, etc. The loop is implemented
         as a generator to reduce memory overhead when only one Layer at a time
         is needed.
 
-        
+
         Parameters
         ----------
         input : dict or ndarray
@@ -684,7 +685,7 @@ class Model:
                 else:
                     layer_data['data'] = data
                 yield layer_data
-            
+
             # Track last output for determining `inplace_ok`.
             previous_output = layer.output
 
@@ -699,7 +700,7 @@ class Model:
 
     def _evaluate_layer(self, layer, data, inplace_ok=False, debug_nans=False):
         """Evaluates one Layer. Internal for `Model.generate_layer_data`.
-        
+
         Returns
         -------
         args : list of ndarray
@@ -708,9 +709,9 @@ class Model:
             Keyword arguments for `Layer.evaluate`.
         output : ndarray or list of ndarray
             Return value of `Layer.evaluate(*args, **kwargs)`.
-        
+
         """
-        
+
         # Get input & output arrays
         args, kwargs, output = layer._evaluate(
             data, inplace_ok=inplace_ok, dtype=self.dtype,
@@ -725,10 +726,10 @@ class Model:
         return args, kwargs, output
 
     # TODO: maybe remove the data_generator arg and just have this wrap
-    #       generate_layer_data? 
+    #       generate_layer_data?
     def get_layer_data(self, data_generator, first_index=None, last_index=None):
         """Return data for layers between specified indices (inclusive).
-        
+
         Parameters
         ----------
         data_generator : generator
@@ -752,7 +753,7 @@ class Model:
         Get the keyword arguments for the 3rd Layer:
         >>> generator = generate_layer_data(input, **eval_kwargs)
         >>> kwargs3 = get_layer_data(generator, 3, 3)['kwargs']
-        
+
         """
         if last_index is not None: last_index += 1
         subset = itertools.islice(data_generator, first_index, last_index)
@@ -780,7 +781,7 @@ class Model:
             If True, print the entire DataSet after for each Layer.
 
         TODO: option to return string instead of printing?
-        
+
         """
         def wrap(k, v):
             return textwrap.fill(f'{k}: {str(v)}', max_char) + '\n' + '-'*16
@@ -829,7 +830,7 @@ class Model:
 
         Similar to `Model.layers`, this dictionary is wrapped so that indexing
         with integers, slices, or multiple keys is also possible.
-        
+
         Returns
         -------
         dict
@@ -837,29 +838,29 @@ class Model:
         See also
         --------
         nems.layers.base.map.DataMap
-        
+
         """
         return _LayerDict({layer.name: layer.data_map for layer in self.layers})
 
     def predict(self, input, return_full_data=False, **eval_kwargs):
         """As `Model.evaluate`, but return only the last output by default.
-        
+
         TODO: This only works for models where the final layer produces the
               only output. Need to think about how to make it work for models
               that produce multiple outputs at different stages.
 
               Rough idea: return all arrays from data that were not present
               in input.
-        
+
         """
         return self.evaluate(input, return_full_data=return_full_data, **eval_kwargs)
-        
+
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
             verbose=1, in_place=False, freeze_layers=None, progress_fun=None,
-            **eval_kwargs):
+            retain_backend=False, **eval_kwargs):
         """Optimize model parameters to match `Model.evaluate(input)` to target.
-        
+
         TODO: where do jackknife indices fit in? possibly use segmentor idea
               from old NEMS that never really got implemented, as an alternative
               to requiring jackknifing to be set up ahead of time.
@@ -878,7 +879,7 @@ class Model:
         target : np.ndarray or dict of np.ndarray.
             TODO: support dict
             If ndarray, this will be the fitter's target data (i.e. try to
-            match the model prediction to this). If dict, ... 
+            match the model prediction to this). If dict, ...
             TODO: dict version is more complicated than I was thinking of.
             Would need to also specify a mapping of output -> target.
         target_name : str; optional.
@@ -901,6 +902,11 @@ class Model:
             Keyword arguments to pass to the Backend constructor.
         progress_fun : function, None
             Evaluate after fit is complete
+        retain_backend : bool; default=False.
+            If True, keep the instantiated Backend object on the returned
+            Model after fitting. This is mainly relevant for TensorFlow fits,
+            where the default behavior is to clear backend state after a
+            non-`in_place` fit to limit graph and optimizer memory growth.
         eval_kwargs : dict
             Keyword arguments to supply to `Model.evaluate`.
 
@@ -908,8 +914,10 @@ class Model:
         -------
         new_model : Model
             A copy of this Model with updated parameters. The Backend object
-            used during the fit will be saved in `Model.backend`, and a
-            FitResults object will be saved in `Model.results`.
+            used during the fit may be saved in `Model.backend` if
+            `retain_backend=True` or if the fit is run `in_place`; otherwise
+            TensorFlow backend state may be cleared after fitting to reduce
+            memory use. A FitResults object will be saved in `Model.results`.
 
         """
 
@@ -947,23 +955,25 @@ class Model:
         #
         #     tinput = {'input': slice_data[0]}
 
-        elif (data.data_format == 'tf.data.Dataset') or (data.data_format == 'tf.keras.utils.Sequence'):
-            data_iter = iter(input)
-            slice_data = next(data_iter)
-
-            #input_keys = input.input_keys
+        elif data.data_format == 'tf.keras.utils.Sequence':
+            # Sequence supports random access — peek first batch without consuming.
+            slice_data = input[0]
             input_keys = list(slice_data[0].keys())
+            tinput = {k: slice_data[0][k] for k in input_keys}
 
-            if isinstance(slice_data, dict):
-                tinput = {k: slice_data[k] for k in input_keys}
-            elif isinstance(slice_data, tuple):
-                tinput = {k:slice_data[0][k] for k in input_keys}
+        elif data.data_format == 'tf.data.Dataset':
+            # Dataset is re-iterable — fresh iterator just for peeking so the
+            # dataset passed to the backend is not advanced/consumed.
+            slice_data = next(iter(input))
+            input_keys = list(slice_data[0].keys())
+            tinput = {k: slice_data[0][k] for k in input_keys}
 
         else:
             tdata = DataSet(input[0][0], target=input[0][1], target_name=target_name,
                             prediction_name=prediction_name, **eval_kwargs)
             tinput = input[0][0]
-        if (eval_kwargs.get('batch_size', 0) != 0) and (data.data_format != 'tf.data.Dataset') and (data.data_format != 'tf.keras.utils.Sequence'):
+        batch_size = eval_kwargs.get('batch_size', None)
+        if (batch_size is not None) and (data.data_format != 'tf.data.Dataset') and (data.data_format != 'tf.keras.utils.Sequence'):
             # Broadcast prior to passing to Backend so that those details
             # only have to be tracked once.
             data = data.as_broadcasted_samples()
@@ -997,6 +1007,50 @@ class Model:
             )
         new_model.results = fit_results
 
+
+        if backend != 'scipy' and data.data_format == 'array':
+            # test whether model predictions are numerically consistent between the numpy
+            # evaluator and current backend (if not using scipy to fit)
+            numpy_out = new_model.evaluate(tinput, **eval_kwargs)
+            numpy_pred = numpy_out['output']
+            if isinstance(tinput, dict):
+                x = {
+                    k: (v[np.newaxis, ...] if isinstance(v, np.ndarray) and v.ndim == 2 else v)
+                    for k, v in tinput.items()
+                }
+                log.info(f"tinput shapes { {k: v.shape for k, v in x.items()} }")
+            else:
+                x = tinput
+                if len(x.shape) == 2:
+                    x = x[np.newaxis]
+                log.info(f"tinput shape {x.shape}")
+            backend_pred = new_model.backend.predict(x, batch_size=None)
+            max_diff = np.nanmax(np.abs(numpy_pred - backend_pred))
+            diff_eps = 1e-3
+            if max_diff > diff_eps:
+                log.warning(
+                    f'Backend ({backend}) prediction differs from numpy by'
+                    f' max={max_diff:.4e} — parameter copy from backend may be incorrect.'
+                )
+                tf_layer_outputs = new_model.backend.evaluate_all_layers(tinput)
+                for out_key, tf_pred in tf_layer_outputs.items():
+                    np_pred = numpy_out[out_key]
+                    _layer_diff = np.nanmax(np.abs(np_pred.flatten() - tf_pred.flatten()))
+                    log.warning(f'  output {out_key}: max_diff={_layer_diff:.4e}')
+            else:
+                log.info(f'Backend/numpy prediction match (max diff={max_diff:.4e})')
+
+        # Free TF backend resources (Keras model, graph traces, optimizer
+        # state) after parameters have been saved back to the NEMS model.
+        # Prevents GPU/CPU memory from accumulating across repeated fits
+        # (e.g. jackknife iterations). Skip cleanup when the caller intends
+        # to reuse the backend explicitly.
+        if (not in_place) and (not retain_backend) and backend in ('tf', 'tensorflow'):
+            new_model.backend = None
+            import tensorflow as tf
+            tf.keras.backend.clear_session()
+            gc.collect()
+
         if progress_fun is not None:
             progress_fun()
 
@@ -1017,7 +1071,7 @@ class Model:
         :param verbose: future support for verbosity control
         :param eval_kwargs: pass-through options for model evaluation (req'd for backend init)
         :return:  dstrf : dict, each k,v pair is a [unit X t_index X lag X input_channel] array
-                          typically dstrf['input'][cellid, t_index, :, :] is the spectro-temporal filter 
+                          typically dstrf['input'][cellid, t_index, :, :] is the spectro-temporal filter
                           for one cell at one time. other keys exist for models with multiple inputs.
         """
         if out_channels is None: out_channels=[0]
@@ -1052,7 +1106,7 @@ class Model:
             self.dstrf_backend = backend_class(
                 dstrf_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
                 **backend_options )
-            
+
         dstrf = {key: np.zeros((len(out_channels), len(t_indexes), data.shape[2], D)) for key, data in input.items()}
         log.info(f"dSTRF for {len(out_channels)} out channels")
 
@@ -1245,7 +1299,7 @@ class Model:
             Specifically, `metric(prediction, target, **metric_kwargs)`.
             No specific return format is enforced, but in general metrics should
             return a numeric value, typically a float or ndarray.
-        
+
         """
 
         if metric_kwargs is None: metric_kwargs = {}
@@ -1303,7 +1357,7 @@ class Model:
 
     def get_parameter_vector(self, as_list=True):
         """Get all parameter values, formatted as a single vector.
-        
+
         Parameters
         ----------
         as_list : bool
@@ -1330,22 +1384,22 @@ class Model:
             model_vector = [v for vector in vectors for v in vector]
         else:
             model_vector = np.concatenate(vectors)
-        
+
         return model_vector
 
     def get_parameter_from_index(self, *indices):
         """Get reference(s) to Parameter(s) from index in parameter vector.
-        
+
         Parameters
         ----------
         indices : N-tuple of int.
             Indices corresponding to result of `Model.get_parameter_vector()`.
-        
+
         Returns
         -------
         dict of nems.layers.base.Parameter
             With structure {Layer.name : Parameter}
-        
+
         """
         # collect all layer vectors
         layer_counts = {}
@@ -1384,7 +1438,7 @@ class Model:
         See also
         --------
         nems.layers.base.Layer.set_parameter_vector
-        
+
         """
 
         first_index = 0
@@ -1397,7 +1451,7 @@ class Model:
 
     def get_parameter_values(self, *layer_keys):
         """Get all parameter values, formatted as a dict.
-        
+
         Parameters
         ----------
         layer_keys : N-tuple of strings
@@ -1411,7 +1465,7 @@ class Model:
         See also
         --------
         nems.layers.base.Layer.get_parameter_values
-        
+
         """
         if layer_keys == ():
             layer_keys = self._layers.keys()
@@ -1423,7 +1477,7 @@ class Model:
 
     def set_parameter_values(self, layer_dict):
         """Set new parameter values from key, value pairs.
-        
+
         See also
         --------
         nems.layers.base.Layer.set_parameter_values
@@ -1434,7 +1488,7 @@ class Model:
 
     def sample_from_priors(self, n=1):
         """Get a copy of `Model` with new parameter values sampled from priors.
-        
+
         Parameters
         ----------
         n : int; default=1.
@@ -1467,7 +1521,7 @@ class Model:
 
     def mean_of_priors(self, n=1):
         """Get a copy of `Model` with parameters set to mean of priors..
-        
+
         Parameters
         ----------
         n : int; default=1.
@@ -1525,7 +1579,7 @@ class Model:
 
     def freeze_layers(self, *layer_keys):
         """Invoke `Layer.freeze_parameters()` for each keyed layer.
-        
+
         See also
         --------
         nems.layers.base.Layer.freeze_parameters
@@ -1536,7 +1590,7 @@ class Model:
 
     def unfreeze_layers(self, *layer_keys):
         """Invoke `Layer.unfreeze_parameters()` for each keyed layer.
-        
+
         See also
         --------
         nems.layers.base.Layer.unfreeze_parameters
@@ -1547,11 +1601,11 @@ class Model:
 
     def plot(self, input, target=None, **kwargs):
         """Alias for `nems.visualization.model.plot_model`.
-        
+
         By default, the result of each `Layer.evaluate` will be shown.
         """
         return plot_model(self, input, target, **kwargs)
-        
+
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
     def summary(self):
         """Prints long-form model description (alias for `print(Model)`)."""
@@ -1602,7 +1656,7 @@ class Model:
     @classmethod
     def from_keywords(cls, *keywords):
         """Construct a Model from a list of keywords or a model string.
-        
+
         Parameters
         ----------
         keywords : N-tuple of strings
@@ -1617,7 +1671,7 @@ class Model:
         --------
         nems.layers.base.Layer.from_keyword
         nems.scripts.keywords
-        
+
         """
         # Check for kw1-kw2-... (mode; string) format.
         # If so, split into list of keywords
@@ -1688,22 +1742,22 @@ class Model:
         if 'subclass' in json['meta']:
             #print("INITIALIZING AS" , json['meta']['subclass'])
             fn = lookup_fn_at(json['meta']['subclass'])
-            model = fn(from_saved=True, layers=json['layers'], name=json['name'], 
+            model = fn(from_saved=True, layers=json['layers'], name=json['name'],
                        dtype=getattr(np, json['dtype']), meta=json['meta'])
         else:
-            model = cls(layers=json['layers'], name=json['name'], 
+            model = cls(layers=json['layers'], name=json['name'],
                         dtype=getattr(np, json['dtype']), meta=json['meta'])
         model.results = json['results']
         return model
 
     def copy(self, name=None):
         """Returns a deep copy of Model without a backend or fit results.
-        
+
         Notes
         -----
         FitResults and Backend objects are removed because they may contain
         state-dependent objects from other packages that cannot copy correctly.
-        
+
         """
         backend_save = self.backend
         dstrf_backend_save = self.dstrf_backend
@@ -1789,7 +1843,7 @@ class _LayerDict:
                 except (IndexError, KeyError):
                     layer = default
                 layers.append(layer)
-        
+
         # List wrapper (to replace tuple) is just for output consistency should
         # be no practical difference in most cases.
         # Unwrap instead if it's a singleton list, *unless* keys was slice.
@@ -1840,7 +1894,7 @@ class Model_List:
     ..
 
         Methods
-        ------- 
+        -------
         fit_models(self, input, ...): List of models
             Iterates over our list of models, performs fits to each, updates
             our fit_list and returns a list of fitted models
@@ -1854,19 +1908,19 @@ class Model_List:
         compare_models(self)
             Compares all models within a given list, returns the best model
             determined via error rate of completed fits
-        
+
         function_to_models(self)
 
         Attributes
         ----------
         model_list: List of model objects
-        
+
         model_base: Base model object
 
     Examples
     --------
 
-        
+
     """
     def __init__(self, model_list=None, model=None, samples=5):
         """
@@ -1879,7 +1933,7 @@ class Model_List:
                 A base model that would be used to create a model_list from scratch
                 if needed.
             model_list: List of Models
-                An existing list of models to integrate into the class itself, 
+                An existing list of models to integrate into the class itself,
                 base model in this case is first model in list
         """
         if model_list and model_list[0]:
@@ -1916,10 +1970,11 @@ class Model_List:
     def get_best_fit(self):
         """ Returns the current best fit in the list, or None """
         return self.best_fit
-    
+
     def fit(self, input, target=None, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
-            verbose=1, in_place=False, freeze_layers=None, **eval_kwargs):
+            verbose=1, in_place=False, freeze_layers=None,
+            retain_backend=False, **eval_kwargs):
         """
         Fits all models in list, updates our fit_list, and returns a list of
         fitted models
@@ -1930,9 +1985,10 @@ class Model_List:
         """
         fit_list = self.model_list
         for id, model in enumerate(fit_list):
-            fit_list[id] = model.fit(input, target, target_name, 
+            fit_list[id] = model.fit(input, target, target_name,
             prediction_name, backend, fitter_options, backend_options,
-            verbose, in_place, freeze_layers, **eval_kwargs)
+            verbose, in_place, freeze_layers,
+            retain_backend=retain_backend, **eval_kwargs)
             if self.best_fit == None or self.best_fit.results.final_error < fit_list[id].results.final_error:
                 self.best_fit = fit_list[id]
         self.fit_list = fit_list
@@ -1956,7 +2012,7 @@ class Model_List:
         for id, model in enumerate(pred_list):
             pred_list[id] = model.predict(input, return_full_data=False, **eval_kwargs)
         self.pred_list = pred_list
-        return pred_list    
+        return pred_list
 
     def plot(self, input, target, plot_comparitive=True, plot_full=False, correlation=False):
         """
@@ -1974,7 +2030,7 @@ class Model_List:
         Figure
         """
         return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full, correlation=correlation)
-    
+
 
     def score(self, input, target, metric='correlation', metric_kwargs=None,
               prediction_name=None, **eval_kwargs):
@@ -1996,7 +2052,7 @@ class Model_List:
               prediction_name, **eval_kwargs)
             score_list.append(score)
         return score_list
-        
+
     def compare_models(self):
         """
         Compares all models within a given list and returns the model with the lowest fitted error rate
@@ -2012,23 +2068,23 @@ class Model_List:
         else:
             raise AttributeError("Fit_list does not exist, please run a fit on your models")
         return self.best_fit
-    
+
     def insert_model(self, model, index=0):
-        """ 
+        """
         Inserts a model at given index value into the list, or 0 if none is provided
         """
         if self.model_list[index-1]:
             self.model_list.insert(index, model)
         else:
             raise IndexError("Provided index is out of range")
-        
+
     def function_to_model(self, *kwargs):
         """
         TODO: Implement this function
         Allows you to run any base model function on all models in list
         through keyword arguments. This serves as a way to apply functions
         that have not been officially implemented...
-        
+
         !!! Very basic, avoid if possible.
 
         NOTE: (For Implementation) getatter? dictionary of functions?

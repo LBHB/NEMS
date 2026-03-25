@@ -34,9 +34,16 @@ class WeightChannels(Layer):
     (10000, 1)
 
     """
-    def __init__(self, norm_coefficients=False, **kwargs):
+    def __init__(self, norm_coefficients=False, positive_only=False, **kwargs):
+        """
+        Linear weighting of input channels, akin to a dense layer.
+        :param norm_coefficients: (False) if True, normalize coefficients to have variance 1
+        :param positive_only: (False) if True, require coefficients to be >= 0
+        :param kwargs: pass-through to Layer.__init__
+        """
         require_shape(self, kwargs, minimum_ndim=2)
         self.norm_coefficients = norm_coefficients
+        self.positive_only = positive_only
 
         super().__init__(**kwargs)
 
@@ -53,25 +60,33 @@ class WeightChannels(Layer):
         Returns
         -------
         nems.layers.base.Phi
-
         """
-        # Mean and sd for priors were chosen mostly arbitrarily, to start
-        # with most weights near zero (but not exactly at 0).
-        s = np.prod(self.shape)
-        #v = np.linspace(0.00, 0.05, s)
-        #mean = np.reshape(v, self.shape)
-        #mean[:, ::2] = np.flip(mean[:, ::2], axis=0)
-        #if len(self.shape) > 2:
-        #    mean[:, :, :2] = np.flip(mean[:, :, :2], axis=0)
+        # mean weights slightly greater than zero, but with larger sd to
+        # permit some to be negative on random initializations
 
-        mean = np.full(shape=self.shape, fill_value=0.01)
-        # temp comment out
+        # sparsely initialize a few weights to be different from the mean,
+        # allows symmetry breaking for mean-intialized models
+        m0 = np.zeros(np.prod(self.shape))
+        n = self.shape[0]+1
+        m0[::(n+1)]=0.01
+        mean = np.reshape(m0, self.shape)
+
+        mean += np.full(shape=self.shape, fill_value=0.01)
+
+        # OLD: Smaller sd. Need to confirm this choice at some point
         #sd = np.full(shape=self.shape, fill_value=0.05)
         sd = np.full(shape=self.shape, fill_value=0.1)
-        prior = Normal(mean, sd)
-
-        coefficients = Parameter(
-            name='coefficients', shape=self.shape, prior=prior
+        if self.positive_only:
+            # coefficients must be >= 0
+            prior = HalfNormal(mean)
+            coefficients = Parameter(
+                name='coefficients', shape=self.shape, prior=prior,
+                bounds=(0,np.inf)
+            )
+        else:
+            prior = Normal(mean, sd)
+            coefficients = Parameter(
+                name='coefficients', shape=self.shape, prior=prior
             )
         return Phi(coefficients)
 
@@ -157,7 +172,9 @@ class WeightChannels(Layer):
             elif op == 'b':
                 wc_class = WeightChannelsMulti
             elif op == 'n':
-                kwargs['norm_coefficients']=True
+                kwargs['norm_coefficients'] = True
+            elif op == 'p':
+                kwargs['positive_only'] = True
             elif op.startswith('l2'):
                 kwargs['regularizer'] = op
 

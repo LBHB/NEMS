@@ -119,10 +119,9 @@ class StateGain(Layer):
         import tensorflow as tf
         from nems.backends.tf.layer_tools import NemsKerasLayer
 
-        # shape[0] = n_state_channels; if gain/offset has an extra row it's a bias term
-        n_state = self.shape[0]
-        has_gain_bias = (self['gain'].shape[0] != n_state)
-        has_offset_bias = (self['offset'].shape[0] != n_state)
+        # [AGENT EDIT START | agent: Codex | user: wingertj | reason: Detect StateGain bias rows from the actual runtime state dimension in TF so bias-row models build correctly | date: 2026-03-25]
+        gain_rows = self['gain'].shape[0]
+        offset_rows = self['offset'].shape[0]
 
         class StateGainTF(NemsKerasLayer):
 
@@ -130,6 +129,13 @@ class StateGain(Layer):
                 # inputs is [input, state], state second (state_arg = 'state')
                 inp = inputs[0]
                 state = inputs[1]
+                state_dim = state.shape[-1]
+                if state_dim is None:
+                    raise ValueError('StateGainTF requires a known static state dimension.')
+
+                has_gain_bias = (gain_rows != state_dim)
+                has_offset_bias = (offset_rows != state_dim)
+
                 if not has_gain_bias:
                     with_gain = tf.matmul(state, self.gain) * inp
                 else:
@@ -142,6 +148,7 @@ class StateGain(Layer):
                                    tf.slice(self.offset, [0, 0], [1, -1]) +
                                    tf.matmul(state, tf.slice(self.offset, [1, 0], [-1, -1])))
                 return with_offset
+        # [AGENT EDIT END]
 
         return StateGainTF(self, **kwargs)
 
@@ -2001,12 +2008,21 @@ class HRTFGainLayerMLPReg(Layer):
         Pre-computed generic HRTF table with shape (az_samples, freq_bins, 2).
         If provided, this is used directly instead of loading from ferret data.
     """
-    def __init__(self, hidden_units=(32, 16), output_scale=20.0, output_bias=-10.0,
+    def __init__(self, hidden_units=(32, 16, 8), output_scale=20.0, output_bias=-10.0,
                  num_sources=2, hrtf_regularization=None, az_samples=36,
                  freq_centers=None, generic_hrtf_params=None, generic_hrtf_table=None,
                  reg_config=None,  # Ignored - for backwards compatibility with saved models
                  **kwargs):
         require_shape(self, kwargs, minimum_ndim=2)  # (freq_bins, ears)
+
+        # The TF implementation hard-codes exactly 3 hidden layers (w1→w2→w3→output).
+        # Unit sizes per layer are flexible, but the count must be 3.
+        if len(hidden_units) != 3:
+            raise ValueError(
+                f"HRTFGainLayerMLPReg requires exactly 3 hidden layers; "
+                f"got hidden_units={hidden_units} (len={len(hidden_units)}). "
+                f"Adjust unit sizes but keep exactly 3 values."
+            )
 
         # Extract shape before super().__init__() since _load_generic_hrtf needs it
         self.shape = kwargs.get('shape')
