@@ -775,7 +775,7 @@ class SignalBase:
         #                                 mask=mask)
         #        for name in epoch_names}
 
-    def generate_epoch_mask(self, epoch=True):
+    def generate_epoch_mask(self, epoch=True, invert=False):
         '''
         inputs:
             epoch: {None, boolean, ndarray, string, list}
@@ -825,6 +825,10 @@ class SignalBase:
 
         else:
             raise RuntimeError('Invalid epoch passed to generate_epoch_mask')
+
+        if invert:
+            mask = ~mask
+
         return mask
 
     def epoch_to_signal(self, epoch='epoch', indices=None, boundary_mode='exclude',

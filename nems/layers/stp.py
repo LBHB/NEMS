@@ -11,11 +11,12 @@ from nems.distributions import Normal, HalfNormal, Uniform
 class ShortTermPlasticity(Layer):
 
     def __init__(self, quick_eval=True, fs=100.0, crosstalk=0, dep_only=False,
-                 chunksize=5000, x0=None, reset_signal=None, pad_onsets=100, **kwargs):
-        """TODO: docs
+                 chunksize=20, x0=None, reset_signal=None, pad_onsets=100, **kwargs):
+        """
+        Simulate effect of short-term plasticity on neural transmission,
+        using the Tsodyks-Markram model
 
-        TODO: additional context.
-        Need @SVD's help filling in all these docs, some parameter renaming
+        TODO: additional context. Need @SVD's help filling in all these docs, some parameter renaming
         would likely be helpful as well.
         
         Parameters
@@ -32,14 +33,20 @@ class ShortTermPlasticity(Layer):
             Frequency of sampling, in Hz. Used to determine reasonable bounds
             for parameters.
         crosstalk : int; default=0;
+            DEPRECATED
             TODO: explain what this does.
             TODO: or remove if this isn't used any more?
         dep_only : bool; default=False.
+            DEPRECATED. Only depression is currently supported
             TODO: explain what this does.
         chunksize : int; default=5.
             TODO: explain what this does.
             NOTE: used to be in units of seconds, now it should be specified
                   in units of bins.
+        pad_onsets : int; default=100
+            pad out pretrial with first value to allow STP to reach stable
+            baseline at trial onset. Deals with data where pre-trial activation
+            can be >0 instead of a traditional no-depression initial state
 
         """
 
@@ -61,12 +68,13 @@ class ShortTermPlasticity(Layer):
         
         Layer parameters
         ----------------
-        u : np.ndarray.
-            TODO: explain purpose.
-            TODO: expected shape?
+        u : np.ndarray.one per input channel
+            release probability at presynaptic terminal, governs rate of adaptation
             Prior: HalfNormal(sd=0.1)
-            Bounds: (0.0001, np.inf)   TODO: should this use epsilon instead?
+            Bounds: (1e-6, np.inf)
+            TODO: should this use epsilon instead?
         tau : np.ndarray.
+            time constant of return to baseline when input is zero
             TODO: explain purpose.
             TODO: expected shape?
             Prior: HalfNormal(sd=0.1)
@@ -75,8 +83,10 @@ class ShortTermPlasticity(Layer):
         """
 
 
-        u0, tau0 = self.seconds_to_bins(self.fs, 0.05, 0.05)     # 0.1 frac, 100 ms
-        _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.001) #   1 ms
+        u0, tau0 = self.seconds_to_bins(self.fs, 0.025, 0.5)     # 0.1 frac, 100 ms
+        _, tau_min = self.seconds_to_bins(self.fs, 0.1, 0.0001) #   10 ms
+        # u0, tau0 = 0.1, 1.0  # 10% rp, 50 ms recovery
+        # tau_min = 0.001  #   1 ms
 
         tau_mn = np.full(shape=self.shape, fill_value=tau0)
         tau_prior = Uniform(tau_mn/2, tau_mn*3/2)
@@ -86,7 +96,7 @@ class ShortTermPlasticity(Layer):
 
         tau_bounds = (tau_min, np.inf)
         if self.dep_only or self.quick_eval:
-            u_bounds = (1e-6, np.inf)
+            u_bounds = (1e-6, 0.2)
         else:
             u_bounds = (-np.inf, np.inf)
 
@@ -117,7 +127,10 @@ class ShortTermPlasticity(Layer):
     # Authors: SVD, Menoua K.
     # Revision by: JRP.
     def evaluate(self, input):
-        """TODO: docs
+        """
+        Apply closed-form solution of Tsodyks-Markram differential equation
+        simulating the effects of short-term depression on a synapse.
+        TODO: add back facilitation.
 
         TODO: is there a succint equation we can put here to represent what
               STP is doing?
@@ -162,6 +175,10 @@ class ShortTermPlasticity(Layer):
         #       half-normal can only specify sd. remove this after implementing
         #       a proper parameter scaling system.
         tau *= 100
+        # fudge factor to deal with scaling parameters, since gradient doesn't
+        # deal well with params at different scales
+        # TODO: remove this after implementing a proper parameter scaling system.
+        #tau *= self.fs
 
         # TODO: Refactor if still using, otherwise remove.
         # if self.crosstalk:
@@ -197,8 +214,9 @@ class ShortTermPlasticity(Layer):
                         + (x0 + mu1*x1)/2 + imu0
 
                 _nonzero = nonzero[i:j, :]
-                depression_per_bin[i:j, :][_nonzero] = \
-                        1 - imu[_nonzero] / mu[_nonzero]
+                depression_per_bin[i:j, :][_nonzero] = 1 - imu[_nonzero] / mu[_nonzero]
+
+                # save initial conditions for next chunk
                 x0 = xi[-1:, :]
                 imu0 = imu[-1:, :] / mu[-1:, :]
 
@@ -373,7 +391,7 @@ class ShortTermPlasticity(Layer):
 
                 # convert a & tau units from sec to bins
                 ui = tf.math.abs(tf.reshape(self.u, (1, -1))) / fs * 100
-                taui = tf.math.abs(tf.reshape(self.tau, (1, -1))) * fs
+                taui = tf.math.abs(tf.reshape(self.tau, (1, -1))) * 100
 
                 # convert chunksize from sec to bins
                 chunksize = int(parent_chunksize * fs)
@@ -385,7 +403,13 @@ class ShortTermPlasticity(Layer):
                 ui = tf.expand_dims(ui, axis=0)
                 taui = tf.expand_dims(taui, axis=0)
 
-                a = tf.cast(1.0 / taui, 'float64')
+                # Cast to float64 for numerical stability; mu = exp(ix) can
+                # overflow float32 when tau or u are large during fitting.
+                tstim = tf.cast(tstim, 'float64')
+                ui = tf.cast(ui, 'float64')
+                taui = tf.cast(taui, 'float64')
+
+                a = 1.0 / taui
                 x = ui * tstim
 
                 # TODO: move these outside __call__ similar to revision of scipy
@@ -398,17 +422,10 @@ class ShortTermPlasticity(Layer):
                         )
 
                 td = []
-                #initialize state
-                #x0 = tf.cast(x[:,:1], 'float64')
-                #print(x0.shape, ui.shape)
-                #imu0 = tf.nn.relu((tf.cast(ui, 'float64') * x0) ** 0.5 * 5)
-                x0 = tf.cast(x[:, :1], 'float64')
+                x0 = x[:, :1]
                 imu0 = 0.0
                 for j in range(reset_times.shape[0] - 1):
-                    xi = tf.cast(
-                        x[:, reset_times[j]:reset_times[j + 1], :],
-                        'float64'
-                        )
+                    xi = x[:, reset_times[j]:reset_times[j + 1], :]
                     ix = _cumulative_trapezoid_tf(a + xi, dx=1, initial=0) \
                          + a + (x0 + xi[:, :1]) / 2.0
 
@@ -424,7 +441,7 @@ class ShortTermPlasticity(Layer):
 
                     x0 = xi[:, -1:]
                     imu0 = imu[:, -1:] / mu[:, -1:]
-                    td.append(tf.cast(_td, 'float32'))
+                    td.append(_td)
                 td = tf.concat(td, axis=1)
 
                 rank = len(td.shape)
@@ -434,7 +451,7 @@ class ShortTermPlasticity(Layer):
                 #         td[:, :-1], pad_spec,
                 #         constant_values=1.0
                 #         )
-                ret = tstim*td
+                ret = tf.cast(tstim * td, self.dtype)
                 if pad_onsets > 0:
                     ret = ret[:, pad_onsets:, :]
                 ret = tf.where(tf.math.is_nan(original_inputs), _nan, ret)

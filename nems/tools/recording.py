@@ -1196,7 +1196,7 @@ class Recording:
 
         return Recording(newsigs)
 
-    def create_mask(self, epoch=None, base_signal=None, mask_name='mask'):
+    def create_mask(self, epoch=None, base_signal=None, mask_name='mask', invert=False):
         '''
         inputs:
             epoch: {None, boolean, ndarray, string, list}
@@ -1208,7 +1208,7 @@ class Recording:
              if string (eoch name), mask is True for epochs with .name==string
              if list of strings (epoch names), mask is OR combo of all strings
              if list of tuples (epoch times), mask is OR combo of all epoch times
-
+            invert: {bool} if True, invert values (False<-->True), default False
         TODO: add epochs, base signal parameters
         '''
 
@@ -1220,7 +1220,7 @@ class Recording:
                 sig_name = list(rec.signals.keys())[0]
             base_signal = rec[sig_name]
 
-        mask = base_signal.generate_epoch_mask(epoch)
+        mask = base_signal.generate_epoch_mask(epoch, invert=invert)
 
         try:
             mask_sig = base_signal._modified_copy(mask, dtype='bool', chans=[mask_name])
