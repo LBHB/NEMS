@@ -175,25 +175,58 @@ class JackknifeIterator:
         # Need inverse on iterator to get predictions from validation data
         save_inverse = self.inverse
         self.inverse = True
-        
-        preds = [model.predict(inverse_set) for model, inverse_set in zip(model_set, self)]
-        if isinstance(preds[0],np.ndarray):
-            preds = [{'output': p} for p in preds]
+
+        # [AGENT EDIT START | agent: claude-opus-4-6 | user: wingertj | reason: handle 3D windowed input (n_windows, window_size, channels) by flattening to 2D before predict — the numpy layer path only understands (time, channels) | date: 2026-03-20]
+        k0 = list(self.dataset.inputs.keys())[0]
+        is_windowed = self.dataset.inputs[k0].ndim >= 3
+        if is_windowed:
+            window_size = self.dataset.inputs[k0].shape[1]
+
+        preds = []
+        for model, inverse_set in zip(model_set, self):
+            if is_windowed:
+                # Flatten (n_windows, window_size, channels) → (time, channels)
+                flat_input = {k: v.reshape(-1, v.shape[-1])
+                              for k, v in inverse_set.inputs.items()}
+                pred = model.predict(flat_input)
+                # Keep only the final output — intermediate layers may have
+                # extra dims (e.g. WeightChannels (T,1,40)) that we don't need.
+                if isinstance(pred, dict):
+                    pred = pred['output']
+            else:
+                pred = model.predict(inverse_set)
+            if isinstance(pred, np.ndarray):
+                pred = {'output': pred}
+            preds.append(pred)
+
         for i, inverse_set in enumerate(self):
-            preds[i]['target'] = inverse_set.targets['target']
+            t = inverse_set.targets['target']
+            if is_windowed and t.ndim >= 3:
+                t = t.reshape(-1, t.shape[-1])
+            preds[i]['target'] = t
+
         dataset = {}
-        # for each key in the dataset (including target)
         for k in list(preds[0].keys()):
-            # create an output array
-            s = list(preds[0][k].shape)
-            s[self.axis] = self.max_index
-            dataset[k] = np.zeros(s)
-            # paste held-out component in appropriate slots
-            for p, mask in zip(preds, self.mask_list):
-                if self.axis==0:
-                    dataset[k][mask] = p[k]
-                elif self.axis==1:
-                    dataset[k][:,mask] = p[k]
+            if is_windowed:
+                # Masks index windows; expand to sample-level indices
+                n_total = self.max_index * window_size
+                dataset[k] = np.zeros((n_total, preds[0][k].shape[-1]))
+                for p, mask in zip(preds, self.mask_list):
+                    sample_idx = np.concatenate(
+                        [np.arange(w * window_size, (w + 1) * window_size)
+                         for w in mask]
+                    )
+                    dataset[k][sample_idx] = p[k]
+            else:
+                s = list(preds[0][k].shape)
+                s[self.axis] = self.max_index
+                dataset[k] = np.zeros(s)
+                for p, mask in zip(preds, self.mask_list):
+                    if self.axis == 0:
+                        dataset[k][mask] = p[k]
+                    elif self.axis == 1:
+                        dataset[k][:, mask] = p[k]
+        # [AGENT EDIT END]
 
         self.inverse = save_inverse
 

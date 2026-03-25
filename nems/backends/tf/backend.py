@@ -183,10 +183,20 @@ class TensorFlowBackend(Backend):
         log.info(f'TF model built. (verbose={self.verbose})')
         if self.verbose:
             stringlist=[]
-            model.summary(print_fn=lambda x: stringlist.append(x))
+            model.summary(print_fn=lambda x: stringlist.append(x), show_trainable=True)
             for s in stringlist:
                 if len(s.strip(" "))>0:
                     log.info(s)
+
+            log.info('')
+            log.info('Per-layer trainability:')
+            log.info(f'  {"Layer":<25s} {"Total":>8s} {"Trainable":>10s} {"Frozen":>8s}')
+            log.info(f'  {"=" * 60}')
+            for layer in model.layers:
+                trainable_count = int(sum(np.prod(w.shape) for w in layer.trainable_weights))
+                frozen_count = int(sum(np.prod(w.shape) for w in layer.non_trainable_weights))
+                total_count = trainable_count + frozen_count
+                log.info(f'  {layer.name:<25s} {total_count:>8d} {trainable_count:>10d} {frozen_count:>8d}')
 
         return model
 
