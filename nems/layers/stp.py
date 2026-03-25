@@ -227,6 +227,8 @@ class ShortTermPlasticity(Layer):
 
                 i += self.chunksize
                 j += self.chunksize
+                if np.sum(np.isnan(depression_per_bin))>0:
+                    print('hit a nan')
 
             # Shift depression forward in time by one to allow STP to kick in
             # after the stimulus changes.
