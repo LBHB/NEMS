@@ -710,14 +710,33 @@ class SignalBase:
         epoch_data = self.extract_epoch(epoch, mask=mask)
         return np.nanmean(epoch_data, axis=0)
 
-    def epoch_names_matching(self, epoch_regex, minreps=1):
-
+    def epoch_names_matching(self, epoch_regex, minreps=1, mask=None):
+        """
+        :param epoch_regex:
+        :param minreps:
+        :param mask: optional RasterizedSignal that indicates valid time window. only return
+                     names of epochs that occur when the mask is true.
+        :return:
+        """
         epoch_names = epoch_names_matching(self.epochs, epoch_regex)
 
         if minreps > 1:
             cc = self.epochs.loc[self.epochs.name.isin(epoch_names)].groupby('name').count()
             cc = cc.loc[cc['start'] > 1]
             epoch_names = cc.index.to_list()
+
+        if mask is not None:
+            # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: complete TODO: filter epoch_names to those with at least one occurrence fully within the masked period | date: 2026-03-31]
+            mask_data = mask.as_continuous()
+            filtered = []
+            for name in epoch_names:
+                indices = self.get_epoch_indices(name)
+                for lb, ub in indices:
+                    if np.all(mask_data[0, lb:ub]):
+                        filtered.append(name)
+                        break
+            epoch_names = filtered
+            # [AGENT EDIT END]
 
         return epoch_names
 
