@@ -80,12 +80,30 @@ class JackknifeIterator:
         Uses data and a single mask to return inverse subset of data
     
     """
-    def __init__(self, input, samples=5,*, axis=0, inverse=False, shuffle=False, state=None, target=None, 
+    def __init__(self, input, samples=5,*, axis=0, inverse=False, shuffle=False, state=None, target=None,
                  input_name=None, state_name=None, output_name=None, target_name=None,
-                 prediction_name=None, dtype=None, **kwargs):
+                 prediction_name=None, dtype=None, stratify=None, mode='auto', **kwargs):
         """
-        
-
+        Parameters
+        ----------
+        mode : {'auto', 'contiguous', 'interleaved'}
+            How each (sub-)group of indices is split into folds.
+            'contiguous'  : adjacent indices stay in the same fold (np.array_split).
+                Right for continuous time series where neighbouring bins are
+                strongly correlated — splitting them apart would leak training
+                info into validation.
+            'interleaved' : round-robin assignment (idx[i::n]) so each fold is
+                spread across the whole range. Right for epoch-batched inputs
+                where adjacent epochs are only weakly coupled but session-level
+                drift would otherwise load up a single fold.
+            'auto' (default): picks 'interleaved' when the input has >=3 dims
+                along the splitting axis (i.e. epoch-batched: (n_epochs, T, C)),
+                otherwise 'contiguous'. Override explicitly if you know better.
+        stratify : array-like, optional
+            Per-index label (e.g. 'active'/'passive'). When provided, each
+            label group is split into `samples` folds independently using the
+            chosen mode and then concatenated so every fold has proportional
+            representation from each group. Composes with any `mode`.
         """
         self.inverse         = inverse
         self.axis = axis
@@ -94,7 +112,13 @@ class JackknifeIterator:
         self.shuffle = shuffle
         self.samples         = samples
         self.max_iter        = samples
-        self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name, 
+        # [AGENT EDIT START | agent: claude | user: wingertj | reason: Stratified jackknife support — when `stratify` labels are provided (one per index along `axis`), each label group is split into `samples` folds independently and concatenated. Guarantees every fold has proportional representation from each group (e.g. active/passive). Added `mode` to pick contiguous vs interleaved splits (auto-detect from input dims) for robustness to session drift in epoch-batched data. | date: 2026-04-19]
+        self.stratify = np.asarray(stratify) if stratify is not None else None
+        if mode not in ('auto', 'contiguous', 'interleaved'):
+            raise ValueError(f"mode must be 'auto', 'contiguous', or 'interleaved'; got {mode!r}")
+        self.mode = mode
+        # [AGENT EDIT END]
+        self.dataset         = DataSet(input, target=target, state=state, input_name=input_name, state_name=state_name,
                                output_name=output_name, target_name=target_name, prediction_name=prediction_name, dtype=dtype)
         k = list(self.dataset.inputs.keys())
         self.create_jackknife_masks(self.dataset.inputs[k[0]])
@@ -121,6 +145,20 @@ class JackknifeIterator:
         """Sets new sample amount to iterator"""
         self.samples = new_sample
 
+    # [AGENT EDIT START | agent: claude | user: wingertj | reason: Resolve 'auto' mode — interleaved for epoch-batched input (>=3D at split axis), else contiguous. Split helper shared by stratified and non-stratified paths. | date: 2026-04-19]
+    def _resolve_mode(self):
+        if self.mode != 'auto':
+            return self.mode
+        k = list(self.dataset.inputs.keys())[0]
+        return 'interleaved' if self.dataset.inputs[k].ndim >= 3 else 'contiguous'
+
+    def _split_indices(self, idx, n, mode):
+        """Split `idx` (1D array of indices) into `n` folds using the given mode."""
+        if mode == 'interleaved':
+            return [idx[i::n] for i in range(n)]
+        return np.array_split(idx, n)
+    # [AGENT EDIT END]
+
     def create_jackknife_masks(self, data):
         """Generates list of masks for jackknifes, saves in self.mask_list
 
@@ -128,11 +166,29 @@ class JackknifeIterator:
         """
         self.max_index = data.shape[self.axis]
         n = self.samples
+        # [AGENT EDIT START | agent: claude | user: wingertj | reason: Stratified + mode-aware split. When self.stratify labels are supplied, each label group is split into n folds independently using the resolved mode and concatenated (balanced active/passive). Otherwise splits the full index range with the resolved mode (interleaved for epoch-batched input by default). | date: 2026-04-19]
+        mode = self._resolve_mode()
+        if self.stratify is not None:
+            if len(self.stratify) != self.max_index:
+                raise ValueError(
+                    f"stratify length {len(self.stratify)} does not match "
+                    f"data length {self.max_index} along axis {self.axis}")
+            fold_parts = [[] for _ in range(n)]
+            for label in np.unique(self.stratify):
+                idx = np.where(self.stratify == label)[0]
+                if self.shuffle:
+                    idx = np.random.permutation(idx)
+                for i, chunk in enumerate(self._split_indices(idx, n, mode)):
+                    fold_parts[i].append(chunk)
+            self.mask_list = [np.concatenate(parts) if len(parts) else np.array([], dtype=int)
+                              for parts in fold_parts]
+            return self.mask_list
         masks = np.arange(0, self.max_index)
         if self.shuffle:
             masks = np.random.permutation(masks)
-        self.mask_list = np.array_split(masks, n)
+        self.mask_list = self._split_indices(masks, n, mode)
         return self.mask_list
+        # [AGENT EDIT END]
 
     def plot_estimate_error(self):
         '''Wrapper for nems.visualization.metrics.jackknife_est_error(model_list, ...)'''
@@ -176,47 +232,62 @@ class JackknifeIterator:
         save_inverse = self.inverse
         self.inverse = True
 
-        # [AGENT EDIT START | agent: claude-opus-4-6 | user: wingertj | reason: handle 3D windowed input (n_windows, window_size, channels) by flattening to 2D before predict — the numpy layer path only understands (time, channels) | date: 2026-03-20]
+        # [AGENT EDIT START | agent: claude | user: wingertj | reason: For windowed (3D) data, predict each window independently instead of flattening. Flattening caused FIR to span window boundaries, contaminating the first ~firlen bins of every window with data from an unrelated prior window — especially bad for interleaved/stratified folds where adjacent windows in the flattened stream are temporally disjoint. Per-window prediction mirrors fit-time batching. This path treats windows as opaque (no padsize/overlap awareness) so it matches models fit with the current non-overlapping WINDOW epochs. | date: 2026-04-20]
         k0 = list(self.dataset.inputs.keys())[0]
         is_windowed = self.dataset.inputs[k0].ndim >= 3
-        if is_windowed:
-            window_size = self.dataset.inputs[k0].shape[1]
+        window_size = self.dataset.inputs[k0].shape[1] if is_windowed else None
 
+        if is_windowed:
+            log.info(f"get_predicted_jackknifes: windowed mode, "
+                     f"n_folds={self.samples}, window_size={window_size}")
+
+        # Predict each fold. In 3D mode we keep results as a list of (WS, C_out)
+        # arrays per fold (one entry per window) — the fold-local order matches
+        # mask_list[fold] because inverse_set is built via np.take(..., mask).
         preds = []
         for model, inverse_set in zip(model_set, self):
             if is_windowed:
-                # Flatten (n_windows, window_size, channels) → (time, channels)
-                flat_input = {k: v.reshape(-1, v.shape[-1])
-                              for k, v in inverse_set.inputs.items()}
-                pred = model.predict(flat_input)
-                # Keep only the final output — intermediate layers may have
-                # extra dims (e.g. WeightChannels (T,1,40)) that we don't need.
-                if isinstance(pred, dict):
-                    pred = pred['output']
+                n_win = inverse_set.inputs[k0].shape[0]
+                win_preds = []
+                for w in range(n_win):
+                    win_input = {k: v[w] for k, v in inverse_set.inputs.items()}
+                    p = model.predict(win_input)
+                    if isinstance(p, np.ndarray):
+                        p = {'output': p}
+                    # Only keep final 'output' — intermediate signals may have
+                    # extra dims (e.g. WeightChannels) that don't stitch cleanly.
+                    win_preds.append(p['output'])
+                pred = {'output': win_preds}  # list of (WS, C_out), fold order
             else:
                 pred = model.predict(inverse_set)
-            if isinstance(pred, np.ndarray):
-                pred = {'output': pred}
+                if isinstance(pred, np.ndarray):
+                    pred = {'output': pred}
             preds.append(pred)
 
+        # Collect targets in the same layout as preds.
         for i, inverse_set in enumerate(self):
             t = inverse_set.targets['target']
-            if is_windowed and t.ndim >= 3:
-                t = t.reshape(-1, t.shape[-1])
-            preds[i]['target'] = t
+            if is_windowed:
+                # (n_win, WS, C) → list of (WS, C) in fold order
+                preds[i]['target'] = [t[j] for j in range(t.shape[0])]
+            else:
+                preds[i]['target'] = t
 
+        # Stitch: in 3D mode, allocate a (n_windows, WS, C_out) buffer, place
+        # each predicted window at its global window index, then flatten to
+        # (n_windows*WS, C_out) at the end. This keeps the window→global-index
+        # mapping explicit instead of relying on mask-order alignment.
         dataset = {}
         for k in list(preds[0].keys()):
             if is_windowed:
-                # Masks index windows; expand to sample-level indices
-                n_total = self.max_index * window_size
-                dataset[k] = np.zeros((n_total, preds[0][k].shape[-1]))
+                sample = preds[0][k][0]  # (WS, C_out)
+                out_ch = sample.shape[-1]
+                buf = np.zeros((self.max_index, window_size, out_ch),
+                               dtype=sample.dtype)
                 for p, mask in zip(preds, self.mask_list):
-                    sample_idx = np.concatenate(
-                        [np.arange(w * window_size, (w + 1) * window_size)
-                         for w in mask]
-                    )
-                    dataset[k][sample_idx] = p[k]
+                    for j, w in enumerate(mask):
+                        buf[w] = p[k][j]
+                dataset[k] = buf.reshape(-1, out_ch)
             else:
                 s = list(preds[0][k].shape)
                 s[self.axis] = self.max_index
