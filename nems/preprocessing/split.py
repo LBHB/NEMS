@@ -224,24 +224,39 @@ class JackknifeIterator:
         """Returns the inverse replicate of the given jackknife indices."""
         return np.take(data, mask, axis=axis) if data is not None else None
     
-    def get_predicted_jackknifes(self, model_set, **kwargs):
-        """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare"""
+    def get_predicted_jackknifes(self, model_set, pad_bins=0, **kwargs):
+        """Returns concatenation of a prediction list created through given model(s) and iterator with the existing target, to compare.
+
+        pad_bins: number of leading bins per window that are FIR warm-up (input
+        was prepadded by lite_input_dict via epoch_prepad). These bins are
+        stripped from each per-window prediction and target before stitching,
+        so the flat output aligns with the un-padded WINDOW epoch mask.
+        """
         if not isinstance(model_set, list):
             model_set = [model_set]
         # Need inverse on iterator to get predictions from validation data
         save_inverse = self.inverse
         self.inverse = True
 
-        # [AGENT EDIT START | agent: claude | user: wingertj | reason: For windowed (3D) data, predict each window independently instead of flattening. Flattening caused FIR to span window boundaries, contaminating the first ~firlen bins of every window with data from an unrelated prior window — especially bad for interleaved/stratified folds where adjacent windows in the flattened stream are temporally disjoint. Per-window prediction mirrors fit-time batching. This path treats windows as opaque (no padsize/overlap awareness) so it matches models fit with the current non-overlapping WINDOW epochs. | date: 2026-04-20]
+        # [AGENT EDIT START | agent: claude | user: wingertj | reason: For windowed (3D) data, predict each window independently instead of flattening. Flattening caused FIR to span window boundaries, contaminating the first ~firlen bins of every window with data from an unrelated prior window — especially bad for interleaved/stratified folds where adjacent windows in the flattened stream are temporally disjoint. Per-window prediction mirrors fit-time batching. The pad_bins kwarg lets the caller strip leading FIR warm-up bins from each window's prediction so the stitched flat output matches the un-padded WINDOW epoch mask. | date: 2026-04-27]
         k0 = list(self.dataset.inputs.keys())[0]
         is_windowed = self.dataset.inputs[k0].ndim >= 3
         window_size = self.dataset.inputs[k0].shape[1] if is_windowed else None
+        if is_windowed and pad_bins:
+            if pad_bins >= window_size:
+                raise ValueError(
+                    f"pad_bins={pad_bins} >= window_size={window_size}; "
+                    f"nothing left after stripping warm-up bins")
+            window_size_out = window_size - int(pad_bins)
+        else:
+            window_size_out = window_size
 
         if is_windowed:
             log.info(f"get_predicted_jackknifes: windowed mode, "
-                     f"n_folds={self.samples}, window_size={window_size}")
+                     f"n_folds={self.samples}, window_size={window_size}, "
+                     f"pad_bins={pad_bins}, window_size_out={window_size_out}")
 
-        # Predict each fold. In 3D mode we keep results as a list of (WS, C_out)
+        # Predict each fold. In 3D mode we keep results as a list of (WS_out, C_out)
         # arrays per fold (one entry per window) — the fold-local order matches
         # mask_list[fold] because inverse_set is built via np.take(..., mask).
         preds = []
@@ -256,8 +271,11 @@ class JackknifeIterator:
                         p = {'output': p}
                     # Only keep final 'output' — intermediate signals may have
                     # extra dims (e.g. WeightChannels) that don't stitch cleanly.
-                    win_preds.append(p['output'])
-                pred = {'output': win_preds}  # list of (WS, C_out), fold order
+                    out = p['output']
+                    if pad_bins:
+                        out = out[pad_bins:]
+                    win_preds.append(out)
+                pred = {'output': win_preds}  # list of (WS_out, C_out), fold order
             else:
                 pred = model.predict(inverse_set)
                 if isinstance(pred, np.ndarray):
@@ -268,21 +286,24 @@ class JackknifeIterator:
         for i, inverse_set in enumerate(self):
             t = inverse_set.targets['target']
             if is_windowed:
-                # (n_win, WS, C) → list of (WS, C) in fold order
-                preds[i]['target'] = [t[j] for j in range(t.shape[0])]
+                # (n_win, WS, C) → list of (WS_out, C) in fold order, stripped
+                preds[i]['target'] = [
+                    (t[j][pad_bins:] if pad_bins else t[j])
+                    for j in range(t.shape[0])
+                ]
             else:
                 preds[i]['target'] = t
 
-        # Stitch: in 3D mode, allocate a (n_windows, WS, C_out) buffer, place
+        # Stitch: in 3D mode, allocate a (n_windows, WS_out, C_out) buffer, place
         # each predicted window at its global window index, then flatten to
-        # (n_windows*WS, C_out) at the end. This keeps the window→global-index
+        # (n_windows*WS_out, C_out) at the end. This keeps the window→global-index
         # mapping explicit instead of relying on mask-order alignment.
         dataset = {}
         for k in list(preds[0].keys()):
             if is_windowed:
-                sample = preds[0][k][0]  # (WS, C_out)
+                sample = preds[0][k][0]  # (WS_out, C_out)
                 out_ch = sample.shape[-1]
-                buf = np.zeros((self.max_index, window_size, out_ch),
+                buf = np.zeros((self.max_index, window_size_out, out_ch),
                                dtype=sample.dtype)
                 for p, mask in zip(preds, self.mask_list):
                     for j, w in enumerate(mask):
