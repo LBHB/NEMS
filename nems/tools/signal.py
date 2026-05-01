@@ -334,7 +334,8 @@ class SignalBase:
         return copy.copy(self)
 
     def get_epoch_bounds(self, epoch, boundary_mode='exclude',
-                         fix_overlap=None, overlapping_epoch=None, mask=None):
+                         fix_overlap=None, overlapping_epoch=None,
+                         mask=None, allow_incomplete=False):
         '''
         Get boundaries of named epoch.
 
@@ -362,8 +363,9 @@ class SignalBase:
         overlapping_epoch : {None, or string}
             if defined, only return occurences of epoch that are spanned by
             occurences of overlapping_epoch
-        complete : boolean
-            If True, eliminate any epochs whose boundaries are not fully
+        allow_incomplete : boolean
+            TODO: currently not supported?
+            If False, eliminate any epochs whose boundaries are not fully
             contained within the signal.
 
         Returns
@@ -1098,22 +1100,96 @@ class SignalBase:
 
         ax.set_title(self.name)
         
-    def plot_raster(self, epoch="TRIAL", channel=None, ax=None):
-        
-        from nems0.plots.raster import raster
+    def plot_raster(self, epoch="TRIAL", channel=None, ax=None,
+                    labels=None, label_epochs=True, ton=0, toff=None):
+        """Plot a spike raster, stacking trials across all epochs that match.
+
+        Parameters
+        ----------
+        epoch : str or list of str
+            A single epoch name (exact match or regex), or a list of exact
+            epoch names.  All matching unique epoch names are stacked in the
+            order they appear in self.epochs.
+        channel : int or str or None
+            Channel index or name.  Defaults to 0.
+        ax : matplotlib Axes or None
+        labels : list or None
+            if not None, use these labels instead of epoch names
+        label_epochs : bool
+            When multiple epochs are plotted, replace the y-axis tick labels
+            with epoch names instead of trial numbers.
+        """
+        import re
+        import matplotlib.pyplot as plt
 
         if channel is None:
             channel = 0
 
-        if channel in self.chans:
-            r_ = self.extract_channels([channel])
-            r = r_.extract_epoch(epoch)[:, 0, :]
+        if self.chans is not None and channel in self.chans:
+            sig = self.extract_channels([channel])
+            chan_idx = 0
         else:
-            r = self.extract_epoch(epoch)[:, channel, :]
+            sig = self
+            chan_idx = channel
+        c = sig.chans[chan_idx]
 
-        times = np.arange(r.shape[1]) / self.fs
-        title = f"{self.name} chan {channel} epoch {epoch} raster"
-        raster(times, r, ax=ax, title=title)
+        all_names = list(self.epochs['name'].unique())
+        if isinstance(epoch, list):
+            epoch_names = [e for e in epoch if e in set(all_names)]
+        else:
+            pattern = re.compile(epoch)
+            epoch_names = [e for e in all_names if pattern.search(e)]
+
+        if not epoch_names:
+            raise ValueError(f"No epochs matching {epoch!r}")
+
+        if ax is None:
+            _, ax = plt.subplots()
+
+        y_offset = 1
+        ytick_positions = []
+        ytick_labels = []
+
+        for ei,name in enumerate(epoch_names):
+            r = sig.extract_epoch(name)
+            if ei%2==0:
+                color='k'
+            else:
+                color='gray'
+            if type(r) is np.ndarray:
+                r = r[:, chan_idx, :]
+                valid = r[np.isfinite(r[:, 0])]
+                n_trials, n_bins = valid.shape
+                t = np.arange(n_bins) / self.fs
+
+                trial_idx, bin_idx = np.where(valid)
+                ax.plot(t[bin_idx], trial_idx + y_offset, 'k.', color=color,  markersize=1)
+            elif type(r) is dict:
+                r = r[c]
+                trial_idx, spkt = r[:,0], r[:,1]
+                n_trials = trial_idx.max()
+                ax.plot(spkt-ton, trial_idx + y_offset, '.', color=color, markersize=1)
+            else:
+                raise ValueError(f"Unsupported data type: {type(r)}")
+            ytick_positions.append(y_offset + n_trials / 2)
+            ytick_labels.append(name)
+            y_offset += n_trials + 2
+
+        if ton>0:
+            ax.axvline(0, ls='--', color='g', lw=0.5)
+        if toff is not None:
+            ax.axvline(toff-ton, ls='--', color='g', lw=0.5)
+        ax.set_xlabel('Time (s)')
+        if label_epochs and (labels is not None):
+            ax.set_yticks(ytick_positions)
+            ax.set_yticklabels(labels, fontsize=8)
+        elif label_epochs and len(epoch_names) > 1:
+            ax.set_yticks(ytick_positions)
+            ax.set_yticklabels(ytick_labels, fontsize=8)
+        else:
+            ax.set_ylabel('Trial')
+        ax.set_title(f"{self.name} chan {c}")
+
 
 
 class RasterizedSignal(SignalBase):
