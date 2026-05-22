@@ -144,6 +144,20 @@ class Model:
         self.dstrf_backend = None  # backend for model with output NL removed
 
     @property
+    def shortname(self):
+        """Model name abbreviation"""
+        s = self.meta.get('shortname',None)
+        if s is not None:
+            return s
+        else:
+            return self.name
+
+    @shortname.setter
+    def shortname(self, shortname):
+        """set shortname in meta"""
+        self.meta['shortname'] = shortname
+
+    @property
     def fs(self):
         """Sampling rate of resp"""
         return self.meta.get('fs',None)
@@ -1620,11 +1634,9 @@ class Model:
         # same as subsequent layers.
         string += "="*32 + "\n"
         for i, layer in enumerate(self.layers):
-            if i != 0:
-                # Add blank line between layers if more than one
-                string += '\n'
-            string += str(layer)
-        string += "\n" + tilde_break
+            #string += str(layer)
+            string += f"{layer.name} {layer.shape}\n"
+        string += tilde_break
 
         return string
 

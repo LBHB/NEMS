@@ -1084,16 +1084,17 @@ class SignalBase:
         #log.info(f"epoch {epoch} eshape={e.shape}")
         if ax is None:
             f, ax = plt.subplots()
+        tt=(np.arange(e.shape[1])/self.fs-prestimsilence)*1000
         if e.shape[0] == 1:
-            tt=(np.arange(e.shape[1])/self.fs-prestimsilence)*1000
             ax.plot(tt, e.T, **plotopts)
             ax.set_xlabel(f'Time from {epoch} onset (ms)')
             ax.set_ylabel('Mean')
         else:
+            extent=[tt[0],tt[-1],-0.5,e.shape[0]+0.5]
             if norm:
-                im = ax.imshow((e / e.max(axis=1)), origin='lower', aspect='auto')
-            else:
-                im = ax.imshow(e, origin='lower', aspect='auto')
+                e=e / np.max(e, axis=1, keepdims=True)
+            im = ax.imshow(e, origin='lower', aspect='auto',
+                           extent=extent, **plotopts)
             #plt.colorbar(im, ax=ax)
             ax.set_xlabel(f'Bins from {epoch} onset')
             ax.set_ylabel('Channel')
@@ -1101,7 +1102,8 @@ class SignalBase:
         ax.set_title(self.name)
         
     def plot_raster(self, epoch="TRIAL", channel=None, ax=None,
-                    labels=None, label_epochs=True, ton=0, toff=None):
+                    labels=None, label_epochs=True, ton=0, toff=None,
+                    compact=False):
         """Plot a spike raster, stacking trials across all epochs that match.
 
         Parameters
@@ -1160,15 +1162,18 @@ class SignalBase:
                 r = r[:, chan_idx, :]
                 valid = r[np.isfinite(r[:, 0])]
                 n_trials, n_bins = valid.shape
-                t = np.arange(n_bins) / self.fs
+                t = np.arange(n_bins) / self.fs - ton
 
                 trial_idx, bin_idx = np.where(valid)
-                ax.plot(t[bin_idx], trial_idx + y_offset, 'k.', color=color,  markersize=1)
+                ax.plot(t[bin_idx], trial_idx + y_offset, '.', color=color,  markersize=1)
             elif type(r) is dict:
                 r = r[c]
                 trial_idx, spkt = r[:,0], r[:,1]
-                n_trials = trial_idx.max()
-                ax.plot(spkt-ton, trial_idx + y_offset, '.', color=color, markersize=1)
+                if len(trial_idx)==0:
+                    n_trials=1
+                else:
+                    n_trials = trial_idx.max()
+                    ax.plot(spkt-ton, trial_idx + y_offset, '.', color=color, markersize=1)
             else:
                 raise ValueError(f"Unsupported data type: {type(r)}")
             ytick_positions.append(y_offset + n_trials / 2)
@@ -1179,17 +1184,20 @@ class SignalBase:
             ax.axvline(0, ls='--', color='g', lw=0.5)
         if toff is not None:
             ax.axvline(toff-ton, ls='--', color='g', lw=0.5)
-        ax.set_xlabel('Time (s)')
-        if label_epochs and (labels is not None):
-            ax.set_yticks(ytick_positions)
-            ax.set_yticklabels(labels, fontsize=8)
-        elif label_epochs and len(epoch_names) > 1:
-            ax.set_yticks(ytick_positions)
-            ax.set_yticklabels(ytick_labels, fontsize=8)
+        if compact:
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
         else:
-            ax.set_ylabel('Trial')
-        ax.set_title(f"{self.name} chan {c}")
-
+            ax.set_xlabel('Time (s)')
+            if label_epochs and (labels is not None):
+                ax.set_yticks(ytick_positions)
+                ax.set_yticklabels(labels, fontsize=8)
+            elif label_epochs and len(epoch_names) > 1:
+                ax.set_yticks(ytick_positions)
+                ax.set_yticklabels(ytick_labels, fontsize=8)
+            else:
+                ax.set_ylabel('Trial')
+            ax.set_title(f"{self.name} chan {c}")
 
 
 class RasterizedSignal(SignalBase):
