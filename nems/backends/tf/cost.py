@@ -213,7 +213,24 @@ def pearson(y_true, y_pred):
     return r
 
 
+# [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: binary cross-entropy loss for binary decoder model | date: 2026-05-14]
+_keras_bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
+
+def binary_crossentropy(response, prediction):
+    """Binary cross-entropy loss for binary classification targets.
+
+    Wraps `tf.keras.losses.BinaryCrossentropy` with NaN masking so that
+    missing time bins do not contribute to the loss.
+    """
+    mask = tf.math.is_finite(response)
+    r = tf.boolean_mask(response, mask)
+    p = tf.boolean_mask(prediction, mask)
+    return _keras_bce(r, p)
+# [AGENT EDIT END]
+
+
 cost_nicknames = {'squared_error': loss_se, 'nmse': loss_tf_nmse,
                   'nmse_shrinkage': loss_tf_nmse_shrinkage,
-                  'poisson': poisson}
+                  'poisson': poisson,
+                  'binary_crossentropy': binary_crossentropy}
 get_cost = FindCallable({**globals(), **cost_nicknames}, header='Cost')

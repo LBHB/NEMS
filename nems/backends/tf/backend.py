@@ -110,15 +110,18 @@ class TensorFlowBackend(Backend):
                     p=10 ** (-float(reg_ops[0].replace("d",".")))
                 elif len(reg)>2:
                     p = 10 ** (-float(reg[2:].replace("d",".")))
+                    
                 if reg.startswith('l1l2'):
                     tf_kwargs = {'regularizer': regularizers.l1_l2(l1=p,l2=p2)}
+                    log.info(f"Applying regularizer {reg} (p={p}, p2={p2}) to {layer.name}")
                 elif reg.startswith('l2'):
                     tf_kwargs = {'regularizer': regularizers.l2(l2=p)}
+                    log.info(f"Applying regularizer {reg} (p={p}) to {layer.name}")
                 elif reg.startswith('l1'):
                     tf_kwargs = {'regularizer': regularizers.l1(l1=p)}
+                    log.info(f"Applying regularizer {reg} (p={p}) to {layer.name}")
                 else:
                     raise ValueError(f"Unknown regularizer {reg}")
-                log.info(f"Applying regularizer {reg} (p={p}) to {layer.name}")
 
             else:
                 tf_kwargs = {}  # TODO, regularizer etc.
