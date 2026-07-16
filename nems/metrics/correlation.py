@@ -46,10 +46,13 @@ def correlation(x, y):
         # `rowvar=False` to convert NEMS shapes to shape expected by NumPy.
         # I.e. second index is variables (channels), first index is observations
         # within each variable (time).
-        corrs.append(np.corrcoef(x[...,i], y[...,i], rowvar=False)[0,1])
+        x_, y_ = x[...,i], y[...,i]
+        if (x_.std()==0) or (y_.std()==0):
+            corrs.append(0)
+        else:
+            corrs.append(np.corrcoef(x[...,i], y[...,i], rowvar=False)[0,1])
 
     if len(corrs) == 1:
-        # 
         r = corrs[0]
     else:
         r = np.array(corrs)

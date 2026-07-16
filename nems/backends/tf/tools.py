@@ -68,7 +68,7 @@ class simple_generator(tf.keras.utils.Sequence):
         return self.input_names
 
     def __data_generation(self, indexes):
-        'Generates data containing batch_size samples' 
+        'Generates data containing batch_size samples'
         # X : (n_samples, *dim, n_channels)
         # Initialization
         # stim.shape, resp.shape
@@ -78,6 +78,11 @@ class simple_generator(tf.keras.utils.Sequence):
         else:
             X = {i: self.X[i][indexes] for i in self.input_names}
         y = self.Y[indexes]
-            
+
+        # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: cast to self.dtype so float64 numpy arrays don't cause dtype mismatch with float32 TF model | date: 2026-06-30]
+        X = {k: v.astype(self.dtype) for k, v in X.items()} if isinstance(X, dict) else X.astype(self.dtype)
+        y = y.astype(self.dtype)
+        # [AGENT EDIT END]
+
         return X, y
 

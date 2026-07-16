@@ -93,8 +93,9 @@ def _default_fft_size(window_time, fs):
     return int(2 ** (np.ceil(np.log2(2 * window_time * fs))))
 
 
+# [AGENT EDIT START | agent: claude | user: svd | reason: add time_axis param to fft_gammagram, for consistency with gammagram/gtgram/chunked_gtgram | date: 2026-07-16]
 def fft_gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01,
-                  channels=18, f_min=200.0, f_max=None):
+                  channels=18, f_min=200.0, f_max=None, time_axis=0):
     """Approximate a gammatone filter spectrogram using FFT.
 
     A matrix of weightings is calculated using `fft_weights`, and applied to
@@ -126,11 +127,16 @@ def fft_gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01,
         Lower frequency cutoff.
     f_max : float; optional.
         Upper frequency cutoff. If not specified, will be set to `fs/2`.
+    time_axis : int; default=0.
+        Axis of the time dimension in the returned array. `0` returns shape
+        (Tau, `channels`) (NEMS default convention). `1` returns shape
+        (`channels`, Tau) (legacy gammatone-toolkit convention).
 
     Returns
     -------
     np.ndarray
-        With shape (Tau, `channels`)
+        With shape (Tau, `channels`) if `time_axis=0`, or (`channels`, Tau)
+        if `time_axis=1`.
         Where `Tau = 1 + floor((sound_length - fft_size)/hop_bins))`.
         This is equivalent to downsampling the spectrogram to a sampling rate
         of `1/hop_time`, with some rounding error to get integer bins.
@@ -141,6 +147,8 @@ def fft_gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01,
     (c) 2013 Jason Heeris (Python implementation)
 
     """
+    if time_axis not in (0, 1):
+        raise ValueError("time_axis must be 0 or 1")
 
     fft_size = _default_fft_size(window_time, fs)
     if f_max is None: f_max = fs/2
@@ -151,7 +159,11 @@ def fft_gammagram(wave, fs=44000, window_time=0.01, hop_time=0.01,
     sgram = spectrogram(wave, fft_size, fs, window_time, hop_time)
     result = np.abs(sgram).dot(gt_weights) / fft_size
 
+    if time_axis == 1:
+        result = result.T
+
     return result
+# [AGENT EDIT END]
 
 
 def fft_weights(nfft, fs, channels, f_min, f_max, maxlen, width=1):

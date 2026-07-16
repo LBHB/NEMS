@@ -21,5 +21,7 @@ Contents
     `lookup.py` : Look up functions based on strings. Mainly used to improve
                   user-friendliness when specifying cost functions or similar
                   options.
+    `utils.py` : Miscellaneous shared helpers, e.g. `get_joblib_memory` for
+                 on-disk memoization caches.
 
 """

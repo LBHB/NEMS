@@ -40,5 +40,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
 
-from .fft import spectrogram, fft_gammagram  # Faster
-from .gammatone import gammagram             # More biologically accurate
+# [AGENT EDIT START | agent: claude | user: svd | reason: export gtgram alias, chunked_gtgram, and joblib-cached c_gtgram/c_chunked_gtgram alongside existing gammagram/fft_gammagram | date: 2026-07-16]
+from .fft import spectrogram, fft_gammagram        # Faster
+from .gammatone import (
+    gammagram, gtgram, gtgram_xe, chunked_gtgram, c_gtgram, c_chunked_gtgram,
+)  # More biologically accurate
+# [AGENT EDIT END]

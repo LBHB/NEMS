@@ -12,6 +12,7 @@ from nems.layers import (
     RectifiedLinear, DoubleExponential, LevelShift
     )
 from nems.visualization.model import plot_nl
+from nems.models import LN
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,7 @@ class CNN_pop(Model):
 
     @classmethod
     def from_data(cls, input, output, filter_duration, sampling_rate=1000, **kwargs):
+        raise NotImplementedError('not implemented')
         channels_in = input.shape[-1]
         channels_out = output.shape[-1]
         time_bins = int(filter_duration / 1000 * sampling_rate)
@@ -160,7 +162,8 @@ class CNN_pop(Model):
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
     def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
-                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4):
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4,
+                 init_from_priors=True):
 
         """2-stage fit with freezing/unfreezing NL
         :param Y:
@@ -180,9 +183,12 @@ class CNN_pop(Model):
                            'learning_rate': learning_rate, 'epochs': epochs
 
                            }
-
-        strf = self.sample_from_priors()
-
+        
+        if init_from_priors:
+            strf = self.sample_from_priors()
+        else:
+            strf = self.copy()
+            
         strf.layers[-1].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
                         fitter_options=fitter_options, batch_size=None)
@@ -197,11 +203,21 @@ class CNN_pop(Model):
 
         return strf
 
-    def get_strf(self, **opts):
-        return LNpop_get_strf(self, **opts)
+    def get_strf(self, channels=None, pcidx=0, **opts):
+        # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: return dpc[channels, pcidx] instead of traditional STRF | date: 2026-06-02]
+        if 'dpc' not in self.meta:
+            raise ValueError("meta['dpc'] not found; run dPC decomposition before calling get_strf on CNN_pop")
+        dpc = self.meta['dpc']  # (cells, pcs, freq, time)
+        if channels is None:
+            channels = list(range(dpc.shape[0]))
+        elif isinstance(channels, int):
+            channels = [channels]
+        strf = dpc[channels, pcidx, :, :]  # (len(channels), freq, time)
+        return np.flip(np.moveaxis(strf, 0, -1), axis=1)    # (freq, time, len(channels))
+        # [AGENT EDIT END]
 
     def plot_strf(self, **opts):
-        return LNpop_plot_strf(self, **opts)
+        return LN.LNpop_plot_strf(self, **opts)
 
     def get_tuning(self, **opts):
         return LNpop_get_tuning(self, **opts)
