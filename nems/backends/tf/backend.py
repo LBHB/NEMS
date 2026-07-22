@@ -183,25 +183,26 @@ class TensorFlowBackend(Backend):
         safe_name = re.sub(r'[^A-Za-z0-9_.>-]', '_', self.nems_model.name or 'nems_model')
         model = tf.keras.Model(inputs=tf_inputs, outputs=tf_outputs, name=safe_name)
 
-        log.info(f'TF model built. (verbose={self.verbose})')
+        log.debug(f'TF model built (verbose={self.verbose}).')
         if self.verbose:
             stringlist=[]
             #model.summary(print_fn=lambda x: stringlist.append(x), show_trainable=True)
-            model.summary(print_fn=lambda x: stringlist.append(x))
-            for s in stringlist:
-                if len(s.strip(" "))>0:
-                    log.info(s)
+            #model.summary(print_fn=lambda x: stringlist.append(x))
+            #for s in stringlist:
+            #    if len(s.strip(" "))>0:
+            #        log.info(s)
 
             log.info('')
-            log.info('Per-layer trainability:')
-            log.info(f'  {"Layer":<25s} {"Total":>8s} {"Trainable":>10s} {"Frozen":>8s}')
-            log.info(f'  {"=" * 60}')
-            for layer in model.layers:
+            log.info(f'TF model: {model.name}')
+            log.info(f'  {"Layer":<26s} {"Shape":<14s} {"Total":>8s} {"Trainable":>10s} {"Frozen":>8s}')
+            log.info(f'  {"=" * 70}')
+            tf_startlayer=1
+            for layer, nems_layer in zip(model.layers[tf_startlayer:],self.nems_model.layers):
                 trainable_count = int(sum(np.prod(w.shape) for w in layer.trainable_weights))
                 frozen_count = int(sum(np.prod(w.shape) for w in layer.non_trainable_weights))
                 total_count = trainable_count + frozen_count
-                log.info(f'  {layer.name:<25s} {total_count:>8d} {trainable_count:>10d} {frozen_count:>8d}')
-
+                log.info(f'  {layer.name:<26s} {str(nems_layer.shape):<14s} {total_count:>8d} {trainable_count:>10d} {frozen_count:>8d}')
+            log.info(f'  {"=" * 70}')
         return model
 
     def _fit(self, data, eval_kwargs=None, cost_function='squared_error',
@@ -371,11 +372,14 @@ class TensorFlowBackend(Backend):
             """Yield (dict-of-tensors, tensor) batches from numpy arrays."""
             n = np_tgt.shape[0]
             idx = np.random.permutation(n) if do_shuffle else np.arange(n)
+            # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: cast batches to model dtype so float64 numpy data doesn't cause dtype mismatch with float32 model | date: 2026-06-30]
+            dtype = self.nems_model.dtype
             for start in range(0, n, bs):
                 sl = idx[start:start + bs]
-                bx = {k: tf.constant(v[sl]) for k, v in np_in.items()} if isinstance(np_in, dict) else tf.constant(np_in[sl])
-                by = tf.constant(np_tgt[sl])
+                bx = {k: tf.constant(v[sl].astype(dtype)) for k, v in np_in.items()} if isinstance(np_in, dict) else tf.cast(tf.constant(np_in[sl]), dtype)
+                by = tf.constant(np_tgt[sl].astype(dtype))
                 yield bx, by
+            # [AGENT EDIT END]
 
         # Compute initial error — same accounting as _train_step (task loss + regularization).
         init_loss = 0.0
@@ -390,6 +394,7 @@ class TensorFlowBackend(Backend):
         initial_error = np.array([init_loss / max(init_n, 1)])
         log.info(f"Init loss: {initial_error[0]:.3f}, tol: {early_stopping_tolerance}, learning_rate: {learning_rate}")
         log.info(f"  batch_size: {batch_size}, shuffle: {shuffle}, grad_clipnorm: {grad_clipnorm}")
+        log.info(f"  early_stopping_delay: {early_stopping_delay}, early_stopping_patience: {early_stopping_patience}")
 
         # Custom training loop with GradientTape.
         optimizer = keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=grad_clipnorm)

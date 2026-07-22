@@ -376,6 +376,13 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     last_ax = subaxes[-1]
     last_px = parmaxes[-1]
 
+    # figure out duration (in bins) of final output
+    if target is not None:
+        final_len = target.shape[0]
+    else:
+        output = model.predict(input)['output']
+        final_len = output.shape[0]
+
     iterator = enumerate(zip(layers, parmaxes, subaxes[1:], layer_info))
     previous_output = None
 
@@ -415,17 +422,18 @@ def plot_model(model, input, target=None, target_name=None, n=None,
 
             # Plotting coefficients of specific layers
             elif 'coefficients' in parameters:
+                mm = np.max(np.abs(layer.coefficients))
                 if len(layer.coefficients.shape)==2:
-                    pax.imshow(layer.coefficients, aspect='auto', interpolation='none', origin='lower')
+                    pax.imshow(layer.coefficients, aspect='auto', interpolation='none', origin='lower', cmap='bwr', vmin=-mm, vmax=mm)
                     #pax.plot(layer.coefficients, lw=0.5)
                 else:
-                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower')
+                    pax.imshow(layer.coefficients[:,0,:], aspect='auto', interpolation='none', origin='lower', cmap='bwr', vmin=-mm, vmax=mm)
                 compact_label(pax, f'coefficients')
                 pax.set_xticklabels([])
 
             # Plotting coefficients of specific layers
             elif 'gain' in parameters:
-                pax.imshow(layer.parameters['gain'].values, aspect='auto', interpolation='none', origin='lower')
+                pax.imshow(layer.parameters['gain'].values, aspect='auto', interpolation='none', origin='lower', cmap='bwr')
                 compact_label(pax, f'gain')
                 pax.set_xticklabels([])
 
@@ -433,10 +441,12 @@ def plot_model(model, input, target=None, target_name=None, n=None,
                 pax.set_visible(False)
 
         output = info['out']
+        Trat = int(np.ceil(output.shape[0]/final_len))
         plot_args = layer.plot_kwargs
         plot_args['lw'] = '0.5'
+        plot_args['cmap']='gray_r'
         layer.plot_options['legend'] = False
-        layer.plot(output[:T_max], ax=ax, **plot_args)
+        layer.plot(output[:(T_max*Trat)], ax=ax, **plot_args)
 
         if show_titles:
             compact_label(ax, f'({model.get_layer_index(layer.name)}) {layer.name}')
@@ -448,11 +458,14 @@ def plot_model(model, input, target=None, target_name=None, n=None,
     if plot_input:
         ax = subaxes[0]
         if isinstance(input, dict):
-            _input = input['input'][:T_max]
+            _input = input['input']
         else:
-            _input = input[:T_max]
+            _input = input
+
+        Trat = int(np.ceil(_input.shape[0] / final_len))
+        _input = _input[:(T_max * Trat)]
         if (len(_input.shape)>1) & (_input.shape[1]>1):
-            ax.imshow(_input.T, origin='lower', aspect='auto', interpolation='none')
+            ax.imshow(_input.T, origin='lower', aspect='auto', interpolation='none', cmap='gray_r')
         else:
             ax.plot(input)
 
@@ -473,8 +486,8 @@ def plot_model(model, input, target=None, target_name=None, n=None,
         if not isinstance(target, list):
             second_last_ax = subaxes[-2]
             if target.shape[1]>2:
-                last_ax.imshow(target[:T_max].T, aspect='auto', interpolation='none', origin='lower')
-                second_last_ax.imshow(output[:T_max].T, aspect='auto', interpolation='none', origin='lower')
+                last_ax.imshow(target[:T_max].T, aspect='auto', interpolation='none', origin='lower', cmap='gray_r')
+                second_last_ax.imshow(output[:T_max].T, aspect='auto', interpolation='none', origin='lower', cmap='gray_r')
             else:
                 last_ax.plot(target[:T_max])
                 second_last_ax.plot(output[:T_max])
@@ -636,7 +649,8 @@ def plot_strf(fir_layer, wc_layer=None, fs=1, ax=None, fig=None):
     return fig
 
 
-def plot_layer(output, max_lines=5, fig=None, ax=None, **plot_kwargs):
+def plot_layer(output, max_lines=5, fig=None, ax=None, cmap='gray_r',
+               **plot_kwargs):
     """Default Layer plot, displays all outputs on a single 2D line plot.
     
     Parameters
@@ -675,7 +689,7 @@ def plot_layer(output, max_lines=5, fig=None, ax=None, **plot_kwargs):
                 ax.plot(output, **plot_kwargs)
         else:
             all_outputs = np.reshape(output, (output.shape[0],-1))
-            ax.imshow(all_outputs.T, origin='lower', interpolation='none', aspect='auto')
+            ax.imshow(all_outputs.T, origin='lower', interpolation='none', aspect='auto', cmap=cmap)
     else:
         print("One of the outputs is a single integer and could not be plotted")
     return fig
