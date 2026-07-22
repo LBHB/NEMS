@@ -138,3 +138,5 @@ nems/tools/demo_data/saved_models/*
 # but still keep the parent folder
 !nems/tools/demo_data/saved_data/.gitkeep
 !nems/tools/demo_data/saved_models/.gitkeep
+
+.vscode/
