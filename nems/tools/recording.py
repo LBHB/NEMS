@@ -1434,6 +1434,57 @@ class Recording:
         return cc.T
         # [AGENT EDIT END]
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: migrate compute_snr from nems_lbhb.projects.mouse_natural.mouse_io | date: 2026-07-16]
+    def compute_snr(self, snrthr=0.3, permute=False, minreps=2, verbose=True):
+        """
+        Estimate per-channel signal-to-noise ratio of self['resp'] from repeated
+        presentations of stimuli matching epochs "^STIM". SNR is normalized so
+        that a completely random (noise-only) response has snr=0 regardless of
+        the number of reps used (minreps).
+
+        :param snrthr: {float} threshold used only for the verbose plot/title
+        :param permute: {bool} if True, shuffle response values before computing
+            snr, to establish a null/noise baseline
+        :param minreps: {int} minimum number of repeats required for an epoch
+            to be included
+        :param verbose: {bool} if True, plot snr per channel
+        :return: {np.array} snr, one value per channel of self['resp']
+        """
+        val_epochs = self['resp'].epoch_names_matching("^STIM", minreps=minreps)
+        rall = self['resp'].rasterize().extract_epochs(val_epochs)
+        minreps = np.min([v.shape[0] for k, v in rall.items()])
+        rall = np.concatenate([v[:minreps] for k, v in rall.items()], axis=2)
+        if permute:
+            s = rall.shape
+            x = np.random.permutation(rall.flatten())
+            rall = np.reshape(x, s)
+
+        sig = rall.mean(axis=0, keepdims=True)
+        noise = rall - sig
+        S = sig.std(axis=2).mean(axis=0)
+        N = noise.std(axis=2).mean(axis=0)
+        N[N == 0] = 1
+
+        # raw snr depends on number of reps
+        # normalize so that completely random snr=0
+        # regardless of rep count (aka minreps)
+        scaleby = (minreps - 1) ** 0.5
+
+        snr = (S / N) * scaleby - 1
+
+        if verbose:
+            import matplotlib.pyplot as plt
+
+            plt.figure(figsize=(4, 2))
+            plt.plot(snr, lw=0.5)
+
+            plt.axhline(snrthr, linestyle='--', color='r', lw=0.5)
+            keep_chans = [c for i, c in enumerate(self['resp'].chans) if snr[i] > snrthr]
+            plt.title(f"n={len(keep_chans)}/{len(snr)} SNR>{snrthr} (minreps={minreps})")
+
+        return snr
+    # [AGENT EDIT END]
+
 ## I/O functions
 def load_recording_from_targz(targz):
     if os.path.exists(targz):
