@@ -278,5 +278,70 @@ def erb_filterbank(wave, coefs):
         y3 = sgn.lfilter(As3[idx], Bs[idx], y2)
         y4 = sgn.lfilter(As4[idx], Bs[idx], y3)
         output[idx, :] = y4 / gain[idx]
-        
+
     return output.T  # Transpose to conform w/ NEMS data format
+
+
+# [AGENT EDIT START | agent: claude | user: svd | reason: port stateful_erb_filterbank from nems0.analysis.gammatone.filters, needed by chunked_gtgram | date: 2026-07-16]
+def stateful_erb_filterbank(wave, coefs, zi=None):
+    """Process a chunk of waveform through a gammatone filterbank, carrying
+    filter state across calls so that a long waveform can be filtered in
+    successive chunks without discontinuities at chunk boundaries.
+
+    This is the streaming counterpart to `erb_filterbank`: pass the `zf`
+    returned from one call in as the `zi` of the next to continue filtering
+    where the previous chunk left off.
+
+    Parameters
+    ----------
+    wave : np.ndarray.
+        Sound waveform chunk with shape (T,) or (T,1).
+    coefs : np.ndarray.
+        Gammatone filter coefficients returned by `make_erb_filters`,
+        with shape (`num_freqs`, 10).
+    zi : list or np.ndarray; optional.
+        Initial filter states, one 4-tuple per channel, as returned by a
+        previous call's `zf`. Defaults to zero initial state (the state
+        needed for the first chunk).
+
+    Returns
+    -------
+    output : np.ndarray
+        Filter outputs, with shape (T, `num_freqs`) (matches `erb_filterbank`).
+    zf : np.ndarray, dtype=object
+        Final filter states, one 4-tuple per channel. Pass back in as `zi`
+        to continue filtering the next chunk.
+
+    """
+    n_channels = coefs.shape[0]
+    output = np.zeros((n_channels, wave.shape[0]))
+    zf = []
+
+    gain = coefs[:, 9]
+    As1 = coefs[:, (0, 1, 5)]
+    As2 = coefs[:, (0, 2, 5)]
+    As3 = coefs[:, (0, 3, 5)]
+    As4 = coefs[:, (0, 4, 5)]
+    Bs = coefs[:, 6:9]
+
+    for idx in range(n_channels):
+        if zi is not None:
+            zi_1, zi_2, zi_3, zi_4 = zi[idx]
+        else:
+            zi_1 = np.zeros(2)
+            zi_2 = np.zeros(2)
+            zi_3 = np.zeros(2)
+            zi_4 = np.zeros(2)
+
+        y1, z1 = sgn.lfilter(As1[idx], Bs[idx], wave, zi=zi_1)
+        y2, z2 = sgn.lfilter(As2[idx], Bs[idx], y1, zi=zi_2)
+        y3, z3 = sgn.lfilter(As3[idx], Bs[idx], y2, zi=zi_3)
+        y4, z4 = sgn.lfilter(As4[idx], Bs[idx], y3, zi=zi_4)
+
+        output[idx, :] = y4 / gain[idx]
+        zf.append((z1, z2, z3, z4))
+
+    zf = np.array(zf, dtype=object)
+
+    return output.T, zf  # Transpose to conform w/ NEMS data format
+# [AGENT EDIT END]

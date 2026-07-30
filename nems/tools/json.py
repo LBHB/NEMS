@@ -206,6 +206,35 @@ def load_model(filepath):
     return model
 
 
+# [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: convert integer dict keys to strings for JSON round-trip compatibility | date: 2026-05-14]
+def dictkeys2str(d):
+    """Recursively convert all integer keys in a nested dict to strings.
+
+    Useful for restoring dicts loaded from JSON, where integer keys are
+    coerced to strings by the JSON spec (e.g. exptparams loaded via baphy_io).
+
+    Parameters
+    ----------
+    d : dict
+        Nested dictionary to convert. Non-dict values are returned unchanged.
+
+    Returns
+    -------
+    dict
+        New dict with the same structure but integer keys replaced by str(key).
+
+    Examples
+    --------
+    >>> dictkeys2str({'TrialObject': {1: 'foo', 2: 'bar'}})
+    {'TrialObject': {'1': 'foo', '2': 'bar'}}
+    """
+    if not isinstance(d, dict):
+        return d
+    return {str(k) if isinstance(k, int) else k: dictkeys2str(v)
+            for k, v in d.items()}
+# [AGENT EDIT END]
+
+
 def generate_model_filepath(model=None, modelname=None, basepath="", max_length=100):
     """Get filepath for saving Model based on `Model.name`.
     

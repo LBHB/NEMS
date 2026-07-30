@@ -1,11 +1,9 @@
 import logging
-import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from scipy.ndimage import zoom, gaussian_filter
 import scipy
-import joblib, tempfile
-from pathlib import Path
 
 from .base import Model
 from nems.registry import layer
@@ -16,37 +14,13 @@ from nems.layers import (
     RectifiedLinear, DoubleExponential, LevelShift
     )
 from nems.visualization.model import plot_nl
+# [AGENT EDIT START | agent: claude | user: svd | reason: use shared joblib_memory decorator from nems.tools.utils instead of a local duplicate, now that nems.preprocessing.spectrogram also needs one | date: 2026-07-16]
+from nems.tools.utils import joblib_memory, get_joblib_memory
+# [AGENT EDIT END]
 
 log = logging.getLogger(__name__)
 
-
-def _get_joblib_memory():
-    env_cache = os.environ.get('NEMS_CACHE_DIR')
-    candidates = []
-
-    if env_cache:
-        candidates.append(Path(env_cache).expanduser())
-
-    candidates.extend([
-        Path.home() / '.cache' / 'nems',
-        Path(tempfile.gettempdir()) / 'nems-cache',
-    ])
-
-    for cache_dir in candidates:
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            return joblib.Memory(cache_dir, verbose=False)
-        except OSError:
-            log.warning("Unable to use cache directory %s", cache_dir)
-
-    log.warning("No writable cache directory found; disabling LN joblib cache.")
-    return joblib.Memory(location=None, verbose=False)
-
-
-memory = _get_joblib_memory()
-
-# uncomment to clear joblib cache (if updated gabor fit function)
-#memory.clear()
+# to clear the joblib cache (if updated gabor fit function): get_joblib_memory().clear()
 
 #
 # Class defs
@@ -140,7 +114,8 @@ class LN_STRF(Model):
         return LN_STRF(time_bins, channels, **kwargs)
 
     def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
-                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance = 1e-4):
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance = 1e-4,
+                 init_from_priors=True):
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -159,7 +134,11 @@ class LN_STRF(Model):
                            'learning_rate': learning_rate, 'epochs': epochs
                            }
 
-        strf = self.sample_from_priors()
+        if init_from_priors:
+            strf = self.sample_from_priors()
+        else:
+            strf = self.copy()
+            
         log.info('Fit stage 1: w/o static output nonlinearity')
         strf.layers[-1].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
@@ -369,7 +348,8 @@ class LN_pop(Model):
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
     def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
-                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4):
+                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4,
+                 init_from_priors=True):
         """
         2-stage fit with freezing/unfreezing NL
         :param X: (T, channels_in) or (batch, T, channels_in) input
@@ -393,7 +373,11 @@ class LN_pop(Model):
                            'learning_rate': learning_rate, 'epochs': epochs
                            }
 
-        strf = self.sample_from_priors()
+        if init_from_priors:
+            strf = self.sample_from_priors()
+        else:
+            strf = self.copy()
+            
         if self.stride > 1:
             nl_layer = -2
         else:
@@ -499,7 +483,7 @@ def LNpop_get_strf(model, channels=None, layer=2):
     return strf2
 
 def LN_plot_strf(model=None, channels=None, strf=None,
-                 binaural=None, ax=None, ax2=None, fs=100,
+                 binaural=None, ax=None, ax2=None, fs=100, D=None,
                  show_tuning=False, show_gabor=False, label="", x0=0, y0=0,
                  show_label=True, verbose=False, zoomsf=1,
                  **tuningkwargs):
@@ -508,7 +492,7 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if strf is None:
         strf = model.get_strf(channels=channels)
         if strf.ndim>2:
-            strf=strf[:,:,0]
+            strf=strf[:,:D,0]
     if model is not None:
         try:
             rtest = model.meta.get('r_test', np.zeros((np.array(channels).max()+1, 1)))
@@ -551,7 +535,10 @@ def LN_plot_strf(model=None, channels=None, strf=None,
     if ac:
         tt=tt-tt[int(len(tt)/2)]
     dt=(tt[1]-tt[0])/2
+    #if (x0==0) & (y0==0):
     extent = [tt[0]-dt+x0, tt[-1]+dt+x0, logf[0]+y0, logf[-1]+y0]
+    #else:
+    #    extent = [x0, x0+strf.shape[1], y0, y0+strf.shape[0]]
     mm = np.max(np.abs(strf))
     if show_gabor:
         mm = mm*1.2
@@ -572,17 +559,26 @@ def LN_plot_strf(model=None, channels=None, strf=None,
         ax2.imshow(zoom(hipsi,zoomsf), aspect='auto', cmap='bwr',
                 origin='lower', interpolation='none', extent=extent,
                 vmin=-mm, vmax=mm)
-    else:
-        ax.imshow(zoom(strf,zoomsf), aspect='auto', cmap='bwr',
-                origin='lower', interpolation='none', extent=extent,
-                vmin=-mm, vmax=mm)
+    elif (x0==0) & (y0==0):
+        ax.imshow(zoom(strf, zoomsf), aspect='auto', cmap='bwr',
+                  origin='lower', interpolation='none', extent=extent,
+                  vmin=-mm, vmax=mm)
 
         lf = np.array(ax.get_yticks())
-        lf = lf[(lf>logf.min()) & (lf<logf.max())]
-        lf = np.array([logf[0], np.mean(logf[[0,-1]]), logf[-1]])
+        lf = lf[(lf > logf.min()) & (lf < logf.max())]
+        lf = np.array([logf[0], np.mean(logf[[0, -1]]), logf[-1]])
         fr = np.round(2 ** lf / 1000, 1)
         ax.set_yticks(lf, fr)
-        #print(lf,fr)
+    else:
+        ax.imshow(zoom(strf, zoomsf), aspect='auto', cmap='bwr',
+                  origin='lower', interpolation='none', extent=extent,
+                  vmin=-mm, vmax=mm)
+
+        rect=patches.Rectangle(
+            (extent[0],extent[2]), extent[1]-extent[0],
+            extent[3]-extent[2], lw=0.5, edgecolor='k', facecolor='none')
+        ax.add_patch(rect)
+
 
     if show_tuning:
         f_ = scipy.interpolate.interp1d(np.arange(len(logf)), logf, fill_value="extrapolate")
@@ -647,10 +643,10 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     if cell_list is not None:
         channels = [i for i, c in enumerate(model.meta['cellids']) if c in cell_list]
     if channels is None:
-        strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
+        strf2 = model.get_strf(channels=channels, layer=layer)
         channels = np.arange(strf2.shape[-1])
     else:
-        strf2 = LNpop_get_strf(model, channels=channels, layer=layer)
+        strf2 = LNpop_get_strf(model=model, channels=channels, layer=layer)
 
     channels_out = len(channels)
 
@@ -679,7 +675,9 @@ def LNpop_plot_strf(model, labels=None, channels=None, cell_list=None,
     #wc2std[wc2std==0]=1
     #wc2 /= wc2std
 
-    if channels_out<=2:
+    if rowcount is not None:
+        colcount = int(np.ceil(channels_out / rowcount))
+    elif channels_out<=2:
         rowcount = 1
         colcount = channels_out
     elif channels_out > 3:
@@ -903,9 +901,11 @@ def _fit_gabor_2d_tf(strf_np, phi0, logf_np, t_np, padbins, tmax, include_offset
     return result
 
 
-@memory.cache
+# [AGENT EDIT START | agent: claude | user: svd | reason: use @joblib_memory() so the cache location resolves lazily on each call (rather than baking in a Memory object at import time), letting a cache_path set at runtime take effect immediately | date: 2026-07-16]
+@joblib_memory()
 def fit_gabor_2d(strf, phi0=None, padbins=6, fs=100, f_min=200, f_max=20000, D=None, t=None,
                  include_offset=False, verbose=False, use_tf=False):
+    # [AGENT EDIT END]
     strf=strf[:,:D]
     logf = np.linspace(np.log2(f_min), np.log2(f_max), strf.shape[0]+1)
     dlogf = logf[1] - logf[0]
@@ -1256,7 +1256,7 @@ def is_binaural(model):
     loadkey0 = model.meta.get('loader',None)
     if loadkey0 is None:
         loadkey0 = model.meta.get('loadkey',model.name)
-    if ('.bin' in loadkey0) | ('.mono' in loadkey0):
+    if ('.bin' in loadkey0) | ('.mono' in loadkey0) | ('bgtgram' in loadkey0):
         return True
     else:
         return False

@@ -1382,6 +1382,57 @@ class Recording:
 
         return rec
 
+    #
+    # PLOTTING FUNCTIONs
+    #
+    def plot_state_correlation(self, sig='resp', state_sig='state', mask_sig=None):
+        """
+        generate a line plot showing the correlation between each channel
+        of sig against a channel of state_sig. first, if needed, rasterize
+        the relevant. apply a mask named by mask_sig if specified. then
+        compute the correlation coefficient between the entire time series
+        for each channel pair
+        """
+        # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: implement plot_state_correlation | date: 2026-05-08]
+        import matplotlib.pyplot as plt
+
+        rec = self.apply_mask(mask_name=mask_sig) if mask_sig is not None else self
+
+        s_data = rec[sig].rasterize().as_continuous()
+        ss_data = rec[state_sig].rasterize().as_continuous()
+
+        sig_chans = rec[sig].chans or [str(i) for i in range(s_data.shape[0])]
+        state_chans = rec[state_sig].chans or [str(i) for i in range(ss_data.shape[0])]
+
+        valid = np.isfinite(s_data).all(axis=0) & np.isfinite(ss_data).all(axis=0)
+        s_data = s_data[:, valid]
+        ss_data = ss_data[:, valid]
+
+        n_sig = s_data.shape[0]
+        n_state = ss_data.shape[0]
+
+        cc = np.zeros((n_state, n_sig))
+        for i in range(n_state):
+            for j in range(n_sig):
+                cc[i, j] = np.corrcoef(ss_data[i], s_data[j])[0, 1]
+
+        fig, ax = plt.subplots()
+        x = np.arange(n_sig)
+        for i in range(n_state):
+            ax.plot(x, cc[i], marker='o', label=state_chans[i])
+
+        ax.axhline(0, color='gray', linewidth=1, linestyle='--')
+        ax.set_xticks(x)
+        ax.set_xticklabels(sig_chans, rotation=45, ha='right')
+        ax.set_xlabel(sig)
+        ax.set_ylabel('Correlation (r)')
+        ax.set_title(f'{self.name}: {state_sig} vs {sig}')
+        if n_state > 1:
+            ax.legend(title=state_sig)
+        fig.tight_layout()
+
+        return cc.T
+        # [AGENT EDIT END]
 
 ## I/O functions
 def load_recording_from_targz(targz):
@@ -1987,3 +2038,4 @@ def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=Tru
                                    meta=recording.meta,
                                    name=recording.name)
     return averaged_recording
+

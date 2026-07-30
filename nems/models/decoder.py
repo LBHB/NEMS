@@ -9,7 +9,7 @@ from nems.layers.tools import require_shape, pop_shape
 
 from nems.layers import (
     WeightChannels, WeightChannelsGaussian, FiniteImpulseResponse,
-    RectifiedLinear, DoubleExponential, LevelShift
+    RectifiedLinear, DoubleExponential, LevelShift, Sigmoid
     )
 from nems.visualization.model import plot_nl
 
@@ -258,6 +258,96 @@ class CNN_reconstruction(Model):
         # But would need the .from_keywords method to check for list vs single
         # module returned.
         pass
+
+# [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: implement binary decoder model | date: 2026-05-14]
+class binary(Model):
+    """CNN-based binary decoder.
+
+    Architecture mirrors CNN_reconstruction but outputs a sigmoid-activated
+    probability, making it suitable for binary classification targets.
+
+    Layers:
+    1. WeightChannels  — mix input channels down to L1 features
+    2. FiniteImpulseResponse (skipped when time_bins=1) — temporal filter
+    3. RectifiedLinear — hidden nonlinearity
+    4. WeightChannels  — project to L2 (optional) then to out_channels
+    5. [WeightChannels + RectifiedLinear if L2 > 0]
+    6. Sigmoid         — squash to (0, 1) for binary probability output
+
+    Parameters
+    ----------
+    time_bins : int
+        FIR filter length in time bins. Set to 1 to skip the FIR layer entirely.
+    channels : int
+        Number of input channels (e.g. neural population size).
+    out_channels : int
+        Number of binary outputs.
+    L1 : int; default=10
+        Number of hidden units in the first layer.
+    L2 : int; default=0
+        Number of hidden units in a second hidden layer. 0 = no second layer.
+    from_saved : bool; default=False
+        If True, skip layer construction (used when loading from disk).
+    model_init_kwargs : dict
+        Passed to `Model.__init__`.
+    """
+
+    def __init__(self, time_bins=1, channels=None, out_channels=None,
+                 L1=10, L2=0, regularizer=None, from_saved=False,
+                 **model_init_kwargs):
+        super().__init__(**model_init_kwargs)
+        if from_saved:
+            return
+
+        relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
+
+        if time_bins > 1:
+            wc1 = WeightChannels(shape=(channels, 1, L1), regularizer=regularizer)
+            fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
+            core_layers = [wc1, fir1, relu1]
+        else:
+            wc1 = WeightChannels(shape=(channels, L1), regularizer=regularizer)
+            core_layers = [wc1, relu1]
+
+        if L2 > 0:
+            wc2 = WeightChannels(shape=(L1, L2), regularizer=regularizer)
+            relu2 = RectifiedLinear(shape=(L2,), no_offset=False, no_shift=False)
+            wc3 = WeightChannels(shape=(L2, out_channels), regularizer=regularizer)
+            output_layers = [wc2, relu2, wc3]
+        else:
+            wc2 = WeightChannels(shape=(L1, out_channels), regularizer=regularizer)
+            output_layers = [wc2]
+
+        sigmoid = Sigmoid(shape=(out_channels,))
+        self.add_layers(*core_layers, *output_layers, sigmoid)
+
+    @classmethod
+    def from_data(cls, input, filter_duration=0, sampling_rate=1000, **kwargs):
+        channels = input.shape[-1]
+        time_bins = max(1, int(filter_duration / 1000 * sampling_rate))
+        return cls(time_bins=time_bins, channels=channels, **kwargs)
+
+    def fit_LBHB(self, X, Y, cost_function='binary_crossentropy',
+                 fitter='tf', init_priors=True,
+                 **fitopts_kwargs):
+        # fitter_options = {'cost_function': cost_function,
+        #                   'early_stopping_tolerance': 5e-3,
+        #                   'validation_split': 0,
+        #                   'learning_rate': 1e-2, 'epochs': 3000}
+        fitter_options2 = {'cost_function': cost_function,
+                           'early_stopping_tolerance': 5e-4,
+                           'validation_split': 0,
+                           'learning_rate': 1e-3, 'epochs': 8000}
+        fitter_options2.update(**fitopts_kwargs)
+
+        if init_priors:
+            model = self.sample_from_priors()
+        #model = model.fit(input=X, target=Y, backend=fitter,
+        #                  fitter_options=fitter_options, batch_size=None)
+        model = model.fit(input=X, target=Y, backend=fitter,
+                          verbose=0, fitter_options=fitter_options2, batch_size=None)
+        return model
+# [AGENT EDIT END]
 
 ##
 ## helper functions
