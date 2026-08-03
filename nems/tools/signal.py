@@ -1228,8 +1228,11 @@ class RasterizedSignal(SignalBase):
             data = csr_array(data)
         else:
             data.flags.writeable = False
+        # [AGENT EDIT START | agent: Codex | user: wingertj | reason: Preserve signal normalization metadata when RasterizedSignal._modified_copy reconstructs a signal | date: 2026-05-04]
         super().__init__(fs, data, name, recording, chans, epochs, segments,
-                         meta, safety_checks, normalization, dtype)
+                         meta, safety_checks, normalization, dtype,
+                         **other_attributes)
+        # [AGENT EDIT END]
         #self._data.flags.writeable = False
 
         # Install the indexers

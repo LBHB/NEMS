@@ -175,8 +175,10 @@ class WeightChannels(Layer):
                 kwargs['norm_coefficients'] = True
             elif op == 'p':
                 kwargs['positive_only'] = True
-            elif op.startswith('l2'):
+            # [AGENT EDIT START | agent: claude | user: wingertj | reason: enable L1 / elastic-net (l1l2) regularizer on wc layers (backend already supports l1/l1l2); additive, l2 behavior unchanged. Used for sparsity/channel-dropping controls in the headfixed face-motor vs nuisance-channel comparison | date: 2026-07-17]
+            elif op.startswith('l2') or op.startswith('l1'):
                 kwargs['regularizer'] = op
+            # [AGENT EDIT END]
 
         wc = wc_class(**kwargs)
         if 'i' in options:
