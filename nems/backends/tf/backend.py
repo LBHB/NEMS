@@ -541,14 +541,13 @@ class TensorFlowBackend(Backend):
         elif fit_algorithm=='can':
             # Canned keras.Model.fit()
             log.info("Using keras built-in fitter")
-            final_layer = model_ref.layers[-1].name
-            model_ref.compile(optimizer=optimizer, loss={final_layer: cost_function})
+            model_ref.compile(optimizer=optimizer, loss=cost_function)
             fit_start_time = time.time()
             if data.data_format == 'array':
                 # pass inputs, target -- needed so that keras can perform the validation_split
                 # validation_data forced to be None
                 history = model_ref.fit(
-                    inputs, {final_layer: target}, epochs=epochs, verbose=0,
+                    inputs, target, epochs=epochs, verbose=0,
                     validation_split=validation_split, callbacks=_make_callbacks(loss_name),
                     validation_data=None, batch_size=effective_bs, shuffle=shuffle)
             else:

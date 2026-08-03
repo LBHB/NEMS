@@ -1704,9 +1704,14 @@ class Model:
                     kwdict[k] += 1
                 else:
                     kwdict[k] = 1
-                layers[i]._name = f"{k}{kwdict[k]}"
-                if (layers[i].output is None) & (i < len(keywords) - 1):  # & (k=='relu'):
-                    layers[i].output = f"{k}{kwdict[k]}"
+                if kwdict[k] > 1:
+                    # Only rename layers past the first occurrence of a given
+                    # keyword, so a unique keyword keeps its plain kw_head name
+                    # (already set by the registry) instead of always getting
+                    # a numeric suffix.
+                    layers[i]._name = f"{k}{kwdict[k]}"
+                    if (layers[i].output is None) & (i < len(keywords) - 1):
+                        layers[i].output = f"{k}{kwdict[k]}"
             return cls(layers=layers)
 
     # Add compatibility for saving to json

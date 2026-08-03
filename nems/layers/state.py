@@ -2242,7 +2242,30 @@ class HRTFGainLayerMLPReg(Layer):
         freq_centers = self.freq_centers
         generic_hrtf_table = self.generic_hrtf_table  # Pre-computed generic HRTF for prior regularization
 
+        # Keras 3 removed Layer.add_metric(); metrics must instead be created
+        # as persistent trackers during build()/__init__() and updated via
+        # `.update_state()` in call(). Map regularization config keys to the
+        # metric names previously passed to add_metric().
+        reg_metric_names = {
+            'freq_smooth': 'hrtf_freq_smooth',
+            'az_smooth': 'hrtf_az_smooth',
+            'symmetry': 'hrtf_symmetry',
+            'ild_lowfreq': 'hrtf_ild_lowfreq',
+            'ild_frontal': 'hrtf_ild_frontal',
+            'range': 'hrtf_range',
+            'hrtf_prior': 'hrtf_prior',
+        }
+
         class HRTFGainLayerMLPRegTF(NemsKerasLayer):
+
+            def build(self, input_shape):
+                super().build(input_shape)
+                self._reg_metrics = {
+                    key: tf.keras.metrics.Mean(name=name)
+                    for key, name in reg_metric_names.items()
+                    if reg_config.get(key, 0) > 0
+                    and not (key == 'hrtf_prior' and generic_hrtf_table is None)
+                }
 
             def call(self, inputs):
                 dlc = inputs
@@ -2322,7 +2345,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_freq_raw = tf.reduce_mean(tf.square(freq_grad))
                     loss_freq = reg_config['freq_smooth'] * loss_freq_raw
                     self.add_loss(loss_freq)
-                    self.add_metric(loss_freq_raw, name='hrtf_freq_smooth')
+                    self._reg_metrics['freq_smooth'].update_state(loss_freq_raw)
 
                 # 2. Azimuthal smoothness: penalize sharp angular gradients (circular)
                 if reg_config['az_smooth'] > 0:
@@ -2330,7 +2353,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_az_raw = tf.reduce_mean(tf.square(az_grad))
                     loss_az = reg_config['az_smooth'] * loss_az_raw
                     self.add_loss(loss_az)
-                    self.add_metric(loss_az_raw, name='hrtf_az_smooth')
+                    self._reg_metrics['az_smooth'].update_state(loss_az_raw)
 
                 # 3. Bilateral symmetry: HRTF_L(θ) ≈ HRTF_R(-θ)
                 if reg_config['symmetry'] > 0:
@@ -2342,7 +2365,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_sym_raw = tf.reduce_mean(tf.square(sym_error))
                     loss_sym = reg_config['symmetry'] * loss_sym_raw
                     self.add_loss(loss_sym)
-                    self.add_metric(loss_sym_raw, name='hrtf_symmetry')
+                    self._reg_metrics['symmetry'].update_state(loss_sym_raw)
 
                 # 4. Low-frequency ILD penalty (head shadow physics)
                 # Low frequencies diffract around head → ILD should be small
@@ -2363,7 +2386,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_ild_raw = tf.reduce_mean(tf.square(weighted_ild))
                     loss_ild = reg_config['ild_lowfreq'] * loss_ild_raw
                     self.add_loss(loss_ild)
-                    self.add_metric(loss_ild_raw, name='hrtf_ild_lowfreq')
+                    self._reg_metrics['ild_lowfreq'].update_state(loss_ild_raw)
 
                 # 5. Frontal ILD ≈ 0 at 0° and 180°
                 if reg_config['ild_frontal'] > 0:
@@ -2376,7 +2399,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_frontal_raw = tf.reduce_mean(tf.square(frontal_ild))
                     loss_frontal = reg_config['ild_frontal'] * loss_frontal_raw
                     self.add_loss(loss_frontal)
-                    self.add_metric(loss_frontal_raw, name='hrtf_ild_frontal')
+                    self._reg_metrics['ild_frontal'].update_state(loss_frontal_raw)
 
                 # 6. Gain range penalty (-20 to +5 dB typical)
                 if reg_config['range'] > 0:
@@ -2388,7 +2411,7 @@ class HRTFGainLayerMLPReg(Layer):
                     )
                     loss_range = reg_config['range'] * loss_range_raw
                     self.add_loss(loss_range)
-                    self.add_metric(loss_range_raw, name='hrtf_range')
+                    self._reg_metrics['range'].update_state(loss_range_raw)
 
                 # 7. HRTF prior: penalize divergence from generic/measured HRTF
                 if reg_config['hrtf_prior'] > 0 and generic_hrtf_table is not None:
@@ -2399,7 +2422,7 @@ class HRTFGainLayerMLPReg(Layer):
                     loss_prior_raw = tf.reduce_mean(tf.square(prior_error))
                     loss_prior = reg_config['hrtf_prior'] * loss_prior_raw
                     self.add_loss(loss_prior)
-                    self.add_metric(loss_prior_raw, name='hrtf_prior')
+                    self._reg_metrics['hrtf_prior'].update_state(loss_prior_raw)
 
         return HRTFGainLayerMLPRegTF(self, **kwargs)
 

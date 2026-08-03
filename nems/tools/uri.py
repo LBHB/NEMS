@@ -57,14 +57,14 @@ class NumpyEncoder(jsonlib.JSONEncoder):
         holding dtype, shape and the data. data is encoded as a list,
         which makes it text-readable.
         """
-        from nems0.distributions.distribution import Distribution
-        from nems0.modules import NemsModule
+        #from nems0.distributions.distribution import Distribution
+        #from nems0.modules import NemsModule
 
-        if issubclass(type(obj), Distribution):
-            return obj.tolist()
+        #if issubclass(type(obj), Distribution):
+        #    return obj.tolist()
 
-        if issubclass(type(obj), NemsModule):
-            return obj.data_dict
+        #if issubclass(type(obj), NemsModule):
+        #    return obj.data_dict
 
         if isinstance(obj, np.int64):
             return int(obj)

@@ -23,7 +23,7 @@ class TestEvaluate:
         spectrogram[spectrogram < 0] = 0  # STP only supports >= 0 for now.
         model = Model.from_keywords(f'wc.{spectral}x1-stp.1')
         out = model.predict(spectrogram)
-        assert out['output'].shape == (time, 1)
+        assert out.shape == (time, 1)
 
     def test_full(self):
         spectrogram = generate_random_input(shape=(100,18))

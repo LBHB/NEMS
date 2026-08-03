@@ -605,7 +605,14 @@ class STRF(FiniteImpulseResponse):
         wshape = self.wshape
         nout   = self.nout
 
-        wmean = np.full(shape=wshape, fill_value=0.01)
+        # Mirrors WeightChannels.initial_parameters exactly, so that STRF's
+        # wcoefficients match a standalone WeightChannels layer of shape `wshape`.
+        w0 = np.zeros(np.prod(wshape))
+        wn = wshape[0] + 1
+        w0[::(wn + 1)] = 0.01
+        wmean = np.reshape(w0, wshape)
+        wmean += np.full(shape=wshape, fill_value=0.01)
+
         fmean = np.full(shape=fshape, fill_value=0.0)
         if fshape[0] >= 10:
             fmean[1] = 2 / fshape[0]
@@ -615,7 +622,7 @@ class STRF(FiniteImpulseResponse):
             fmean[1] =  0.5 / fshape[0]
             fmean[2] = -0.5 / fshape[0]
 
-        wsd = np.full(shape=wshape, fill_value=0.05)
+        wsd = np.full(shape=wshape, fill_value=0.1)
         fsd = np.full(shape=fshape, fill_value=1 / fshape[0])
 
         wprior     = Normal(wmean, wsd)
