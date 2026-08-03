@@ -14,6 +14,9 @@ from nems.layers.state import HRTFGainLayerMLP, HRTFGainLayerMLPReg
 FREQ_BINS = 18
 EARS = 2
 HIDDEN_UNITS = (32, 16)
+# HRTFGainLayerMLPReg's TF backend hard-codes a 3-layer graph (w1->w2->w3->output),
+# so it needs its own hidden_units tuple distinct from HRTFGainLayerMLP's.
+HIDDEN_UNITS_REG = (32, 16, 8)
 SHAPE = (FREQ_BINS, EARS)
 
 
@@ -31,7 +34,7 @@ def hrtfmlp_layer():
 
 @pytest.fixture
 def hrtfmlpreg_layer():
-    return HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS)
+    return HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS_REG)
 
 
 # --- Construction tests ---
@@ -50,7 +53,7 @@ class TestConstruction:
     def test_mlpreg_has_expected_parameters(self, hrtfmlpreg_layer):
         """MLPReg layer should have the same parameter structure as MLP."""
         param_names = list(hrtfmlpreg_layer.parameters._dict.keys())
-        n_mlp_layers = len(HIDDEN_UNITS) + 1
+        n_mlp_layers = len(HIDDEN_UNITS_REG) + 1
         expected = []
         for i in range(1, n_mlp_layers + 1):
             expected.extend([f'w{i}', f'b{i}'])
@@ -147,7 +150,7 @@ class TestSampleFromPriors:
 
     def test_model_sample_mlpreg(self):
         """Model.sample_from_priors should work for MLPReg keyword models."""
-        model = Model.from_keywords(f'hrtfmlpreg.{FREQ_BINS}x{EARS}.h32.h16')
+        model = Model.from_keywords(f'hrtfmlpreg.{FREQ_BINS}x{EARS}.h32.h16.h8')
         original_params = model.layers[0].get_parameter_values(as_dict=True)
         original_params = {k: v.copy() for k, v in original_params.items()}
 
@@ -177,7 +180,7 @@ class TestEvaluationConsistency:
 
     def test_sample_changes_mlpreg_output(self, dlc_input):
         """Different parameter samples should produce different MLPReg outputs."""
-        layer = HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS)
+        layer = HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS_REG)
         out1 = layer.evaluate(dlc_input)
 
         layer.sample_from_priors(inplace=True)
@@ -207,7 +210,7 @@ class TestJsonRoundTrip:
 
     def test_json_roundtrip_preserves_mlpreg_parameters(self):
         """Saving and loading MLPReg layer via JSON should NOT resample parameters."""
-        layer = HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS)
+        layer = HRTFGainLayerMLPReg(shape=SHAPE, hidden_units=HIDDEN_UNITS_REG)
         original_params = layer.get_parameter_values(as_dict=True)
         original_params = {k: v.copy() for k, v in original_params.items()}
 
@@ -235,7 +238,7 @@ class TestJsonRoundTrip:
 
     def test_model_json_roundtrip_mlpreg(self):
         """Full model JSON roundtrip should preserve MLPReg parameters."""
-        model = Model.from_keywords(f'hrtfmlpreg.{FREQ_BINS}x{EARS}.h32.h16')
+        model = Model.from_keywords(f'hrtfmlpreg.{FREQ_BINS}x{EARS}.h32.h16.h8')
         original_params = model.layers[0].get_parameter_values(as_dict=True)
         original_params = {k: v.copy() for k, v in original_params.items()}
 

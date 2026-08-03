@@ -57,14 +57,14 @@ class NumpyEncoder(jsonlib.JSONEncoder):
         holding dtype, shape and the data. data is encoded as a list,
         which makes it text-readable.
         """
-        from nems0.distributions.distribution import Distribution
-        from nems0.modules import NemsModule
+        #from nems0.distributions.distribution import Distribution
+        #from nems0.modules import NemsModule
 
-        if issubclass(type(obj), Distribution):
-            return obj.tolist()
+        #if issubclass(type(obj), Distribution):
+        #    return obj.tolist()
 
-        if issubclass(type(obj), NemsModule):
-            return obj.data_dict
+        #if issubclass(type(obj), NemsModule):
+        #    return obj.data_dict
 
         if isinstance(obj, np.int64):
             return int(obj)
@@ -125,7 +125,13 @@ def json_numpy_obj_hook(dct):
                 dct[k] = np.asarray(dct[k])
         
     if '_KWR_ARGS' in dct:
-        from nems_lbhb.nems0.registry import KeywordRegistry
+        try:
+            from nems_lbhb.nems0.registry import KeywordRegistry
+        except ImportError as e:
+            raise ImportError(
+                "Decoding this legacy '_KWR_ARGS' JSON payload requires nems_db "
+                "(nems_lbhb.nems0.registry) to be installed."
+            ) from e
         return KeywordRegistry.from_json(dct)
 
     return dct

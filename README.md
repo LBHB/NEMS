@@ -21,6 +21,7 @@ but it will work with many different types of timeseries data.
 ## Recommended: `Install from source`
 ### Prerequisites: Python 3.9/3.10 | Anaconda or Venv
 NEMS is still under development, so this is the best way to ensure you're using the most up-to-date version.
+Currently NEMS has been tested with python 3.9 and 3.10. New versions are likely to work but not guaranteed.
 
 1. **Download source code**
 
@@ -29,7 +30,7 @@ git clone https://github.com/LBHB/NEMS.git
 ```
     
 2. **Set up python environment**
-- 2a. **Option 1.** Create an environment using Anaconda. Currently NEMS has been tested with python 3.9 and 3.10. New versions are likely to work but not guranteed.
+- 2a. **Option 1.** Create an environment using Anaconda.
 
 ```bash
 conda create -n nems python=3.10 ipython
@@ -66,7 +67,7 @@ conda activate nems
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 echo 'export OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}' > \
     $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$(find $CONDA_PREFIX -name "lib" | grep "nvidia" | tr '\n' ':' | sed 's/:$//'):$OLD_LD_LIBRARY_PATH' >> \
+echo 'export LD_LIBRARY_PATH=$(find $CONDA_PREFIX -name "lib" | grep "nvidia" | tr '\''\n'\'' '\'':'\'' | sed '\''s/:$//'\''):$OLD_LD_LIBRARY_PATH' >> \
     $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
