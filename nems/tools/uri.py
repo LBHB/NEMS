@@ -125,7 +125,13 @@ def json_numpy_obj_hook(dct):
                 dct[k] = np.asarray(dct[k])
         
     if '_KWR_ARGS' in dct:
-        from nems_lbhb.nems0.registry import KeywordRegistry
+        try:
+            from nems_lbhb.nems0.registry import KeywordRegistry
+        except ImportError as e:
+            raise ImportError(
+                "Decoding this legacy '_KWR_ARGS' JSON payload requires nems_db "
+                "(nems_lbhb.nems0.registry) to be installed."
+            ) from e
         return KeywordRegistry.from_json(dct)
 
     return dct

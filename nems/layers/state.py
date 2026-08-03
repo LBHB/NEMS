@@ -2779,7 +2779,29 @@ class HRTFGainLayerFourier(Layer):
         lap_norm = self._lap_norm
         dft_norm = self._dft_norm
 
+        # Keras 3 removed Layer.add_metric(); metrics must instead be created
+        # as persistent trackers during build()/__init__() and updated via
+        # `.update_state()` in call(). Map regularization config keys to the
+        # metric names previously passed to add_metric().
+        reg_metric_names = {
+            'freq_smooth': 'fourier_freq_smooth',
+            'symmetry': 'fourier_symmetry',
+            'hrtf_prior': 'fourier_hrtf_prior',
+            'laplacian': 'fourier_laplacian',
+            'dft_smooth': 'fourier_dft_smooth',
+        }
+
         class HRTFGainLayerFourierTF(NemsKerasLayer):
+
+            def build(self, input_shape):
+                super().build(input_shape)
+                self._reg_metrics = {
+                    key: tf.keras.metrics.Mean(name=name)
+                    for key, name in reg_metric_names.items()
+                    if reg_config.get(key, 0) > 0
+                    and not (key == 'symmetry' and ears != 2)
+                    and not (key == 'hrtf_prior' and generic_hrtf_table is None)
+                }
 
             @staticmethod
             def _build_fourier_basis_tf(sin_theta, cos_theta, order):
@@ -2856,7 +2878,7 @@ class HRTFGainLayerFourier(Layer):
                     loss_freq_raw = tf.reduce_mean(tf.square(freq_diff))
                     loss_freq = reg_config['freq_smooth'] * loss_freq_raw
                     self.add_loss(loss_freq)
-                    self.add_metric(loss_freq_raw, name='fourier_freq_smooth')
+                    self._reg_metrics['freq_smooth'].update_state(loss_freq_raw)
 
                 # 2. Bilateral symmetry: a_n_L ≈ a_n_R, b_n_L ≈ -b_n_R
                 if reg_config['symmetry'] > 0 and ears == 2:
@@ -2875,7 +2897,7 @@ class HRTFGainLayerFourier(Layer):
                     loss_sym_raw = tf.reduce_mean(tf.square(sym_error))
                     loss_sym = reg_config['symmetry'] * loss_sym_raw
                     self.add_loss(loss_sym)
-                    self.add_metric(loss_sym_raw, name='fourier_symmetry')
+                    self._reg_metrics['symmetry'].update_state(loss_sym_raw)
 
                 # 3. HRTF prior: penalize divergence from generic HRTF coefficients
                 if reg_config['hrtf_prior'] > 0 and generic_hrtf_table is not None:
@@ -2888,7 +2910,7 @@ class HRTFGainLayerFourier(Layer):
                     loss_prior_raw = tf.reduce_mean(tf.square(prior_error))
                     loss_prior = reg_config['hrtf_prior'] * loss_prior_raw
                     self.add_loss(loss_prior)
-                    self.add_metric(loss_prior_raw, name='fourier_hrtf_prior')
+                    self._reg_metrics['hrtf_prior'].update_state(loss_prior_raw)
 
                 # 4. Laplacian: penalize 2D Laplacian of reconstructed HRTF surface
                 if reg_config['laplacian'] > 0:
@@ -2913,7 +2935,7 @@ class HRTFGainLayerFourier(Layer):
                     loss_lap_raw = tf.reduce_mean(tf.square(laplacian)) / lap_norm
                     loss_lap = reg_config['laplacian'] * loss_lap_raw
                     self.add_loss(loss_lap)
-                    self.add_metric(loss_lap_raw, name='fourier_laplacian')
+                    self._reg_metrics['laplacian'].update_state(loss_lap_raw)
 
                 # 5. DFT smoothness: penalize high-frequency 2D DFT energy
                 if reg_config['dft_smooth'] > 0:
@@ -2949,7 +2971,7 @@ class HRTFGainLayerFourier(Layer):
                     loss_dft_raw = tf.cast(loss_dft_raw, compute_dtype)
                     loss_dft = reg_config['dft_smooth'] * loss_dft_raw
                     self.add_loss(loss_dft)
-                    self.add_metric(loss_dft_raw, name='fourier_dft_smooth')
+                    self._reg_metrics['dft_smooth'].update_state(loss_dft_raw)
 
             def _reconstruct_hrtf_surface(self, n_az=36):
                 """Reconstruct HRTF on a (n_az, freq_bins, ears) grid."""

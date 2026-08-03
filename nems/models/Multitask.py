@@ -63,7 +63,13 @@ class MultiTaskModel(Model):
 
     def add_heads(self, tasks, task_layers=None):
         # Task-specific output heads
-        import nems_lbhb.initializers
+        try:
+            import nems_lbhb.initializers
+        except ImportError as e:
+            raise ImportError(
+                "MultiTaskModel.add_heads() requires nems_db "
+                "(nems_lbhb.initializers) to be installed."
+            ) from e
 
         self.task_heads = []
         for i, (siteid, site_data) in enumerate(tasks.items()):
@@ -120,7 +126,13 @@ class MultiTaskModel(Model):
         from nems.backends.base import Backend, FitResults
         from nems.backends.tf.cost import get_cost
         from nems.backends.tf.cost import pearson as pearsonR
-        import nems_lbhb.preprocessing
+        try:
+            import nems_lbhb.preprocessing
+        except ImportError as e:
+            raise ImportError(
+                "MultiTaskModel.fit() requires nems_db "
+                "(nems_lbhb.preprocessing) to be installed."
+            ) from e
 
         log = logging.getLogger(__name__)
         from nems.backends import get_backend
