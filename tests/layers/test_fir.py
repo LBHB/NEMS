@@ -124,16 +124,17 @@ class TestEvaluate:
 
         assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
 
-    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover STRF stride+skip windowed-average pooling (replaces old decimation), both T divisible and not divisible by stride, and numpy-vs-TF equivalence | date: 2026-08-04]
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover STRF stride+skip with both pool_mode options ('mean' windowed-average, 'decimate' subsample), both T divisible and not divisible by stride, and numpy-vs-TF equivalence | date: 2026-08-04]
+    @pytest.mark.parametrize("pool_mode", ['mean', 'decimate'])
     @pytest.mark.parametrize("stride", [1, 2, 3, 5, 7])
     @pytest.mark.parametrize("skip_alpha", [0.3, 0.7, -0.3, -0.7])
     @pytest.mark.parametrize("time", [97, 100])
-    def test_strf_stride_skip(self, stride, skip_alpha, time):
+    def test_strf_stride_skip(self, pool_mode, stride, skip_alpha, time):
         spectral = 4
         spectrogram = generate_random_input((time, spectral))
 
         shape = (spectral, 1, 5, 2)  # (C, R, T, N)
-        strf = STRF(shape=shape, stride=stride, skip_alpha=skip_alpha)
+        strf = STRF(shape=shape, stride=stride, skip_alpha=skip_alpha, pool_mode=pool_mode)
         strf.set_dtype('float32')
 
         out = strf.evaluate(spectrogram)
@@ -144,18 +145,55 @@ class TestEvaluate:
         assert numpy_out.shape == tf_out.shape[1:]
         assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
 
-    def test_strf_pool_skip_time(self):
-        """`STRF._pool_skip_time` should match a naive per-block-mean loop,
-        for T both divisible and not divisible by stride."""
+    def test_pool_time_mean(self):
+        """`FiniteImpulseResponse._pool_time` (pool_mode='mean', the default)
+        should match a naive per-block-mean loop, for T both divisible and
+        not divisible by stride. Tested via STRF since it inherits the
+        method unchanged from FiniteImpulseResponse."""
         strf = STRF(shape=(4, 1, 5, 2), stride=3)
+        assert strf.pool_mode == 'mean'
         for time in [99, 100]:
             x = generate_random_input((time, 4))
-            pooled = strf._pool_skip_time(x)
+            pooled = strf._pool_time(x)
             n_blocks = int(np.ceil(time / 3))
             reference = np.stack([
                 x[i * 3: (i + 1) * 3].mean(axis=0) for i in range(n_blocks)
                 ])
             assert np.allclose(pooled, reference)
+
+    def test_pool_time_decimate(self):
+        """`pool_mode='decimate'` should reproduce plain subsampling."""
+        strf = STRF(shape=(4, 1, 5, 2), stride=3, pool_mode='decimate')
+        x = generate_random_input((100, 4))
+        pooled = strf._pool_time(x)
+        assert np.allclose(pooled, x[::3])
+
+    def test_pool_mode_validation(self):
+        with pytest.raises(ValueError):
+            FiniteImpulseResponse(shape=(5, 4), pool_mode='bogus')
+        with pytest.raises(ValueError):
+            STRF(shape=(4, 1, 5, 2), pool_mode='bogus')
+
+    def test_fir_stride_pool_mode(self):
+        """Plain FiniteImpulseResponse (not just STRF) should also support
+        pool_mode, since striding was moved to the end of evaluate() there
+        too (previously baked into _apply_fir)."""
+        spectral = 3
+        for time in [97, 100]:
+            spectrogram = generate_random_input((time, spectral))
+            for pool_mode in ['mean', 'decimate']:
+                for stride in [1, 2, 3, 5]:
+                    fir = FiniteImpulseResponse(
+                        shape=(5, spectral), stride=stride, pool_mode=pool_mode
+                        )
+                    fir.set_dtype('float32')
+                    out = fir.evaluate(spectrogram)
+                    expected_time = int(np.ceil(time / stride))
+                    assert out.shape == (expected_time, 1)
+
+                    numpy_out, tf_out = compare_layer_eval(fir, spectrogram)
+                    assert numpy_out.shape == tf_out.shape[1:]
+                    assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
     # [AGENT EDIT END]
 
     # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover 2-dim STRF's newly-added shift/skip/activation support (previously silently ignored for the wshape=None / pure-FIR case) | date: 2026-08-04]

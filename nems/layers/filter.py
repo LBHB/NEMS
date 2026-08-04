@@ -16,7 +16,12 @@ log = logging.getLogger(__name__)
 
 class FiniteImpulseResponse(Layer):
 
-    def __init__(self, stride=1, include_anticausal=False, fshape=None, **kwargs):
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: pooling strategy used to downsample by `stride`; kept as a class attribute (not just an __init__ default) so subclasses/callers can inspect valid options | date: 2026-08-04]
+    POOL_MODES = ('mean', 'decimate')
+    # [AGENT EDIT END]
+
+    def __init__(self, stride=1, include_anticausal=False, fshape=None,
+                 pool_mode='mean', **kwargs):
         """Convolve linear filter(s) with input.
 
         Parameters
@@ -31,6 +36,17 @@ class FiniteImpulseResponse(Layer):
             If only two dimensions are present, a singleton dimension will be
             appended to represent a single output. For higher-dimensional data,
             users are responsible for adding this singleton dimension if needed.
+        stride : int
+            If > 1, downsample the output in time by this factor (see
+            `pool_mode`). The full-resolution convolution is always computed
+            first; downsampling is applied as the last step.
+        pool_mode : str
+            How to downsample when `stride > 1`:
+            'mean' (default) : average each non-overlapping block of
+                `stride` samples (the final, possibly-shorter block is
+                averaged over just the samples it has).
+            'decimate' : keep only every `stride`-th sample, discarding the
+                rest (the old default; cheaper, but throws away information).
 
         See also
         --------
@@ -51,7 +67,7 @@ class FiniteImpulseResponse(Layer):
         >>> out.shape
         (10000, 1)
 
-        # FIR alias                                     
+        # FIR alias
         >>> fir = FIR(shape=(25, 4, 100))               # rank 4, 100 filters
         >>> spectrogram = np.random.rand(10000,4)
         >>> out = fir.evaluate(spectrogram)
@@ -62,6 +78,13 @@ class FiniteImpulseResponse(Layer):
         require_shape(self, kwargs, minimum_ndim=2)
         self.stride = stride
         self.include_anticausal = include_anticausal
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: replace crude subsampling with mean pooling as the default striding strategy for FIR/STRF, configurable for future alternatives | date: 2026-08-04]
+        if pool_mode not in self.POOL_MODES:
+            raise ValueError(
+                f"pool_mode={pool_mode!r} not recognized; must be one of {self.POOL_MODES}"
+                )
+        self.pool_mode = pool_mode
+        # [AGENT EDIT END]
         if not hasattr(self, 'fshape') or self.fshape is None:
             self.fshape = fshape if fshape is not None else kwargs['shape']
         #if not hasattr(self, 'wshape') or self.wshape is None:
@@ -117,8 +140,13 @@ class FiniteImpulseResponse(Layer):
         return self.parameters['coefficients'].values
 
     def evaluate(self, input):
-        """Convolve `FIR.coefficients` with input."""
-        return self._apply_fir(input)
+        """Convolve `FIR.coefficients` with input, then pool/downsample by `stride`."""
+        output = self._apply_fir(input)
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: move striding to the last step of the processing cascade (was applied inside _apply_fir itself); lets STRF add shift/skip/activation at full resolution and pool once at the very end | date: 2026-08-04]
+        if self.stride > 1:
+            output = self._pool_time(output)
+        # [AGENT EDIT END]
+        return output
 
     def _apply_fir(self, input):
         """Core FIR convolution used by evaluate() and STRF.evaluate().
@@ -130,6 +158,9 @@ class FiniteImpulseResponse(Layer):
             output[t] = sum_{lag=0}^{T-1} sum_r  input[t-lag, r] * coef[lag, r]
         which, after prepending T-1 zeros and indexing with f = T-1-lag, becomes:
             output[t] = sum_f sum_r  padded[t+f, r] * coef_time_flipped[f, r]
+
+        Always returns full time resolution -- striding/pooling by `self.stride`
+        is applied separately, as the last step of `evaluate()`.
         """
         coefficients = self.coefficients
         if coefficients.ndim == 2:
@@ -150,9 +181,44 @@ class FiniteImpulseResponse(Layer):
         # Sum over rank (r) and filter time (f) in one vectorized pass.
         output = np.einsum('trof,fro->to', windowed, coef_t)
 
-        if self.stride > 1:
-            output = output[::self.stride]
         return output
+
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: shared time-axis pooling for FIR/STRF, replacing the old crude output[::stride] subsample with a mean-pooling default (still selectable via pool_mode); also used as STRF's single, final downsampling step so per-skip-connection pooling logic is no longer needed | date: 2026-08-04]
+    def _pool_time(self, x):
+        """Downsample `x` along the time axis (axis 0) by `self.stride`.
+
+        Dispatches on `self.pool_mode`:
+        'mean'     : average each non-overlapping block of `self.stride`
+                     samples (final, possibly-shorter block averaged over
+                     just the samples it has).
+        'decimate' : keep only every `self.stride`-th sample (block i -> its
+                     first sample), discarding the rest.
+
+        Both conventions keep the same reference sample (index i*stride) as
+        the first element/only element of block i, so output length is
+        always ceil(T/stride) and truncation (for 'mean') only ever happens
+        at the end -- matching how a VALID-mode convolution/pooling op only
+        truncates at the end.
+        """
+        stride = self.stride
+        if stride <= 1:
+            return x
+
+        if self.pool_mode == 'decimate':
+            return x[::stride]
+
+        # 'mean'
+        T = x.shape[0]
+        n_full = T // stride
+        full_part = x[:n_full * stride].reshape(
+            n_full, stride, *x.shape[1:]
+            ).mean(axis=1)
+        remainder = T - n_full * stride
+        if remainder == 0:
+            return full_part
+        last_part = x[n_full * stride:].mean(axis=0, keepdims=True)
+        return np.concatenate([full_part, last_part], axis=0)
+    # [AGENT EDIT END]
 
     def _reshape_coefficients(self):
         """Get `coefficients` in the format needed for `evaluate`."""
@@ -226,6 +292,8 @@ class FiniteImpulseResponse(Layer):
         p{N}z{M}fs{F} : Use PoleZeroFIR with N poles, M zeros, and
             sample rate F (e.g. 'p2z3fs100').
         s{N} : Temporal stride of N bins.
+        dec : Use 'decimate' pool_mode (subsample) instead of the default
+            'mean' pooling when stride > 1.
         l2{value} : L2 regularizer, e.g. 'l2e-3'.
 
         See also
@@ -247,6 +315,8 @@ class FiniteImpulseResponse(Layer):
                 kwargs['n_poles'] = int(op[1:zeros_idx])
                 kwargs['n_zeros'] = int(op[zeros_idx+1:fs_idx])
                 kwargs['fs'] = int(op[fs_idx+2:])
+            elif op == 'dec':
+                kwargs['pool_mode'] = 'decimate'
             elif op.startswith('s'):
                 kwargs['stride'] = int(op[1:])
             elif op.startswith('l2'):
@@ -294,9 +364,14 @@ class FiniteImpulseResponse(Layer):
                 tf, input_shape, new_c
                 )
         # Define convolution operation, depends on whether a GPU is available.
+        # Always computes at full time resolution -- striding/pooling by
+        # `self.stride` is applied separately, as the last step of `call`.
         convolve = self._define_tf_convolution(
             tf, filter_width, rank, n_outputs
             )
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: move striding to the last step of the processing cascade, using the shared mean/decimate pooling helper instead of a strided conv | date: 2026-08-04]
+        pool = self._define_tf_pooling(tf)
+        # [AGENT EDIT END]
 
         #@register_keras_serializable(package="Custom")
         class FiniteImpulseResponseTF(NemsKerasLayer):
@@ -318,7 +393,7 @@ class FiniteImpulseResponse(Layer):
                 #coefficients = broadcast_coefficients(self.coefficients)
                 # Make None shape explicit
                 rank_4 = tf.reshape(inputs, [-1, input_width, rank, n_outputs])
-                return convolve(rank_4, coefficients)
+                return pool(convolve(rank_4, coefficients))
 
         return FiniteImpulseResponseTF(self, new_values=new_values, **kwargs)
 
@@ -424,11 +499,13 @@ class FiniteImpulseResponse(Layer):
         Returns
         -------
         convolution : function
-        
+
         """
 
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: always convolve at stride=1 (full resolution); striding/pooling now happens once, as the last step of the processing cascade, via _define_tf_pooling | date: 2026-08-04]
+        stride = 1
+        # [AGENT EDIT END]
         num_gpus = len(tf.config.list_physical_devices('GPU'))
-        stride = self.stride
         if num_gpus == 0:
             # Use CPU-compatible (but slower) version.
             def convolve(inputs, coefficients):
@@ -491,6 +568,61 @@ class FiniteImpulseResponse(Layer):
 
         return convolve
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: shared TF-side time-axis pooling for FIR/STRF, mirroring _pool_time (numpy). Used as the single, final downsampling step, so per-skip-connection pooling logic in STRFTF is no longer needed | date: 2026-08-04]
+    def _define_tf_pooling(self, tf):
+        """Internal for `as_tensorflow_layer`.
+
+        Builds a `pool` function that downsamples axis=1 (time) of a
+        (batch, time, channels) tensor by `self.stride`, according to
+        `self.pool_mode` ('mean' or 'decimate'). Returns the identity
+        function if `self.stride <= 1`.
+
+        Returns
+        -------
+        pool : function
+        """
+        stride = self.stride
+        pool_mode = self.pool_mode
+
+        if stride <= 1:
+            return lambda x: x
+
+        if pool_mode == 'decimate':
+            return lambda x: x[:, ::stride]
+
+        # 'mean'
+        def pool(x):
+            """Block-average over non-overlapping windows of length `stride`,
+            mirroring `_pool_time` (numpy) exactly (same block boundaries,
+            truncated-not-diluted final block). Uses avg_pool1d with
+            right-only zero-padding plus a mask-based divisor correction,
+            rather than padding='SAME', because TF's SAME padding for
+            pooling ops splits padding between both sides
+            (pad_before = pad_total // 2), which would insert padding
+            *before* index 0 for pad_total >= 2 and shift every block's
+            phase. Branch-free (no tf.cond), traces identically regardless
+            of whether T % stride == 0.
+            """
+            T = tf.shape(x)[1]
+            pad_amount = (-T) % stride
+            padded = tf.pad(x, [[0, 0], [0, pad_amount], [0, 0]])
+            mask = tf.ones_like(x[:, :, :1])
+            padded_mask = tf.pad(mask, [[0, 0], [0, pad_amount], [0, 0]])
+            # avg_pool1d(padded) = sum_valid/stride per block (zero-padded
+            # entries don't change the sum, but still dilute the divisor).
+            diluted_mean = tf.nn.avg_pool1d(
+                padded, ksize=stride, strides=stride, padding='VALID'
+                )
+            # avg_pool1d(padded_mask) = valid_count/stride per block.
+            valid_frac = tf.nn.avg_pool1d(
+                padded_mask, ksize=stride, strides=stride, padding='VALID'
+                )
+            # Dividing cancels the shared /stride, leaving sum_valid/valid_count.
+            return diluted_mean / valid_frac
+
+        return pool
+    # [AGENT EDIT END]
+
 # Alias
 class FIR(FiniteImpulseResponse):
     pass
@@ -504,7 +636,7 @@ class STRF(FiniteImpulseResponse):
     """
     def __init__(self, stride=1, include_anticausal=False, activation=None,
                  skip_alpha=0, skip_layer=None, wshape=None, fshape=None, nout=None,
-                 **kwargs):
+                 pool_mode='mean', **kwargs):
         """Spectrotemporal receptive field: fused WeightChannels + FIR layer.
 
         Parameters
@@ -524,6 +656,10 @@ class STRF(FiniteImpulseResponse):
             Negative: added before activation; positive: added after.
         skip_layer : bool or None
             Convenience flag — True sets skip_alpha=1, False sets it to 0.
+        pool_mode : str
+            How to downsample when `stride > 1`; see
+            `FiniteImpulseResponse.__init__`. Shift/skip/activation are all
+            computed at full time resolution; pooling is the last step.
 
         See also
         --------
@@ -562,7 +698,7 @@ class STRF(FiniteImpulseResponse):
         self.skip_alpha = skip_alpha
 
         super().__init__(stride=stride, include_anticausal=include_anticausal,
-                         **kwargs)
+                         pool_mode=pool_mode, **kwargs)
 
 
     def initial_parameters(self):
@@ -688,63 +824,30 @@ class STRF(FiniteImpulseResponse):
         return np.moveaxis(w @ f, 0, 2)
 
 
-    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: replace decimation with windowed averaging for the strided skip connection, so the skip term isn't blind to the samples the main path's own stride decimation discards | date: 2026-08-04]
-    def _pool_skip_time(self, input):
-        """Block-average `input` over the time axis (axis 0) in non-overlapping
-        windows of length `self.stride`, for use as the skip-connection term
-        when the main FIR path has been time-strided.
-
-        Block i covers input[i*stride : (i+1)*stride) for i = 0 .. L-2, where
-        L = ceil(T/stride). The final block is truncated to whatever samples
-        remain when T % stride != 0, averaged over only those valid samples
-        (not diluted by zero-padding). Keeps the same reference sample
-        (index i*stride) that the old `input[::self.stride]` decimation kept,
-        as the first element of each block, so truncation only ever happens
-        at the end -- matching how the FIR conv's own stride-decimation only
-        truncates at the end. Output length is always ceil(T/stride), matching
-        `_apply_fir`'s stride-decimated output length exactly.
-        """
-        stride = self.stride
-        T = input.shape[0]
-        n_full = T // stride
-        full_part = input[:n_full * stride].reshape(
-            n_full, stride, *input.shape[1:]
-            ).mean(axis=1)
-        remainder = T - n_full * stride
-        if remainder == 0:
-            return full_part
-        last_part = input[n_full * stride:].mean(axis=0, keepdims=True)
-        return np.concatenate([full_part, last_part], axis=0)
-
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: striding/pooling moved to the last step of evaluate() (see below), so the skip connection now always operates at full time resolution -- no stride-aware pooling needed here anymore | date: 2026-08-04]
     def _apply_skip(self, output, input, alpha):
         """Add scaled input to output, broadcasting across the channel axis."""
-        # NOTE: if fshape[0] <= 1 (see `evaluate`'s `output = weighted + self.shift`
-        # branch), `output` is never time-strided, but this still applies
-        # [::self.stride] to `input` -- causes a shape mismatch for stride > 1.
-        # Same issue exists in the TF path (STRFTF.call's apply_skip).
-        if self.stride > 1 and self.fshape[0] > 1:
-            # Main path was time-strided -- average each stride-window of the
-            # raw input instead of decimating, so the skip term isn't blind to
-            # the stride-1 samples the main path's own decimation discards.
-            skip_input = self._pool_skip_time(input)
-        else:
-            skip_input = input[::self.stride]
-
         if input.shape[-1] < output.shape[-1]:
-            output[:, :input.shape[-1]] += skip_input * alpha
+            output[:, :input.shape[-1]] += input * alpha
         else:
-            output += skip_input[:, :output.shape[-1]] * alpha
+            output += input[:, :output.shape[-1]] * alpha
         return output
-    # [AGENT EDIT END]
 
     def evaluate(self, input):
         """Apply STRF to input.
 
-        2-dim (full-rank FIR): FIR convolution → shift → optional skip/activation.
+        2-dim (full-rank FIR): FIR convolution → shift → optional skip/activation
+            → pool (if stride > 1).
         3- or 4-dim: channel weighting (like WeightChannels) → FIR convolution
-            (like FiniteImpulseResponse) → shift → optional skip/activation.
+            (like FiniteImpulseResponse) → shift → optional skip/activation
+            → pool (if stride > 1).
+
+        Pooling is always the last step: shift/skip/activation are computed
+        at full time resolution, then downsampled once at the end (see
+        `FiniteImpulseResponse._pool_time`). This also means the skip
+        connection no longer needs its own stride-aware pooling logic --
+        `input` and `output` are always the same length until the final pool.
         """
-        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: 2-dim STRF previously returned directly from _apply_fir, silently ignoring shift/skip_alpha/activation entirely; apply the same shift->skip->activation->skip pipeline used by the 3-/4-dim path | date: 2026-08-04]
         if self.wshape is None:
             # 2-dim: pure FIR, but shift/skip/activation still apply, same as
             # the 3-/4-dim path below.
@@ -758,6 +861,9 @@ class STRF(FiniteImpulseResponse):
 
             if self.skip_alpha > 0:
                 output = self._apply_skip(output, input, self.alpha)
+
+            if self.stride > 1:
+                output = self._pool_time(output)
 
             return output
         # [AGENT EDIT END]
@@ -779,6 +885,9 @@ class STRF(FiniteImpulseResponse):
 
         if self.skip_alpha > 0:
             output = self._apply_skip(output, input, self.alpha)
+
+        if self.stride > 1:
+            output = self._pool_time(output)
 
         return output
 
@@ -803,6 +912,8 @@ class STRF(FiniteImpulseResponse):
         sk{N} : Skip connection with alpha=N/100.
         skl{N} : Skip connection with alpha=-N/100.
         s{N} : Temporal stride of N bins.
+        dec : Use 'decimate' pool_mode (subsample) instead of the default
+            'mean' pooling when stride > 1.
         l2{value} : L2 regularizer, e.g. 'l2e-3'.
 
         See also
@@ -826,6 +937,8 @@ class STRF(FiniteImpulseResponse):
                 kwargs['skip_alpha'] = -int(op[2:]) / 100
             elif op.startswith('sk'):
                 kwargs['skip_alpha'] = int(op[2:]) / 100
+            elif op == 'dec':
+                kwargs['pool_mode'] = 'decimate'
             elif op.startswith('s'):
                 kwargs['stride'] = int(op[1:])
             elif op.startswith('l2'):
@@ -876,13 +989,13 @@ class STRF(FiniteImpulseResponse):
             tf, input_shape, new_c
         )
         convolve = self._define_tf_convolution(tf, filter_width, rank, n_outputs)
+        pool = self._define_tf_pooling(tf)
 
         activation  = self.activation
         skip_alpha  = self.skip_alpha
         skip_scale  = self.alpha  # abs(skip_alpha) -- sign only selects pre/post-activation timing below, it should not flip the sign of the added term (mirrors numpy's `self.alpha` property, used the same way in `_apply_skip`)
         fir_len     = self.fshape[0]
         wcoef_ndim  = len(self.wshape) if not wshape_is_none else None   # 2 → (C, R),  3 → (C, R, N)
-        stride = self.stride
 
         class STRFTF(NemsKerasLayer):
             def weights_to_values(self):
@@ -901,55 +1014,16 @@ class STRF(FiniteImpulseResponse):
                 # [AGENT EDIT END]
 
             def call(self, inputs):
-                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: fix stride bug in skip connection (inputs is (batch, time, channels) in TF, so [::stride] was slicing the batch axis instead of time) and replace decimation with windowed averaging so the skip term isn't blind to the samples the main path's own stride decimation discards | date: 2026-08-04]
-                def pool_skip_time(x):
-                    """Block-average `x` over axis=1 (time) in non-overlapping
-                    windows of length `stride`, mirroring `STRF._pool_skip_time`
-                    exactly (same block boundaries, truncated-not-diluted final
-                    block). Uses avg_pool1d with right-only zero-padding plus a
-                    mask-based divisor correction, rather than padding='SAME',
-                    because TF's SAME padding for pooling ops splits padding
-                    between both sides (pad_before = pad_total // 2), which
-                    would insert padding *before* index 0 for pad_total >= 2
-                    and shift every block's phase -- breaking alignment with
-                    the main conv path's own (start-at-0) stride decimation.
-                    This is branch-free (no tf.cond), so it traces identically
-                    regardless of whether T % stride == 0.
-                    """
-                    T = tf.shape(x)[1]
-                    pad_amount = (-T) % stride
-                    padded = tf.pad(x, [[0, 0], [0, pad_amount], [0, 0]])
-                    mask = tf.ones_like(x[:, :, :1])
-                    padded_mask = tf.pad(mask, [[0, 0], [0, pad_amount], [0, 0]])
-                    # avg_pool1d(padded) = sum_valid/stride per block (zero-padded
-                    # entries don't change the sum, but still dilute the divisor).
-                    diluted_mean = tf.nn.avg_pool1d(
-                        padded, ksize=stride, strides=stride, padding='VALID'
-                        )
-                    # avg_pool1d(padded_mask) = valid_count/stride per block.
-                    valid_frac = tf.nn.avg_pool1d(
-                        padded_mask, ksize=stride, strides=stride, padding='VALID'
-                        )
-                    # Dividing cancels the shared /stride, leaving sum_valid/valid_count.
-                    return diluted_mean / valid_frac
-
-                # NOTE: if fir_len <= 1 (see `out = rank_4` below), `out` is never
-                # time-strided, but this still applies [::stride] to `inputs` --
-                # same mismatch bug present in the numpy path (STRF._apply_skip).
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: pooling moved to the last step of call() (see below), so skip now always operates at full time resolution -- no stride-aware pooling needed here anymore | date: 2026-08-04]
                 def apply_skip(out):
-                    if fir_len > 1 and stride > 1:
-                        skip_inputs = pool_skip_time(inputs)
-                    else:
-                        skip_inputs = inputs[:, ::stride]
-
                     if inputs.shape[-1] < out.shape[-1]:
                         #head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
-                        head = out[:, :, :inputs.shape[-1]] + skip_inputs * skip_scale
+                        head = out[:, :, :inputs.shape[-1]] + inputs * skip_scale
                         tail = out[:, :, inputs.shape[-1]:]
                         return tf.concat([head, tail], axis=2)
                     else:
                         #return out + inputs[:, :, :out.shape[-1]] * self.alpha
-                        return out + skip_inputs[:, :, :out.shape[-1]] * skip_scale
+                        return out + inputs[:, :, :out.shape[-1]] * skip_scale
                 # [AGENT EDIT END]
 
                 # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: build rank_4/out for the 2-dim (wshape_is_none) case, mirroring FiniteImpulseResponse.as_tensorflow_layer's own broadcast+reshape exactly, so shift/skip/activation below apply the same way they do for the 3-/4-dim case | date: 2026-08-04]
@@ -992,7 +1066,7 @@ class STRF(FiniteImpulseResponse):
                 if skip_alpha > 0:
                     out = apply_skip(out)
 
-                return out
+                return pool(out)
 
         return STRFTF(self, new_values=new_values, **kwargs)
 
