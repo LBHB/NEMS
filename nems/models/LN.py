@@ -293,21 +293,26 @@ class LN_pop(Model):
             fir_reg1=regularizer
         else:
             fir_reg1=None
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: use FiniteImpulseResponse's own native stride/pool_mode instead of a separate frozen-boxcar agg layer appended after the nonlinearity; harmonizes LN_pop with the FIR/STRF pooling refactor. Note this moves pooling to before the static nonlinearity instead of after (intentional, accepted behavior change) | date: 2026-08-04]
         if rank is None:
             # Full-rank finite impulse response, one per output channel
             fir = FiniteImpulseResponse(shape=(time_bins, channels_in, channels_out),
-                                        regularizer=regularizer, include_anticausal=include_anticausal)
+                                        regularizer=regularizer, include_anticausal=include_anticausal,
+                                        stride=stride)
             self.add_layers(fir)
         elif share_tuning:
             wc = wc_class1(shape=(channels_in, 1, rank), regularizer=reg1)
             fir = FiniteImpulseResponse(shape=(time_bins, 1, rank),
-                                        include_anticausal=include_anticausal, regularizer=fir_reg1)
+                                        include_anticausal=include_anticausal, regularizer=fir_reg1,
+                                        stride=stride)
             wc2 = WeightChannels(shape=(rank, channels_out), regularizer=regularizer)
             self.add_layers(wc, fir, wc2)
         else:
             wc = wc_class1(shape=(channels_in, rank, channels_out), regularizer=reg1)
-            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal, regularizer=fir_reg1)
+            fir = FiniteImpulseResponse(shape=(time_bins, rank, channels_out), include_anticausal=include_anticausal,
+                                        regularizer=fir_reg1, stride=stride)
             self.add_layers(wc, fir)
+        # [AGENT EDIT END]
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
@@ -326,12 +331,6 @@ class LN_pop(Model):
             if nl_kwargs is None: nl_kwargs = {}
             nonlinearity = nl_class(shape=(channels_out,), **nl_kwargs)
             self.add_layers(nonlinearity)
-
-        if stride > 1:
-            agg = FiniteImpulseResponse(shape=(stride, 1, channels_out), stride=stride)
-            agg['coefficients'] = np.ones(agg.shape)/stride
-            agg.freeze_parameters('coefficients')
-            self.add_layers(agg)
 
         self.out_range = [[-1]*channels_out, [3]*channels_out]
         self.stride = stride
@@ -378,10 +377,9 @@ class LN_pop(Model):
         else:
             strf = self.copy()
             
-        if self.stride > 1:
-            nl_layer = -2
-        else:
-            nl_layer = -1
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: nonlinearity is now always the last layer -- the trailing agg pooling layer was removed in favor of FiniteImpulseResponse's own native stride | date: 2026-08-04]
+        nl_layer = -1
+        # [AGENT EDIT END]
 
         strf.layers[nl_layer].skip_nonlinearity()
         strf = strf.fit(input=X, target=Y, backend=fitter,
