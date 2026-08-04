@@ -157,3 +157,31 @@ class TestEvaluate:
                 ])
             assert np.allclose(pooled, reference)
     # [AGENT EDIT END]
+
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover 2-dim STRF's newly-added shift/skip/activation support (previously silently ignored for the wshape=None / pure-FIR case) | date: 2026-08-04]
+    @pytest.mark.parametrize("activation", [None, 'relu'])
+    @pytest.mark.parametrize("skip_alpha", [0.0, 0.5, -0.5])
+    @pytest.mark.parametrize("stride", [1, 2, 3])
+    def test_strf_2d_shift_skip_activation(self, activation, skip_alpha, stride):
+        spectral = 4
+        spectrogram = generate_random_input((97, spectral))
+
+        strf = STRF(
+            shape=(spectral, 8), activation=activation,
+            skip_alpha=skip_alpha, stride=stride,
+            )
+        strf.set_dtype('float32')
+
+        # shift should be a fittable parameter, not fixed at 0.
+        assert 'shift' in strf.parameters._dict
+        strf.parameters.sample(inplace=True)
+        assert not np.allclose(strf.parameters['shift'].values, 0)
+
+        out = strf.evaluate(spectrogram)
+        expected_time = int(np.ceil(97 / stride))
+        assert out.shape == (expected_time, spectral)
+
+        numpy_out, tf_out = compare_layer_eval(strf, spectrogram)
+        assert numpy_out.shape == tf_out.shape[1:]
+        assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+    # [AGENT EDIT END]

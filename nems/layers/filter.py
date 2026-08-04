@@ -573,6 +573,9 @@ class STRF(FiniteImpulseResponse):
         2-dim (wshape is None):
             coefficients : ndarray, shape = fshape = (T, N)
                 Prior/bounds match FiniteImpulseResponse convention.
+            shift : ndarray, shape = (1, N)
+                Prior:  Normal(0, 0.01). Same role as the 3-/4-dim `shift`:
+                added directly before any activation (e.g. relu).
 
         3- or 4-dim:
             wcoefficients : ndarray, shape = wshape = (C, R) or (C, R, N)
@@ -599,7 +602,15 @@ class STRF(FiniteImpulseResponse):
                 mean[1, :] = 2 / fshape[0]
                 mean[2, :] = -1 / fshape[0]
             prior = Normal(mean, sd)
-            return Phi(Parameter(name='coefficients', shape=fshape, prior=prior))
+
+            # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: 2-dim STRF previously had no shift/skip/activation support at all (evaluate() returned directly from _apply_fir); add the same fittable shift used by the 3-/4-dim path so activation='relu' etc. has a pre-activation shift to work with | date: 2026-08-04]
+            nout_2d = (1, fshape[-1])
+            shiftprior = Normal(np.zeros(shape=nout_2d), np.ones(shape=nout_2d) / 100)
+            return Phi(
+                Parameter(name='coefficients', shape=fshape, prior=prior),
+                Parameter(name='shift', shape=nout_2d, prior=shiftprior),
+            )
+            # [AGENT EDIT END]
 
         # 3- or 4-dim path: WC + FIR + shift + alpha
         wshape = self.wshape
@@ -729,13 +740,27 @@ class STRF(FiniteImpulseResponse):
     def evaluate(self, input):
         """Apply STRF to input.
 
-        2-dim (full-rank FIR): delegates directly to _apply_fir.
+        2-dim (full-rank FIR): FIR convolution → shift → optional skip/activation.
         3- or 4-dim: channel weighting (like WeightChannels) → FIR convolution
             (like FiniteImpulseResponse) → shift → optional skip/activation.
         """
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: 2-dim STRF previously returned directly from _apply_fir, silently ignoring shift/skip_alpha/activation entirely; apply the same shift->skip->activation->skip pipeline used by the 3-/4-dim path | date: 2026-08-04]
         if self.wshape is None:
-            # 2-dim: pure FIR, no skip/activation.
-            return self._apply_fir(input)
+            # 2-dim: pure FIR, but shift/skip/activation still apply, same as
+            # the 3-/4-dim path below.
+            output = self._apply_fir(input) + self.shift
+
+            if self.skip_alpha < 0:
+                output = self._apply_skip(output, input, self.alpha)
+
+            if self.activation == 'relu':
+                output[output < 0] = 0
+
+            if self.skip_alpha > 0:
+                output = self._apply_skip(output, input, self.alpha)
+
+            return output
+        # [AGENT EDIT END]
 
         # Weight input channels down to rank, mirroring WeightChannels.evaluate.
         weighted = np.tensordot(input, self.wcoefficients, axes=(1, 0))
@@ -813,8 +838,9 @@ class STRF(FiniteImpulseResponse):
     def as_tensorflow_layer(self, input_shape, **kwargs):
         """Convert STRF to a TensorFlow Keras Layer.
 
-        2-dim (wshape is None): delegates directly to
-        FiniteImpulseResponse.as_tensorflow_layer — same as a plain FIR layer.
+        2-dim (wshape is None): FIR convolution (inherited broadcasting
+        helpers, same reshape FiniteImpulseResponse.as_tensorflow_layer
+        uses) + shift + optional skip connection / activation.
 
         3- or 4-dim: fused WC (einsum) + FIR (inherited convolution helpers)
         + shift + optional skip connection / activation.
@@ -831,13 +857,9 @@ class STRF(FiniteImpulseResponse):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        if self.wshape is None:
-            # 2-dim: pure FIR — delegate entirely to the parent implementation.
-            return FiniteImpulseResponse.as_tensorflow_layer(
-                self, input_shape, **kwargs
-            )
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: 2-dim STRF previously delegated entirely to FiniteImpulseResponse.as_tensorflow_layer, which knows nothing about STRF's shift/skip_alpha/activation attributes -- unify with the 3-/4-dim path below (branching only on wshape_is_none) so those apply uniformly, matching the numpy-side fix | date: 2026-08-04]
+        wshape_is_none = self.wshape is None
 
-        # 3- or 4-dim: fused WC + FIR.
         old_c_shape = self.parameters['coefficients'].shape   # fshape tuple
         coefficients = self.coefficients
         if coefficients.ndim == 2:
@@ -847,10 +869,10 @@ class STRF(FiniteImpulseResponse):
         new_values = {'coefficients': new_c}
 
         # Set up FIR broadcasting/convolution helpers (inherited from FIR).
-        # broadcast_inputs is unused in the STRF path (the WC einsum already
-        # produces the correct intermediate shape), but n_outputs and convolve
-        # are needed.
-        _, broadcast_coefficients, n_outputs = self._define_tf_broadcasting(
+        # broadcast_inputs is only used in the 2-dim (wshape_is_none) path --
+        # the WC einsum in the 3-/4-dim path already produces the correct
+        # intermediate shape without it.
+        broadcast_inputs, broadcast_coefficients, n_outputs = self._define_tf_broadcasting(
             tf, input_shape, new_c
         )
         convolve = self._define_tf_convolution(tf, filter_width, rank, n_outputs)
@@ -859,7 +881,7 @@ class STRF(FiniteImpulseResponse):
         skip_alpha  = self.skip_alpha
         skip_scale  = self.alpha  # abs(skip_alpha) -- sign only selects pre/post-activation timing below, it should not flip the sign of the added term (mirrors numpy's `self.alpha` property, used the same way in `_apply_skip`)
         fir_len     = self.fshape[0]
-        wcoef_ndim  = len(self.wshape)   # 2 → (C, R),  3 → (C, R, N)
+        wcoef_ndim  = len(self.wshape) if not wshape_is_none else None   # 2 → (C, R),  3 → (C, R, N)
         stride = self.stride
 
         class STRFTF(NemsKerasLayer):
@@ -869,12 +891,14 @@ class STRF(FiniteImpulseResponse):
                 unshaped  = np.reshape(unflipped, old_c_shape)
                 vals = {
                     'coefficients':  unshaped,
-                    'wcoefficients': self.parameter_values['wcoefficients'],
                     'shift':         self.parameter_values['shift'],
                 }
+                if not wshape_is_none:
+                    vals['wcoefficients'] = self.parameter_values['wcoefficients']
                 if 'alpha' in self.parameter_values:
                     vals['alpha'] = self.parameter_values['alpha']
                 return vals
+                # [AGENT EDIT END]
 
             def call(self, inputs):
                 # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: fix stride bug in skip connection (inputs is (batch, time, channels) in TF, so [::stride] was slicing the batch axis instead of time) and replace decimation with windowed averaging so the skip term isn't blind to the samples the main path's own stride decimation discards | date: 2026-08-04]
@@ -928,26 +952,37 @@ class STRF(FiniteImpulseResponse):
                         return out + skip_inputs[:, :, :out.shape[-1]] * skip_scale
                 # [AGENT EDIT END]
 
-                # Channel weighting — mirrors WeightChannels.as_tensorflow_layer.
-                # Use einsum (not tensordot): Keras 3 traces einsum statically.
-                if wcoef_ndim == 3:
-                    # wcoefficients: (C, R, N) → (batch, time, R, N)
-                    rank_4 = tf.einsum('bti,irn->btrn', inputs, self.wcoefficients)
-                else:
-                    # wcoefficients: (C, R) → (batch, time, R, 1)
-                    rank_4 = tf.expand_dims(
-                        tf.einsum('bti,ir->btr', inputs, self.wcoefficients),
-                        axis=-1,
-                    )
-
-                # FIR convolution — mirrors FiniteImpulseResponse.as_tensorflow_layer.
-                if fir_len > 1:
-                    coefs_tensor = tf.convert_to_tensor(
-                        self.coefficients, dtype=self.dtype
-                    )
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: build rank_4/out for the 2-dim (wshape_is_none) case, mirroring FiniteImpulseResponse.as_tensorflow_layer's own broadcast+reshape exactly, so shift/skip/activation below apply the same way they do for the 3-/4-dim case | date: 2026-08-04]
+                if wshape_is_none:
+                    # No WC stage -- feed inputs directly into the FIR conv,
+                    # same reshape FiniteImpulseResponse.as_tensorflow_layer uses.
+                    input_width = tf.shape(inputs)[1]
+                    broadcast_in = broadcast_inputs(inputs)
+                    rank_4 = tf.reshape(broadcast_in, [-1, input_width, rank, n_outputs])
+                    coefs_tensor = tf.convert_to_tensor(self.coefficients, dtype=self.dtype)
                     out = convolve(rank_4, broadcast_coefficients(coefs_tensor))
                 else:
-                    out = rank_4
+                    # Channel weighting — mirrors WeightChannels.as_tensorflow_layer.
+                    # Use einsum (not tensordot): Keras 3 traces einsum statically.
+                    if wcoef_ndim == 3:
+                        # wcoefficients: (C, R, N) → (batch, time, R, N)
+                        rank_4 = tf.einsum('bti,irn->btrn', inputs, self.wcoefficients)
+                    else:
+                        # wcoefficients: (C, R) → (batch, time, R, 1)
+                        rank_4 = tf.expand_dims(
+                            tf.einsum('bti,ir->btr', inputs, self.wcoefficients),
+                            axis=-1,
+                        )
+
+                    # FIR convolution — mirrors FiniteImpulseResponse.as_tensorflow_layer.
+                    if fir_len > 1:
+                        coefs_tensor = tf.convert_to_tensor(
+                            self.coefficients, dtype=self.dtype
+                        )
+                        out = convolve(rank_4, broadcast_coefficients(coefs_tensor))
+                    else:
+                        out = rank_4
+                # [AGENT EDIT END]
                 out = out + self.shift
 
                 if skip_alpha < 0:
