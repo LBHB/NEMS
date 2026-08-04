@@ -1188,7 +1188,10 @@ def plot_dpc_rows(modelspec=None, cell_list=None, modelspecln=None, use_val=Fals
 
     orange = [est['resp'].chans.index(c) for c in cell_list]
     log.info(f"{cell_list}: {orange}")
-    spont = modelspec.meta['spont_mean']
+    if 'spont_mean' in modelspec.meta.keys():
+        spont = modelspec.meta['spont_mean']
+    else:
+        spont = np.zeros(est['resp'].shape[0])
 
     if modelspecln is not None:
         from nems.models import LN
