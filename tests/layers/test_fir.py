@@ -123,3 +123,37 @@ class TestEvaluate:
         numpy_out, tf_out = compare_layer_eval(strf, spectrogram)
 
         assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover STRF stride+skip windowed-average pooling (replaces old decimation), both T divisible and not divisible by stride, and numpy-vs-TF equivalence | date: 2026-08-04]
+    @pytest.mark.parametrize("stride", [1, 2, 3, 5, 7])
+    @pytest.mark.parametrize("skip_alpha", [0.3, 0.7, -0.3, -0.7])
+    @pytest.mark.parametrize("time", [97, 100])
+    def test_strf_stride_skip(self, stride, skip_alpha, time):
+        spectral = 4
+        spectrogram = generate_random_input((time, spectral))
+
+        shape = (spectral, 1, 5, 2)  # (C, R, T, N)
+        strf = STRF(shape=shape, stride=stride, skip_alpha=skip_alpha)
+        strf.set_dtype('float32')
+
+        out = strf.evaluate(spectrogram)
+        expected_time = int(np.ceil(time / stride))
+        assert out.shape == (expected_time, shape[-1])
+
+        numpy_out, tf_out = compare_layer_eval(strf, spectrogram)
+        assert numpy_out.shape == tf_out.shape[1:]
+        assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+
+    def test_strf_pool_skip_time(self):
+        """`STRF._pool_skip_time` should match a naive per-block-mean loop,
+        for T both divisible and not divisible by stride."""
+        strf = STRF(shape=(4, 1, 5, 2), stride=3)
+        for time in [99, 100]:
+            x = generate_random_input((time, 4))
+            pooled = strf._pool_skip_time(x)
+            n_blocks = int(np.ceil(time / 3))
+            reference = np.stack([
+                x[i * 3: (i + 1) * 3].mean(axis=0) for i in range(n_blocks)
+                ])
+            assert np.allclose(pooled, reference)
+    # [AGENT EDIT END]

@@ -845,28 +845,193 @@ class Recording:
         else:
             return self.split_by_epochs(lo_rep_epochs, hi_rep_epochs)
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: turn average_away_epoch_occurrences into a Recording method; free function at end of file kept as a backward-compatible wrapper | date: 2026-08-04]
+    def average_away_epoch_occurrences(self, epoch_regex='^STIM_', use_mask=True):
+        """
+        Returns a recording with _all_ signals averaged across epochs that
+        match epoch_regex, shortening them so that each epoch occurs only
+        once in the new signals. i.e. unlike 'add_average_sig', the new
+        recording will have signals 3x shorter if there are 3 occurrences of
+        every epoch.
+
+        This has advantages:
+        1. Averaging the value of a signal (such as a response) in different
+           occurrences will make it behave more like a linear variable with
+           gaussian noise, which is advantageous in many circumstances.
+        2. There will be less computation needed because the signal is shorter.
+
+        It also has disadvantages:
+        1. Stateful filters (FIR, IIR) will be subtly wrong near epoch boundaries
+        2. Any ordering of epochs is essentially lost, unless all epochs appear
+           in a perfectly repeated order.
+
+        To avoid accidentally averaging away differences in responses to stimuli
+        that are based on behavioral state, you may need to create new epochs
+        (based on stimulus and behaviorial state, for example) and then match
+        the epoch_regex to those.
+        """
+        recording = self
+        if use_mask:
+            recording = recording.remove_masked_epochs()
+
+        # need to edit the epochs dataframe, so make a working copy
+        temp_epochs = recording['resp'].epochs.copy()
+
+        # only pull out matching epochs
+        regex_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
+        epoch_stims = temp_epochs[regex_mask]
+        #epoch_stims = temp_epochs[regex_mask].copy().reset_index()
+        # for i in range(len(epoch_stims)-1):
+        #     d = epoch_stims.loc[i + 1]['start'] - epoch_stims.loc[i]['end']
+        #     if d<0:
+        #         log.info(f"Adjusting end of epoch: {i}, {epoch_stims.loc[i,'name']} d={d}, {epoch_stims.loc[i+1]['start']}, {epoch_stims.loc[i]['end']}")
+        #         epoch_stims.loc[i,'end']=epoch_stims.loc[i+1, 'start']
+
+        # get a list of the unique epoch names
+        epoch_names = temp_epochs.loc[regex_mask, 'name'].sort_values().unique()
+
+        # what to round to when checking if epoch timings match
+        d = int(np.ceil(np.log10(recording[list(recording.signals.keys())[0]].fs))+1)
+
+        # need an end and start to close the bounds for cases where start and end bounds are identical
+        s_cat_start = pd.Series(np.arange(len(epoch_stims['start']), dtype='int'),
+                                pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
+        s_cat_end = pd.Series(np.arange(len(epoch_stims['end']), dtype='int'),
+                              pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
+        s_name_start = pd.Series(epoch_stims['name'].values,
+                                 pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
+        s_name_end = pd.Series(epoch_stims['name'].values,
+                               pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
+
+        # add helper columns using the interval index lookups
+        temp_epochs['cat'] = temp_epochs['start'].map(s_cat_start)
+        temp_epochs['cat_end'] = temp_epochs['end'].map(s_cat_end)
+        temp_epochs['stim'] = temp_epochs['start'].map(s_name_start)
+        temp_epochs['stim_end'] = temp_epochs['end'].map(s_name_end)
+
+        # only want epochs that fall within a stim epoch, so drop the ones that don't
+        drop_mask = temp_epochs['cat'] != temp_epochs['cat_end']
+        trial_mask = temp_epochs['name'] == 'TRIAL'  # also dorp this
+        temp_epochs = temp_epochs.loc[~drop_mask & ~trial_mask, ['name', 'start', 'end', 'cat', 'stim']]
+
+        temp_epochs['cat'] = temp_epochs['cat'].astype(int)  # cast back to int to make into index
+
+        # build another helper series, to map in times to subtract from start/end
+        work_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
+        s_starts = pd.Series(temp_epochs.loc[work_mask, 'start'].values, temp_epochs.loc[work_mask, 'cat'].values)
+
+        temp_epochs['start'] -= temp_epochs['cat'].map(s_starts)
+        temp_epochs['end'] -= temp_epochs['cat'].map(s_starts)
+        temp_epochs = temp_epochs.round(d)
+
+        expected_max = temp_epochs.loc[temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True),'end'].max()
+
+        concat = []
+
+        offset = 0
+        new_epoch_names=[]
+        for name, group in temp_epochs.groupby('stim'):
+            # build a list of epoch names where all the values are equal
+            m_equal =(group.groupby('name').agg({
+                'start': lambda x: len(set(x)) == 1,
+                'end': lambda x: len(set(x)) == 1,
+            }).all(axis=1)
+               )
+            m_equal = list(m_equal.index[m_equal].values)
+            m_equal.extend([name,'REFERENCE','PreStimSilence','PostStimSilence'])
+
+            # find the epoch names that are common to every group
+            s = set()
+            for idx, (cat_name, cat_group) in enumerate(group.groupby('cat')):
+                if idx == 0:
+                    s.update(cat_group['name'])
+                else:
+                    s.intersection_update(cat_group['name'])
+
+            # drop where values across names aren't equal, or where a group is missing an epoch
+            keep_mask = (group['name'].isin(m_equal)) & (group['name'].isin(s))
+
+            g = group[keep_mask].drop(['cat', 'stim'], axis=1).drop_duplicates()
+            max_end = g['end'].max()
+            g[['start', 'end']] += offset
+
+            #if max_end>=expected_max:
+            concat.append(g)
+            offset += max_end
+            new_epoch_names.append(name)
+            #else:
+            #    log.info(f"dropping epoch {name} because it's too short")
+
+            if np.isnan(offset):
+                log.info('nan offset')
+
+        new_epochs = pd.concat(concat).sort_values(['start', 'end', 'name']).reset_index(drop=True)
+        epoch_names=new_epoch_names
+
+        # make name the temp_epochs index for quick start/end lookup in loop below
+        temp_epochs = (temp_epochs[['name', 'start', 'end']]
+                       .drop_duplicates()
+                       .set_index('name')
+                       .assign(dur=lambda x: (x['end'] - x['start']).astype(float))
+                       .drop(['start', 'end'], axis='columns')
+                       )
+
+        averaged_signals = {}
+        for signal_name, signal in recording.signals.items():
+            # TODO: this may be better done as a method in signal subclasses since
+            # some subclasses may have more efficient approaches (e.g.,
+            # TiledSignal)
+
+            # Extract all occurances of each epoch, returning a dict where keys are
+            # stimuli and each value in the dictionary is (reps X cell X bins)
+            #print(signal_name)
+            epoch_data = signal.rasterize().extract_epochs(epoch_names)
+
+            fs = signal.fs
+            # Average over all occurrences of each epoch
+            data = []
+            for epoch_name in epoch_names:
+                epoch = epoch_data[epoch_name]
+
+                # TODO: fix empty matrix error. do epochs align properly?
+                if epoch.dtype == bool:
+                    epoch = epoch[0,...]
+                elif np.sum(np.isfinite(epoch)):
+                    epoch = np.nanmean(epoch, axis=0)
+                else:
+                    epoch = epoch[0,...]
+
+                elen = int(round(np.min(temp_epochs.loc[epoch_name, 'dur'] * fs)))
+
+                if epoch.shape[-1] > elen:
+                    #log.info('truncating epoch_data for epoch %s', epoch_name)
+                    #epoch = epoch[..., :elen]
+                    log.info('NOT truncating epoch_data for epoch %s', epoch_name)
+                    log.info(f"{epoch}")
+                elif epoch.shape[-1]<elen:
+                    pad = np.zeros((epoch.shape[0], elen-epoch.shape[1])) * np.nan
+                    epoch = np.concatenate((epoch, pad), axis=1)
+                    log.info('padding epoch_data for epoch %s with nan', epoch_name)
+
+                data.append(epoch)
+
+            data = np.concatenate(data, axis=-1)
+            if data.shape[-1] != round(signal.fs * offset):
+                raise ValueError('Misalignment issue in averaging signal')
+
+            averaged_signal = signal._modified_copy(data, epochs=new_epochs)
+            averaged_signals[signal_name] = averaged_signal
+
+        averaged_recording = Recording(averaged_signals,
+                                       meta=recording.meta,
+                                       name=recording.name)
+        return averaged_recording
+    # [AGENT EDIT END]
+
     def get_epoch_indices(self, epoch_name, allow_partial_epochs=False):
 
         keys = list(self.signals.keys())
         epochs = self[keys[0]].get_epoch_indices(epoch_name, mask=self['mask'])
-
-        # code below replaced by mask handling in signal object
-        #if 'mask' not in keys:
-        #    epochs = self[keys[0]].get_epoch_indices(epoch_name)
-        #
-        #else:
-        #    # only keep epoch matching mask
-        #    m_data = self['mask'].as_continuous().copy()
-        #    all_epochs = self['mask'].get_epoch_indices(epoch_name)
-        #
-        #    epochs = np.zeros([0, 2], dtype=np.int32)
-        #    for lb, ub in all_epochs:
-        #        if allow_partial_epochs:
-        #            if np.sum(m_data[0, lb:ub]) > 0:
-        #                epochs = np.append(epochs, [[lb, ub]], axis=0)
-        #        else:
-        #            if np.sum(1 - (m_data[0, lb:ub])) == 0:
-        #                epochs = np.append(epochs, [[lb, ub]], axis=0)
 
         return epochs
 
@@ -1382,6 +1547,12 @@ class Recording:
 
         return rec
 
+    def compute_snr(self, *, signal='resp', **kwargs):
+        """
+        wrapper for self[signal].compute_snr
+        """
+        return self[signal].compute_snr(**kwargs)
+
     #
     # PLOTTING FUNCTIONs
     #
@@ -1433,57 +1604,6 @@ class Recording:
 
         return cc.T
         # [AGENT EDIT END]
-
-    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: migrate compute_snr from nems_lbhb.projects.mouse_natural.mouse_io | date: 2026-07-16]
-    def compute_snr(self, snrthr=0.3, permute=False, minreps=2, verbose=True):
-        """
-        Estimate per-channel signal-to-noise ratio of self['resp'] from repeated
-        presentations of stimuli matching epochs "^STIM". SNR is normalized so
-        that a completely random (noise-only) response has snr=0 regardless of
-        the number of reps used (minreps).
-
-        :param snrthr: {float} threshold used only for the verbose plot/title
-        :param permute: {bool} if True, shuffle response values before computing
-            snr, to establish a null/noise baseline
-        :param minreps: {int} minimum number of repeats required for an epoch
-            to be included
-        :param verbose: {bool} if True, plot snr per channel
-        :return: {np.array} snr, one value per channel of self['resp']
-        """
-        val_epochs = self['resp'].epoch_names_matching("^STIM", minreps=minreps)
-        rall = self['resp'].rasterize().extract_epochs(val_epochs)
-        minreps = np.min([v.shape[0] for k, v in rall.items()])
-        rall = np.concatenate([v[:minreps] for k, v in rall.items()], axis=2)
-        if permute:
-            s = rall.shape
-            x = np.random.permutation(rall.flatten())
-            rall = np.reshape(x, s)
-
-        sig = rall.mean(axis=0, keepdims=True)
-        noise = rall - sig
-        S = sig.std(axis=2).mean(axis=0)
-        N = noise.std(axis=2).mean(axis=0)
-        N[N == 0] = 1
-
-        # raw snr depends on number of reps
-        # normalize so that completely random snr=0
-        # regardless of rep count (aka minreps)
-        scaleby = (minreps - 1) ** 0.5
-
-        snr = (S / N) * scaleby - 1
-
-        if verbose:
-            import matplotlib.pyplot as plt
-
-            plt.figure(figsize=(4, 2))
-            plt.plot(snr, lw=0.5)
-
-            plt.axhline(snrthr, linestyle='--', color='r', lw=0.5)
-            keep_chans = [c for i, c in enumerate(self['resp'].chans) if snr[i] > snrthr]
-            plt.title(f"n={len(keep_chans)}/{len(snr)} SNR>{snrthr} (minreps={minreps})")
-
-        return snr
-    # [AGENT EDIT END]
 
 ## I/O functions
 def load_recording_from_targz(targz):
@@ -1910,183 +2030,11 @@ def get_demo_recordings(directory=None, name=None, unpack=False):
     return directory
 
 
+# [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: average_away_epoch_occurrences moved to Recording.average_away_epoch_occurrences; kept here as a backward-compatible wrapper for existing callers (e.g. nems_db) that use the free-function form | date: 2026-08-04]
 def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True):
+    """Backward-compatible wrapper for `Recording.average_away_epoch_occurrences`.
+
+    See `Recording.average_away_epoch_occurrences` for details.
     """
-    Returns a recording with _all_ signals averaged across epochs that
-    match epoch_regex, shortening them so that each epoch occurs only
-    once in the new signals. i.e. unlike 'add_average_sig', the new
-    recording will have signals 3x shorter if there are 3 occurrences of
-    every epoch.
-
-    This has advantages:
-    1. Averaging the value of a signal (such as a response) in different
-       occurrences will make it behave more like a linear variable with
-       gaussian noise, which is advantageous in many circumstances.
-    2. There will be less computation needed because the signal is shorter.
-
-    It also has disadvantages:
-    1. Stateful filters (FIR, IIR) will be subtly wrong near epoch boundaries
-    2. Any ordering of epochs is essentially lost, unless all epochs appear
-       in a perfectly repeated order.
-
-    To avoid accidentally averaging away differences in responses to stimuli
-    that are based on behavioral state, you may need to create new epochs
-    (based on stimulus and behaviorial state, for example) and then match
-    the epoch_regex to those.
-    """
-    if use_mask:
-        recording = recording.remove_masked_epochs()
-
-    # need to edit the epochs dataframe, so make a working copy
-    temp_epochs = recording['resp'].epochs.copy()
-
-    # only pull out matching epochs
-    regex_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
-    epoch_stims = temp_epochs[regex_mask]
-    #epoch_stims = temp_epochs[regex_mask].copy().reset_index()
-    # for i in range(len(epoch_stims)-1):
-    #     d = epoch_stims.loc[i + 1]['start'] - epoch_stims.loc[i]['end']
-    #     if d<0:
-    #         log.info(f"Adjusting end of epoch: {i}, {epoch_stims.loc[i,'name']} d={d}, {epoch_stims.loc[i+1]['start']}, {epoch_stims.loc[i]['end']}")
-    #         epoch_stims.loc[i,'end']=epoch_stims.loc[i+1, 'start']
-
-    # get a list of the unique epoch names
-    epoch_names = temp_epochs.loc[regex_mask, 'name'].sort_values().unique()
-
-    # what to round to when checking if epoch timings match
-    d = int(np.ceil(np.log10(recording[list(recording.signals.keys())[0]].fs))+1)
-
-    # need an end and start to close the bounds for cases where start and end bounds are identical
-    s_cat_start = pd.Series(np.arange(len(epoch_stims['start']), dtype='int'),
-                            pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
-    s_cat_end = pd.Series(np.arange(len(epoch_stims['end']), dtype='int'),
-                          pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
-    s_name_start = pd.Series(epoch_stims['name'].values,
-                             pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='left'))
-    s_name_end = pd.Series(epoch_stims['name'].values,
-                           pd.IntervalIndex.from_arrays(epoch_stims['start'], epoch_stims['end'], closed='right'))
-
-    # add helper columns using the interval index lookups
-    temp_epochs['cat'] = temp_epochs['start'].map(s_cat_start)
-    temp_epochs['cat_end'] = temp_epochs['end'].map(s_cat_end)
-    temp_epochs['stim'] = temp_epochs['start'].map(s_name_start)
-    temp_epochs['stim_end'] = temp_epochs['end'].map(s_name_end)
-
-    # only want epochs that fall within a stim epoch, so drop the ones that don't
-    drop_mask = temp_epochs['cat'] != temp_epochs['cat_end']
-    trial_mask = temp_epochs['name'] == 'TRIAL'  # also dorp this
-    temp_epochs = temp_epochs.loc[~drop_mask & ~trial_mask, ['name', 'start', 'end', 'cat', 'stim']]
-
-    temp_epochs['cat'] = temp_epochs['cat'].astype(int)  # cast back to int to make into index
-
-    # build another helper series, to map in times to subtract from start/end
-    work_mask = temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True)
-    s_starts = pd.Series(temp_epochs.loc[work_mask, 'start'].values, temp_epochs.loc[work_mask, 'cat'].values)
-
-    temp_epochs['start'] -= temp_epochs['cat'].map(s_starts)
-    temp_epochs['end'] -= temp_epochs['cat'].map(s_starts)
-    temp_epochs = temp_epochs.round(d)
-
-    expected_max = temp_epochs.loc[temp_epochs['name'].str.contains(pat=epoch_regex, na=False, regex=True),'end'].max()
-
-    concat = []
-
-    offset = 0
-    new_epoch_names=[]
-    for name, group in temp_epochs.groupby('stim'):
-        # build a list of epoch names where all the values are equal
-        m_equal =(group.groupby('name').agg({
-            'start': lambda x: len(set(x)) == 1,
-            'end': lambda x: len(set(x)) == 1,
-        }).all(axis=1)
-           )
-        m_equal = list(m_equal.index[m_equal].values)
-        m_equal.extend([name,'REFERENCE','PreStimSilence','PostStimSilence'])
-
-        # find the epoch names that are common to every group
-        s = set()
-        for idx, (cat_name, cat_group) in enumerate(group.groupby('cat')):
-            if idx == 0:
-                s.update(cat_group['name'])
-            else:
-                s.intersection_update(cat_group['name'])
-
-        # drop where values across names aren't equal, or where a group is missing an epoch
-        keep_mask = (group['name'].isin(m_equal)) & (group['name'].isin(s))
-
-        g = group[keep_mask].drop(['cat', 'stim'], axis=1).drop_duplicates()
-        max_end = g['end'].max()
-        g[['start', 'end']] += offset
-
-        #if max_end>=expected_max:
-        concat.append(g)
-        offset += max_end
-        new_epoch_names.append(name)
-        #else:
-        #    log.info(f"dropping epoch {name} because it's too short")
-
-        if np.isnan(offset):
-            log.info('nan offset')
-
-    new_epochs = pd.concat(concat).sort_values(['start', 'end', 'name']).reset_index(drop=True)
-    epoch_names=new_epoch_names
-
-    # make name the temp_epochs index for quick start/end lookup in loop below
-    temp_epochs = (temp_epochs[['name', 'start', 'end']]
-                   .drop_duplicates()
-                   .set_index('name')
-                   .assign(dur=lambda x: (x['end'] - x['start']).astype(float))
-                   .drop(['start', 'end'], axis='columns')
-                   )
-
-    averaged_signals = {}
-    for signal_name, signal in recording.signals.items():
-        # TODO: this may be better done as a method in signal subclasses since
-        # some subclasses may have more efficient approaches (e.g.,
-        # TiledSignal)
-
-        # Extract all occurances of each epoch, returning a dict where keys are
-        # stimuli and each value in the dictionary is (reps X cell X bins)
-        #print(signal_name)
-        epoch_data = signal.rasterize().extract_epochs(epoch_names)
-
-        fs = signal.fs
-        # Average over all occurrences of each epoch
-        data = []
-        for epoch_name in epoch_names:
-            epoch = epoch_data[epoch_name]
-
-            # TODO: fix empty matrix error. do epochs align properly?
-            if epoch.dtype == bool:
-                epoch = epoch[0,...]
-            elif np.sum(np.isfinite(epoch)):
-                epoch = np.nanmean(epoch, axis=0)
-            else:
-                epoch = epoch[0,...]
-
-            elen = int(round(np.min(temp_epochs.loc[epoch_name, 'dur'] * fs)))
-
-            if epoch.shape[-1] > elen:
-                #log.info('truncating epoch_data for epoch %s', epoch_name)
-                #epoch = epoch[..., :elen]
-                log.info('NOT truncating epoch_data for epoch %s', epoch_name)
-                log.info(f"{epoch}")
-            elif epoch.shape[-1]<elen:
-                pad = np.zeros((epoch.shape[0], elen-epoch.shape[1])) * np.nan
-                epoch = np.concatenate((epoch, pad), axis=1)
-                log.info('padding epoch_data for epoch %s with nan', epoch_name)
-
-            data.append(epoch)
-
-        data = np.concatenate(data, axis=-1)
-        if data.shape[-1] != round(signal.fs * offset):
-            raise ValueError('Misalignment issue in averaging signal')
-
-        averaged_signal = signal._modified_copy(data, epochs=new_epochs)
-        averaged_signals[signal_name] = averaged_signal
-
-    averaged_recording = Recording(averaged_signals,
-                                   meta=recording.meta,
-                                   name=recording.name)
-    return averaged_recording
-
+    return recording.average_away_epoch_occurrences(epoch_regex=epoch_regex, use_mask=use_mask)
+# [AGENT EDIT END]

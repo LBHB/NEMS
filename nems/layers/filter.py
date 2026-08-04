@@ -677,13 +677,54 @@ class STRF(FiniteImpulseResponse):
         return np.moveaxis(w @ f, 0, 2)
 
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: replace decimation with windowed averaging for the strided skip connection, so the skip term isn't blind to the samples the main path's own stride decimation discards | date: 2026-08-04]
+    def _pool_skip_time(self, input):
+        """Block-average `input` over the time axis (axis 0) in non-overlapping
+        windows of length `self.stride`, for use as the skip-connection term
+        when the main FIR path has been time-strided.
+
+        Block i covers input[i*stride : (i+1)*stride) for i = 0 .. L-2, where
+        L = ceil(T/stride). The final block is truncated to whatever samples
+        remain when T % stride != 0, averaged over only those valid samples
+        (not diluted by zero-padding). Keeps the same reference sample
+        (index i*stride) that the old `input[::self.stride]` decimation kept,
+        as the first element of each block, so truncation only ever happens
+        at the end -- matching how the FIR conv's own stride-decimation only
+        truncates at the end. Output length is always ceil(T/stride), matching
+        `_apply_fir`'s stride-decimated output length exactly.
+        """
+        stride = self.stride
+        T = input.shape[0]
+        n_full = T // stride
+        full_part = input[:n_full * stride].reshape(
+            n_full, stride, *input.shape[1:]
+            ).mean(axis=1)
+        remainder = T - n_full * stride
+        if remainder == 0:
+            return full_part
+        last_part = input[n_full * stride:].mean(axis=0, keepdims=True)
+        return np.concatenate([full_part, last_part], axis=0)
+
     def _apply_skip(self, output, input, alpha):
         """Add scaled input to output, broadcasting across the channel axis."""
-        if input.shape[-1] < output.shape[-1]:
-            output[:, :input.shape[-1]] += input * alpha
+        # NOTE: if fshape[0] <= 1 (see `evaluate`'s `output = weighted + self.shift`
+        # branch), `output` is never time-strided, but this still applies
+        # [::self.stride] to `input` -- causes a shape mismatch for stride > 1.
+        # Same issue exists in the TF path (STRFTF.call's apply_skip).
+        if self.stride > 1 and self.fshape[0] > 1:
+            # Main path was time-strided -- average each stride-window of the
+            # raw input instead of decimating, so the skip term isn't blind to
+            # the stride-1 samples the main path's own decimation discards.
+            skip_input = self._pool_skip_time(input)
         else:
-            output += input[:, :output.shape[-1]] * alpha
+            skip_input = input[::self.stride]
+
+        if input.shape[-1] < output.shape[-1]:
+            output[:, :input.shape[-1]] += skip_input * alpha
+        else:
+            output += skip_input[:, :output.shape[-1]] * alpha
         return output
+    # [AGENT EDIT END]
 
     def evaluate(self, input):
         """Apply STRF to input.
@@ -816,8 +857,10 @@ class STRF(FiniteImpulseResponse):
 
         activation  = self.activation
         skip_alpha  = self.skip_alpha
+        skip_scale  = self.alpha  # abs(skip_alpha) -- sign only selects pre/post-activation timing below, it should not flip the sign of the added term (mirrors numpy's `self.alpha` property, used the same way in `_apply_skip`)
         fir_len     = self.fshape[0]
         wcoef_ndim  = len(self.wshape)   # 2 → (C, R),  3 → (C, R, N)
+        stride = self.stride
 
         class STRFTF(NemsKerasLayer):
             def weights_to_values(self):
@@ -834,15 +877,56 @@ class STRF(FiniteImpulseResponse):
                 return vals
 
             def call(self, inputs):
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: fix stride bug in skip connection (inputs is (batch, time, channels) in TF, so [::stride] was slicing the batch axis instead of time) and replace decimation with windowed averaging so the skip term isn't blind to the samples the main path's own stride decimation discards | date: 2026-08-04]
+                def pool_skip_time(x):
+                    """Block-average `x` over axis=1 (time) in non-overlapping
+                    windows of length `stride`, mirroring `STRF._pool_skip_time`
+                    exactly (same block boundaries, truncated-not-diluted final
+                    block). Uses avg_pool1d with right-only zero-padding plus a
+                    mask-based divisor correction, rather than padding='SAME',
+                    because TF's SAME padding for pooling ops splits padding
+                    between both sides (pad_before = pad_total // 2), which
+                    would insert padding *before* index 0 for pad_total >= 2
+                    and shift every block's phase -- breaking alignment with
+                    the main conv path's own (start-at-0) stride decimation.
+                    This is branch-free (no tf.cond), so it traces identically
+                    regardless of whether T % stride == 0.
+                    """
+                    T = tf.shape(x)[1]
+                    pad_amount = (-T) % stride
+                    padded = tf.pad(x, [[0, 0], [0, pad_amount], [0, 0]])
+                    mask = tf.ones_like(x[:, :, :1])
+                    padded_mask = tf.pad(mask, [[0, 0], [0, pad_amount], [0, 0]])
+                    # avg_pool1d(padded) = sum_valid/stride per block (zero-padded
+                    # entries don't change the sum, but still dilute the divisor).
+                    diluted_mean = tf.nn.avg_pool1d(
+                        padded, ksize=stride, strides=stride, padding='VALID'
+                        )
+                    # avg_pool1d(padded_mask) = valid_count/stride per block.
+                    valid_frac = tf.nn.avg_pool1d(
+                        padded_mask, ksize=stride, strides=stride, padding='VALID'
+                        )
+                    # Dividing cancels the shared /stride, leaving sum_valid/valid_count.
+                    return diluted_mean / valid_frac
+
+                # NOTE: if fir_len <= 1 (see `out = rank_4` below), `out` is never
+                # time-strided, but this still applies [::stride] to `inputs` --
+                # same mismatch bug present in the numpy path (STRF._apply_skip).
                 def apply_skip(out):
+                    if fir_len > 1 and stride > 1:
+                        skip_inputs = pool_skip_time(inputs)
+                    else:
+                        skip_inputs = inputs[:, ::stride]
+
                     if inputs.shape[-1] < out.shape[-1]:
                         #head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
-                        head = out[:, :, :inputs.shape[-1]] + inputs * skip_alpha
+                        head = out[:, :, :inputs.shape[-1]] + skip_inputs * skip_scale
                         tail = out[:, :, inputs.shape[-1]:]
                         return tf.concat([head, tail], axis=2)
                     else:
                         #return out + inputs[:, :, :out.shape[-1]] * self.alpha
-                        return out + inputs[:, :, :out.shape[-1]] * skip_alpha
+                        return out + skip_inputs[:, :, :out.shape[-1]] * skip_scale
+                # [AGENT EDIT END]
 
                 # Channel weighting — mirrors WeightChannels.as_tensorflow_layer.
                 # Use einsum (not tensordot): Keras 3 traces einsum statically.
