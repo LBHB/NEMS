@@ -196,6 +196,127 @@ class TestEvaluate:
                     assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
     # [AGENT EDIT END]
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover FIR's newly-added skip connection support (previously STRF-only), same keywords/params/logic, added before pooling | date: 2026-08-04]
+    @pytest.mark.parametrize("stride", [1, 2, 3, 5])
+    @pytest.mark.parametrize("skip_alpha", [0.0, 0.3, 0.7, -0.3, -0.7])
+    @pytest.mark.parametrize("time", [97, 100])
+    def test_fir_skip(self, stride, skip_alpha, time):
+        spectral = 3
+        spectrogram = generate_random_input((time, spectral))
+
+        fir = FiniteImpulseResponse(shape=(5, spectral), stride=stride, skip_alpha=skip_alpha)
+        fir.set_dtype('float32')
+
+        out = fir.evaluate(spectrogram)
+        expected_time = int(np.ceil(time / stride))
+        assert out.shape == (expected_time, 1)
+
+        numpy_out, tf_out = compare_layer_eval(fir, spectrogram)
+        assert numpy_out.shape == tf_out.shape[1:]
+        assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+
+    def test_fir_skip_changes_output(self):
+        """A nonzero skip_alpha should produce different output than skip_alpha=0,
+        and positive/negative skip_alpha should be equivalent (FIR has no
+        activation yet, so the "before/after activation" sign distinction is
+        currently a no-op)."""
+        spectrogram = generate_random_input((30, 4))
+        coefficients = np.random.randn(5, 4) * 0.01
+
+        fir_noskip = FiniteImpulseResponse(shape=(5, 4))
+        fir_noskip['coefficients'] = coefficients
+        out_noskip = fir_noskip.evaluate(spectrogram)
+
+        fir_pos = FiniteImpulseResponse(shape=(5, 4), skip_alpha=0.5)
+        fir_pos['coefficients'] = coefficients
+        out_pos = fir_pos.evaluate(spectrogram)
+        assert not np.allclose(out_pos, out_noskip)
+
+        fir_neg = FiniteImpulseResponse(shape=(5, 4), skip_alpha=-0.5)
+        fir_neg['coefficients'] = coefficients
+        out_neg = fir_neg.evaluate(spectrogram)
+        assert np.allclose(out_pos, out_neg)
+
+    def test_fir_skip_with_upstream_rank_axis(self):
+        """Regression test: when a FIR-with-skip layer's raw input comes
+        directly from an upstream layer that retains an explicit (e.g.
+        singleton) rank axis -- like WeightChannels with shape (C, R, N) --
+        `_apply_skip`/`_define_tf_skip` used to crash with a broadcast
+        error, since `output` is always 2D/(batch,T,N) (the FIR conv
+        collapses rank away) but raw `input` stayed 3D/(batch,T,R,N)."""
+        from nems import Model
+
+        N = 6
+        model = Model.from_keywords(f'wc.{N}x1x8-fir.5x1x8.s2.sk.l2:4')
+        model.set_dtype('float32')
+        model = model.sample_from_priors()
+
+        wc_out = model.layers[0].evaluate(generate_random_input((1, N)))
+        assert wc_out.ndim == 3  # confirms the retained singleton rank axis
+
+        spectrogram = generate_random_input((50, N))
+        out = model.evaluate(spectrogram)
+        assert out['output'].shape == (25, 8)
+
+        numpy_out, tf_out = compare_layer_eval(model.layers[1], model.layers[0].evaluate(spectrogram))
+        assert numpy_out.shape == tf_out.shape[1:]
+        assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+
+    def test_fir_skip_multirank_input_sums_across_rank(self):
+        """A raw skip input with rank > 1 should be summed across the rank
+        axis before adding, mirroring how the FIR convolution itself
+        collapses rank via a weighted sum."""
+        fir = FiniteImpulseResponse(shape=(3, 2, 4), skip_alpha=0.5)
+        fir.parameters.sample(inplace=True)
+        multirank_input = generate_random_input((10, 2, 4))  # rank=2
+        out = fir.evaluate(multirank_input)
+
+        conv_only = fir._apply_fir(multirank_input)
+        expected_skip_term = multirank_input.sum(axis=1) * fir.alpha
+        assert np.allclose(out, conv_only + expected_skip_term)
+
+    def test_fir_skip_multirank_upstream_wc(self):
+        """End-to-end: wc.Nx2x30-fir.10x2x30.sk (rank=2), numpy-vs-TF."""
+        from nems import Model
+
+        N = 6
+        model = Model.from_keywords(f'wc.{N}x2x8-fir.5x2x8.sk.l2:4')
+        model.set_dtype('float32')
+        model = model.sample_from_priors()
+
+        wc_out = model.layers[0].evaluate(generate_random_input((1, N)))
+        assert wc_out.shape[1] == 2  # confirms the genuine rank=2 axis
+
+        spectrogram = generate_random_input((50, N))
+        out = model.evaluate(spectrogram)
+        assert out['output'].shape == (50, 8)
+
+        numpy_out, tf_out = compare_layer_eval(model.layers[1], model.layers[0].evaluate(spectrogram))
+        assert numpy_out.shape == tf_out.shape[1:]
+        assert np.mean((numpy_out.flatten() - tf_out.flatten()) ** 2) < 1e-4
+
+    def test_fir_skip_keyword(self):
+        fir = FiniteImpulseResponse.from_keyword('fir.5x4.sk')
+        assert fir.skip_alpha == 0.1
+        fir = FiniteImpulseResponse.from_keyword('fir.5x4.skl')
+        assert fir.skip_alpha == -0.1
+        fir = FiniteImpulseResponse.from_keyword('fir.5x4.sk25')
+        assert fir.skip_alpha == 0.25
+        fir = FiniteImpulseResponse.from_keyword('fir.5x4.skl25')
+        assert fir.skip_alpha == -0.25
+        fir = FiniteImpulseResponse.from_keyword('fir.5x4.s3.dec.sk')
+        assert fir.stride == 3
+        assert fir.pool_mode == 'decimate'
+        assert fir.skip_alpha == 0.1
+
+    def test_strf_skip_keyword_skl_n(self):
+        """Regression test: STRF.from_keyword's 'skl{N}' parsing used to
+        slice at the wrong index ('skl' is 3 chars, not 2), so e.g. 'skl25'
+        raised ValueError instead of setting skip_alpha=-0.25."""
+        strf = STRF.from_keyword('strf.4x1x5x2.skl25')
+        assert strf.skip_alpha == -0.25
+    # [AGENT EDIT END]
+
     # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: cover 2-dim STRF's newly-added shift/skip/activation support (previously silently ignored for the wshape=None / pure-FIR case) | date: 2026-08-04]
     @pytest.mark.parametrize("activation", [None, 'relu'])
     @pytest.mark.parametrize("skip_alpha", [0.0, 0.5, -0.5])

@@ -21,7 +21,8 @@ class FiniteImpulseResponse(Layer):
     # [AGENT EDIT END]
 
     def __init__(self, stride=1, include_anticausal=False, fshape=None,
-                 pool_mode='mean', **kwargs):
+                 pool_mode='mean', skip_alpha=0, skip_layer=None, activation=None,
+                 **kwargs):
         """Convolve linear filter(s) with input.
 
         Parameters
@@ -39,7 +40,8 @@ class FiniteImpulseResponse(Layer):
         stride : int
             If > 1, downsample the output in time by this factor (see
             `pool_mode`). The full-resolution convolution is always computed
-            first; downsampling is applied as the last step.
+            first; downsampling is applied as the last step (after any skip
+            connection has already been added in).
         pool_mode : str
             How to downsample when `stride > 1`:
             'mean' (default) : average each non-overlapping block of
@@ -47,6 +49,20 @@ class FiniteImpulseResponse(Layer):
                 averaged over just the samples it has).
             'decimate' : keep only every `stride`-th sample, discarding the
                 rest (the old default; cheaper, but throws away information).
+        skip_alpha : float
+            If != 0, a scaled copy of the input is added to the output
+            (before pooling). Sign has no effect on FIR today (FIR has no
+            activation of its own), but is kept for consistency with STRF:
+            negative adds the skip before an activation step, positive
+            after, so the option is already in place if an activation is
+            added to FIR later.
+        skip_layer : bool or None
+            Convenience flag — True sets skip_alpha=1, False sets it to 0.
+        activation : str or None
+            Not currently used by FIR itself (no activation is applied) --
+            accepted and stored purely so `skip_alpha`'s sign already has a
+            real activation attribute to key off of if one is added later
+            (mirrors STRF, which does use this).
 
         See also
         --------
@@ -84,6 +100,12 @@ class FiniteImpulseResponse(Layer):
                 f"pool_mode={pool_mode!r} not recognized; must be one of {self.POOL_MODES}"
                 )
         self.pool_mode = pool_mode
+        # [AGENT EDIT END]
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: add skip-connection support to FIR (previously STRF-only), same keywords/logic. `activation` is a hook for a not-yet-implemented FIR activation -- accepted as a real kwarg (not just an instance attribute) so JSON save/load round-trips correctly, same as skip_alpha/pool_mode/stride | date: 2026-08-04]
+        if skip_layer is not None:
+            skip_alpha = 1 if skip_layer else 0
+        self.skip_alpha = skip_alpha
+        self.activation = activation
         # [AGENT EDIT END]
         if not hasattr(self, 'fshape') or self.fshape is None:
             self.fshape = fshape if fshape is not None else kwargs['shape']
@@ -139,9 +161,56 @@ class FiniteImpulseResponse(Layer):
         """
         return self.parameters['coefficients'].values
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: skip-connection support shared between FIR and STRF (STRF inherits these unchanged) | date: 2026-08-04]
+    @property
+    def alpha(self):
+        """Skip-connection scale factor."""
+        return np.abs(self.skip_alpha)
+
+    def _apply_skip(self, output, input, alpha):
+        """Add scaled input to output, broadcasting across the channel axis.
+
+        `output` is always 2D (T, N) -- the FIR convolution's einsum always
+        sums/collapses over the rank axis. But `input` (the layer's raw,
+        unconvolved input) can still be 3D (T, R, N) if it came directly
+        from an upstream layer that keeps an explicit rank axis, such as
+        WeightChannels with shape (C, R, N). Sum over any such middle
+        (rank) axes -- mirroring how the FIR convolution itself collapses
+        rank via a weighted sum -- so `input`'s shape matches `output`'s 2D
+        convention before adding. For R=1 this is equivalent to a squeeze.
+        """
+        if input.ndim > output.ndim:
+            input = input.sum(axis=tuple(range(1, input.ndim - 1)))
+
+        if input.shape[-1] < output.shape[-1]:
+            output[:, :input.shape[-1]] += input * alpha
+        else:
+            output += input[:, :output.shape[-1]] * alpha
+        return output
+    # [AGENT EDIT END]
+
     def evaluate(self, input):
-        """Convolve `FIR.coefficients` with input, then pool/downsample by `stride`."""
+        """Convolve `FIR.coefficients` with input, optionally add a skip
+        connection, then pool/downsample by `stride`.
+
+        `skip_alpha`'s sign selects whether the skip is added before or
+        after an activation step -- FIR has no activation of its own yet,
+        so both branches are currently equivalent, but this mirrors STRF's
+        evaluate() so the door is open for one to be added later.
+        """
         output = self._apply_fir(input)
+
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: add skip connection to FIR (previously STRF-only), added before pooling so it works the same way STRF's does | date: 2026-08-04]
+        if self.skip_alpha < 0:
+            output = self._apply_skip(output, input, self.alpha)
+
+        if self.activation == 'relu':
+            output[output < 0] = 0
+
+        if self.skip_alpha > 0:
+            output = self._apply_skip(output, input, self.alpha)
+        # [AGENT EDIT END]
+
         # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: move striding to the last step of the processing cascade (was applied inside _apply_fir itself); lets STRF add shift/skip/activation at full resolution and pool once at the very end | date: 2026-08-04]
         if self.stride > 1:
             output = self._pool_time(output)
@@ -291,6 +360,10 @@ class FiniteImpulseResponse(Layer):
             (time, input channels a.k.a. rank, ..., output channels).
         p{N}z{M}fs{F} : Use PoleZeroFIR with N poles, M zeros, and
             sample rate F (e.g. 'p2z3fs100').
+        sk : Skip connection with alpha=0.5.
+        skl : Skip connection with alpha=-0.5.
+        sk{N} : Skip connection with alpha=N/100.
+        skl{N} : Skip connection with alpha=-N/100.
         s{N} : Temporal stride of N bins.
         dec : Use 'decimate' pool_mode (subsample) instead of the default
             'mean' pooling when stride > 1.
@@ -315,6 +388,16 @@ class FiniteImpulseResponse(Layer):
                 kwargs['n_poles'] = int(op[1:zeros_idx])
                 kwargs['n_zeros'] = int(op[zeros_idx+1:fs_idx])
                 kwargs['fs'] = int(op[fs_idx+2:])
+            elif op == 'skl':
+                kwargs['skip_alpha'] = -0.1
+            elif op == 'sk':
+                kwargs['skip_alpha'] = 0.1
+            elif op.startswith('skl'):
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: fix pre-existing bug -- 'skl' is 3 chars, so the numeric suffix starts at index 3, not 2 | date: 2026-08-04]
+                kwargs['skip_alpha'] = -int(op[3:]) / 100
+                # [AGENT EDIT END]
+            elif op.startswith('sk'):
+                kwargs['skip_alpha'] = int(op[2:]) / 100
             elif op == 'dec':
                 kwargs['pool_mode'] = 'decimate'
             elif op.startswith('s'):
@@ -372,6 +455,11 @@ class FiniteImpulseResponse(Layer):
         # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: move striding to the last step of the processing cascade, using the shared mean/decimate pooling helper instead of a strided conv | date: 2026-08-04]
         pool = self._define_tf_pooling(tf)
         # [AGENT EDIT END]
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: add skip connection to FIR's TF path (previously STRF-only), same structure as the numpy side | date: 2026-08-04]
+        apply_skip = self._define_tf_skip(tf)
+        skip_alpha = self.skip_alpha
+        activation = self.activation
+        # [AGENT EDIT END]
 
         #@register_keras_serializable(package="Custom")
         class FiniteImpulseResponseTF(NemsKerasLayer):
@@ -383,6 +471,9 @@ class FiniteImpulseResponse(Layer):
                 return {'coefficients': unshaped}
 
             def call(self, inputs):
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: keep the raw (unbroadcast) input around for the skip connection, mirroring the numpy path's use of the original `input` argument | date: 2026-08-04]
+                raw_inputs = inputs
+                # [AGENT EDIT END]
                 # This will add an extra dim if there is no output dimension.
                 input_width = tf.shape(inputs)[1] # tf.shape(inputs)[1] or inputs.shape[1]
                 # Broadcast output shape if needed.
@@ -393,7 +484,18 @@ class FiniteImpulseResponse(Layer):
                 #coefficients = broadcast_coefficients(self.coefficients)
                 # Make None shape explicit
                 rank_4 = tf.reshape(inputs, [-1, input_width, rank, n_outputs])
-                return pool(convolve(rank_4, coefficients))
+                out = convolve(rank_4, coefficients)
+
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: add skip connection to FIR's TF path (previously STRF-only), added before pooling so it works the same way STRF's does | date: 2026-08-04]
+                if skip_alpha < 0:
+                    out = apply_skip(out, raw_inputs)
+                if activation == 'relu':
+                    out = tf.nn.relu(out)
+                if skip_alpha > 0:
+                    out = apply_skip(out, raw_inputs)
+                # [AGENT EDIT END]
+
+                return pool(out)
 
         return FiniteImpulseResponseTF(self, new_values=new_values, **kwargs)
 
@@ -623,6 +725,44 @@ class FiniteImpulseResponse(Layer):
         return pool
     # [AGENT EDIT END]
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: shared TF-side skip-connection helper for FIR/STRF, mirroring _apply_skip (numpy) | date: 2026-08-04]
+    def _define_tf_skip(self, tf):
+        """Internal for `as_tensorflow_layer`.
+
+        Builds an `apply_skip(out, raw_inputs)` function that adds a scaled
+        copy of `raw_inputs` to `out`, broadcasting across the channel axis
+        -- mirrors `_apply_skip` (numpy). `raw_inputs` must be the original,
+        unbroadcast layer input (before any reshaping done for convolution).
+
+        Returns
+        -------
+        apply_skip : function
+        """
+        skip_scale = self.alpha
+
+        def apply_skip(out, raw_inputs):
+            # `out` is always (batch, T, N). But `raw_inputs` (the layer's
+            # raw, unconvolved input) can still be (batch, T, R, N) if it
+            # came directly from an upstream layer that keeps an explicit
+            # rank axis, such as WeightChannels with shape (C, R, N). Sum
+            # over any such middle (rank) axes -- mirroring how the FIR
+            # convolution itself collapses rank via a weighted sum -- so
+            # its shape matches `out`'s convention before adding (mirrors
+            # `_apply_skip`, numpy). For R=1 this is equivalent to a squeeze.
+            if len(raw_inputs.shape) > len(out.shape):
+                sum_axes = list(range(2, len(raw_inputs.shape) - 1))
+                raw_inputs = tf.reduce_sum(raw_inputs, axis=sum_axes)
+
+            if raw_inputs.shape[-1] < out.shape[-1]:
+                head = out[:, :, :raw_inputs.shape[-1]] + raw_inputs * skip_scale
+                tail = out[:, :, raw_inputs.shape[-1]:]
+                return tf.concat([head, tail], axis=2)
+            else:
+                return out + raw_inputs[:, :, :out.shape[-1]] * skip_scale
+
+        return apply_skip
+    # [AGENT EDIT END]
+
 # Alias
 class FIR(FiniteImpulseResponse):
     pass
@@ -692,13 +832,11 @@ class STRF(FiniteImpulseResponse):
             self.fshape = (shape[2], shape[1], shape[3])
             self.nout = (1, shape[3])
 
-        self.activation = activation
-        if skip_layer is not None:
-            skip_alpha = 1 if skip_layer else 0
-        self.skip_alpha = skip_alpha
-
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: activation/skip_alpha/skip_layer resolution and assignment now live in FiniteImpulseResponse.__init__ (shared with FIR's own skip support); just forward them through | date: 2026-08-04]
         super().__init__(stride=stride, include_anticausal=include_anticausal,
-                         pool_mode=pool_mode, **kwargs)
+                         pool_mode=pool_mode, skip_alpha=skip_alpha, skip_layer=skip_layer,
+                         activation=activation, **kwargs)
+        # [AGENT EDIT END]
 
 
     def initial_parameters(self):
@@ -802,11 +940,8 @@ class STRF(FiniteImpulseResponse):
         """Per-output DC shift added after convolution."""
         return self.parameters['shift'].values
 
-    @property
-    def alpha(self):
-        """Skip-connection scale factor."""
-        #return self.parameters['alpha'].values
-        return np.abs(self.skip_alpha)
+    # `alpha` (skip-connection scale factor) is inherited from
+    # FiniteImpulseResponse unchanged.
 
     @property
     def strf(self):
@@ -824,14 +959,9 @@ class STRF(FiniteImpulseResponse):
         return np.moveaxis(w @ f, 0, 2)
 
 
-    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: striding/pooling moved to the last step of evaluate() (see below), so the skip connection now always operates at full time resolution -- no stride-aware pooling needed here anymore | date: 2026-08-04]
-    def _apply_skip(self, output, input, alpha):
-        """Add scaled input to output, broadcasting across the channel axis."""
-        if input.shape[-1] < output.shape[-1]:
-            output[:, :input.shape[-1]] += input * alpha
-        else:
-            output += input[:, :output.shape[-1]] * alpha
-        return output
+    # `_apply_skip` is inherited from FiniteImpulseResponse unchanged --
+    # striding/pooling is the last step of evaluate() (see below), so the
+    # skip connection always operates at full time resolution here.
 
     def evaluate(self, input):
         """Apply STRF to input.
@@ -934,7 +1064,9 @@ class STRF(FiniteImpulseResponse):
             elif op == 'sk':
                 kwargs['skip_alpha'] = 0.1
             elif op.startswith('skl'):
-                kwargs['skip_alpha'] = -int(op[2:]) / 100
+                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: fix pre-existing bug -- 'skl' is 3 chars, so the numeric suffix starts at index 3, not 2 | date: 2026-08-04]
+                kwargs['skip_alpha'] = -int(op[3:]) / 100
+                # [AGENT EDIT END]
             elif op.startswith('sk'):
                 kwargs['skip_alpha'] = int(op[2:]) / 100
             elif op == 'dec':
@@ -990,10 +1122,10 @@ class STRF(FiniteImpulseResponse):
         )
         convolve = self._define_tf_convolution(tf, filter_width, rank, n_outputs)
         pool = self._define_tf_pooling(tf)
+        apply_skip = self._define_tf_skip(tf)
 
         activation  = self.activation
         skip_alpha  = self.skip_alpha
-        skip_scale  = self.alpha  # abs(skip_alpha) -- sign only selects pre/post-activation timing below, it should not flip the sign of the added term (mirrors numpy's `self.alpha` property, used the same way in `_apply_skip`)
         fir_len     = self.fshape[0]
         wcoef_ndim  = len(self.wshape) if not wshape_is_none else None   # 2 → (C, R),  3 → (C, R, N)
 
@@ -1014,17 +1146,10 @@ class STRF(FiniteImpulseResponse):
                 # [AGENT EDIT END]
 
             def call(self, inputs):
-                # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: pooling moved to the last step of call() (see below), so skip now always operates at full time resolution -- no stride-aware pooling needed here anymore | date: 2026-08-04]
-                def apply_skip(out):
-                    if inputs.shape[-1] < out.shape[-1]:
-                        #head = out[:, :, :inputs.shape[-1]] + inputs * self.alpha
-                        head = out[:, :, :inputs.shape[-1]] + inputs * skip_scale
-                        tail = out[:, :, inputs.shape[-1]:]
-                        return tf.concat([head, tail], axis=2)
-                    else:
-                        #return out + inputs[:, :, :out.shape[-1]] * self.alpha
-                        return out + inputs[:, :, :out.shape[-1]] * skip_scale
-                # [AGENT EDIT END]
+                # `apply_skip` (built via `self._define_tf_skip`, shared with
+                # FIR) is called below as `apply_skip(out, inputs)` -- STRF's
+                # `inputs` here is never reassigned, so it's already the raw
+                # input `apply_skip` expects.
 
                 # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: build rank_4/out for the 2-dim (wshape_is_none) case, mirroring FiniteImpulseResponse.as_tensorflow_layer's own broadcast+reshape exactly, so shift/skip/activation below apply the same way they do for the 3-/4-dim case | date: 2026-08-04]
                 if wshape_is_none:
@@ -1060,11 +1185,11 @@ class STRF(FiniteImpulseResponse):
                 out = out + self.shift
 
                 if skip_alpha < 0:
-                    out = apply_skip(out)
+                    out = apply_skip(out, inputs)
                 if activation == 'relu':
                     out = tf.nn.relu(out)
                 if skip_alpha > 0:
-                    out = apply_skip(out)
+                    out = apply_skip(out, inputs)
 
                 return pool(out)
 
