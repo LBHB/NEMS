@@ -958,6 +958,8 @@ def plot_dpcs(modelspec=None, out_channels=None, cell_list=None,
         out_channels = list(out_channels)
     if (rec is not None) & (stride is None):
         stride = int(rec['stim'].fs/rec['resp'].fs)
+    elif stride is None:
+        stride = 1
 
     dpc = modelspec.meta['dpc']
     dpc_mag = modelspec.meta['dpc_mag'] ** 2

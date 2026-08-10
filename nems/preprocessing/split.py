@@ -336,6 +336,7 @@ class JackknifeIterator:
                 mlist.append(model.copy(name=n))
         fit_list = []
         for i, (m, dataset) in enumerate(zip(mlist, self)):
+            log.info(f"Fitting Jackknife {i+1}/{len(mlist)}")
             fit_list.append(m.fit(dataset.inputs, dataset.targets, **kwargs))
 
         self.fit_list = fit_list
