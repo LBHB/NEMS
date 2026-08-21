@@ -1199,6 +1199,57 @@ class SignalBase:
                 ax.set_ylabel('Trial')
             ax.set_title(f"{self.name} chan {c}")
 
+    # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: move compute_snr from recording.Recording to signal.SignalBase, using self instead of assuming the 'resp' signal | date: 2026-08-04]
+    def compute_snr(self, snrthr=0.3, permute=False, minreps=2, mask=None, verbose=True):
+        """
+        Estimate per-channel signal-to-noise ratio of this signal from repeated
+        presentations of stimuli matching epochs "^STIM". SNR is normalized so
+        that a completely random (noise-only) response has snr=0 regardless of
+        the number of reps used (minreps).
+
+        :param snrthr: {float} threshold used only for the verbose plot/title
+        :param permute: {bool} if True, shuffle response values before computing
+            snr, to establish a null/noise baseline
+        :param minreps: {int} minimum number of repeats required for an epoch
+            to be included
+        :param verbose: {bool} if True, plot snr per channel
+        :return: {np.array} snr, one value per channel of this signal
+        """
+        val_epochs = self.epoch_names_matching("^STIM", minreps=minreps, mask=mask)
+        rall = self.rasterize().extract_epochs(val_epochs)
+        minreps = np.min([v.shape[0] for k, v in rall.items()])
+        rall = np.concatenate([v[:minreps] for k, v in rall.items()], axis=2)
+        if permute:
+            s = rall.shape
+            x = np.random.permutation(rall.flatten())
+            rall = np.reshape(x, s)
+
+        sig = rall.mean(axis=0, keepdims=True)
+        noise = rall - sig
+        S = sig.std(axis=2).mean(axis=0)
+        N = noise.std(axis=2).mean(axis=0)
+        N[N == 0] = 1
+
+        # raw snr depends on number of reps
+        # normalize so that completely random snr=0
+        # regardless of rep count (aka minreps)
+        scaleby = (minreps - 1) ** 0.5
+
+        snr = (S / N) * scaleby - 1
+
+        if verbose:
+            import matplotlib.pyplot as plt
+
+            plt.figure(figsize=(4, 2))
+            plt.plot(snr, lw=0.5)
+
+            plt.axhline(snrthr, linestyle='--', color='r', lw=0.5)
+            keep_chans = [c for i, c in enumerate(self.chans) if snr[i] > snrthr]
+            plt.title(f"n={len(keep_chans)}/{len(snr)} SNR>{snrthr} (minreps={minreps})")
+
+        return snr
+    # [AGENT EDIT END]
+
 
 class RasterizedSignal(SignalBase):
 

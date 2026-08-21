@@ -166,6 +166,16 @@ class JackknifeIterator:
         """
         self.max_index = data.shape[self.axis]
         n = self.samples
+        # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: Requesting more folds than available samples along the split axis (e.g. jk8 on a site with only 4 est-set REFERENCE epochs) left the trailing folds' mask empty (np.array_split's own documented behavior). An empty fold's target array is zero-size, and np.shares_memory(x, x) is False for any zero-size array regardless of ndim -- a numpy quirk, not a real aliasing bug -- which trips the allow_copies=False assertion in DataSet.initialize_data (nems/models/dataset.py:154) via nems/tools/arrays.py's apply_to_dict. Clamp samples to max_index so no fold is ever requested-but-empty. | date: 2026-08-21]
+        if n > self.max_index:
+            log.warning(f"JackknifeIterator: requested samples={n} exceeds "
+                        f"available data length={self.max_index} along axis "
+                        f"{self.axis}; clamping to {self.max_index} so no "
+                        f"fold ends up empty.")
+            n = self.max_index
+            self.samples = n
+            self.max_iter = n
+        # [AGENT EDIT END]
         # [AGENT EDIT START | agent: claude | user: wingertj | reason: Stratified + mode-aware split. When self.stratify labels are supplied, each label group is split into n folds independently using the resolved mode and concatenated (balanced active/passive). Otherwise splits the full index range with the resolved mode (interleaved for epoch-batched input by default). | date: 2026-04-19]
         mode = self._resolve_mode()
         if self.stratify is not None:
@@ -240,20 +250,22 @@ class JackknifeIterator:
 
         # [AGENT EDIT START | agent: claude | user: wingertj | reason: For windowed (3D) data, predict each window independently instead of flattening. Flattening caused FIR to span window boundaries, contaminating the first ~firlen bins of every window with data from an unrelated prior window — especially bad for interleaved/stratified folds where adjacent windows in the flattened stream are temporally disjoint. Per-window prediction mirrors fit-time batching. The pad_bins kwarg lets the caller strip leading FIR warm-up bins from each window's prediction so the stitched flat output matches the un-padded WINDOW epoch mask. | date: 2026-04-27]
         k0 = list(self.dataset.inputs.keys())[0]
+        t0 = list(self.dataset.targets.keys())[0]
         is_windowed = self.dataset.inputs[k0].ndim >= 3
         window_size = self.dataset.inputs[k0].shape[1] if is_windowed else None
+        window_size_out = self.dataset.targets[t0].shape[1] if is_windowed else None
         if is_windowed and pad_bins:
-            if pad_bins >= window_size:
+            if pad_bins >= window_size_out:
                 raise ValueError(
-                    f"pad_bins={pad_bins} >= window_size={window_size}; "
+                    f"pad_bins={pad_bins} >= window_size_out={window_size_out}; "
                     f"nothing left after stripping warm-up bins")
-            window_size_out = window_size - int(pad_bins)
+            window_size_out = window_size_out - int(pad_bins)
         else:
-            window_size_out = window_size
+            window_size_out = window_size_out
 
         if is_windowed:
             log.info(f"get_predicted_jackknifes: windowed mode, "
-                     f"n_folds={self.samples}, window_size={window_size}, "
+                     f"n_folds={self.samples}, "
                      f"pad_bins={pad_bins}, window_size_out={window_size_out}")
 
         # Predict each fold. In 3D mode we keep results as a list of (WS_out, C_out)
@@ -336,6 +348,7 @@ class JackknifeIterator:
                 mlist.append(model.copy(name=n))
         fit_list = []
         for i, (m, dataset) in enumerate(zip(mlist, self)):
+            log.info(f"Fitting Jackknife {i+1}/{len(mlist)}")
             fit_list.append(m.fit(dataset.inputs, dataset.targets, **kwargs))
 
         self.fit_list = fit_list
