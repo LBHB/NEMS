@@ -13,10 +13,14 @@ log = logging.getLogger(__name__)
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
-from nems.visualization import plot_model, plot_model_outputs, plot_model_list
+# nems.visualization is imported lazily inside the plot methods below: it
+# pulls in nems.preprocessing, which imports back into nems.models, so a
+# module-level import here is a circular import whenever nems.models is
+# loaded before nems.visualization (e.g. `from nems.visualization import ...`
+# as the first nems import, when nems/__init__.py hasn't run).
 from nems.tools.lookup import lookup_fn_at
 from nems.tools.arrays import one_or_more_nan
-from nems.models.dataset import DataSet
+from nems.tools.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
 del nems.layers
@@ -457,7 +461,7 @@ class Model:
         See also
         --------
         nems.layers.base.Layer._evaluate
-        nems.models.dataset.DataSet
+        nems.tools.dataset.DataSet
         Model.generate_layer_data
 
         Warnings
@@ -1707,6 +1711,7 @@ class Model:
 
         By default, the result of each `Layer.evaluate` will be shown.
         """
+        from nems.visualization import plot_model
         return plot_model(self, input, target, **kwargs)
 
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
@@ -2135,6 +2140,7 @@ class Model_List:
         -------
         Figure
         """
+        from nems.visualization import plot_model_list
         return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full, correlation=correlation)
 
 

@@ -4,7 +4,7 @@ import logging
 import numpy as np
 
 from nems.visualization.metrics import jackknife_est_error
-from nems.models.dataset import DataSet
+from nems.tools.dataset import DataSet
 
 log = logging.getLogger(__name__)
 

@@ -11,7 +11,6 @@ from nems.layers import (
     WeightChannels, WeightChannelsGaussian, FiniteImpulseResponse,
     RectifiedLinear, DoubleExponential, LevelShift, Sigmoid
     )
-from nems.visualization.model import plot_nl
 
 log = logging.getLogger(__name__)
 
