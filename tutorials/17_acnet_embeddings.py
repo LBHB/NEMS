@@ -11,9 +11,13 @@ applied internally exactly once, regardless of which input kind you use.
 import os
 
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # headless-safe; drop this if you want an interactive window
+import matplotlib.pyplot as plt
 
 from nems.models.ACNet import ACNet, load_acnet_v1_weights
 from nems.preprocessing.spectrogram import load_wav
+from nems.preprocessing.spectrogram.filters import centre_freqs
 
 # Paths to the released ACNet_v1 package's own artifacts (a separate repo on
 # the same shared filesystem; adjust if you're running this elsewhere).
@@ -67,3 +71,41 @@ gtg = model._to_gtg(wav, fs_stim)  # exactly what step 2 computed internally
 embeddings_from_gtg = model.get_embeddings(gtg)
 print(f"3. From precomputed gtg: embeddings shape {embeddings_from_gtg.shape}, "
       f"matches (1): {np.array_equal(embeddings_from_gtg, embeddings_from_path)}")
+
+
+########################################################
+# 4. Plot the wav, gtg, and ACNet manifold -- mirroring ACNet_v1's own
+#    demo_acnet_embeddings.py (gammatonegram + embeddings heatmaps, shared
+#    time axis, 300 dpi), with the raw waveform added as a third panel.
+#    Filename-mode input only (`wav`/`gtg`/`embeddings_from_path` above) --
+#    no need to replot for the other two input kinds, they're numerically
+#    identical (confirmed above).
+########################################################
+dur_ms = 1e3 * len(wav) / fs_stim
+
+# gtg's channel axis runs low-to-high frequency (nems.preprocessing.
+# spectrogram.gammatone.gtgram_xe flips the ERB filterbank to this order) --
+# compute matching center frequencies for the y-axis ticks.
+cf_khz = centre_freqs(model.fs_gtg, model.num_cfs, model.f_min, model.f_max)[::-1] / 1e3
+cf_tick_khz = np.array([0.2, 2, 20])
+cf_tick_pos = [int(np.argmin(np.abs(cf_khz - t))) + 0.5 for t in cf_tick_khz]
+
+fig, ax = plt.subplots(3, 1, figsize=(7, 6.6), sharex=True)
+
+t_wav_ms = 1e3 * np.arange(len(wav)) / fs_stim
+ax[0].plot(t_wav_ms, wav, linewidth=0.5)
+ax[0].set(ylabel='amplitude', title='Waveform')
+
+ax[1].imshow(gtg.T, origin='lower', aspect='auto', extent=(0, dur_ms, 0, gtg.shape[1]))
+ax[1].set_yticks(cf_tick_pos)
+ax[1].set_yticklabels([f'{t:g}' for t in cf_tick_khz])
+ax[1].set(ylabel='CF (kHz)', title='Gammatonegram (input to ACNet, sqrt-domain)')
+
+ax[2].imshow(embeddings_from_path.T, origin='lower', aspect='auto',
+             extent=(0, dur_ms, 0, embeddings_from_path.shape[1]))
+ax[2].set(ylabel='manifold dimension', xlabel='time (ms)', title='ACNet embeddings')
+
+fig.tight_layout()
+out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), '17_acnet_embeddings.png')
+fig.savefig(out_png, dpi=300)
+print(f"\n4. Saved wav/gtg/embeddings figure to {out_png}")
