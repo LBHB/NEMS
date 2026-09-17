@@ -17,4 +17,5 @@ from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp, Ap
 from .conv2d import Conv2d
 from .compression import PowerCompress
 from .batchnorm import BatchNorm1d
+from .depthwise_fir import DepthwiseFIR
 from .base import Layer, Phi, Parameter
