@@ -23,7 +23,17 @@ from nems.preprocessing.spectrogram.filters import centre_freqs
 # the same shared filesystem; adjust if you're running this elsewhere).
 ACNET_V1_DIR = '/auto/users/satya/code/projects_getting_started/ACNet_v1'
 WEIGHTS_PATH = os.path.join(ACNET_V1_DIR, 'weights', 'acnet_v1_weights_nems.npz')
-EXAMPLE_WAV = os.path.join(ACNET_V1_DIR, 'examples', 'example_esc50_clip.wav')
+
+# Local copy of /auto/data/sounds/vocalizations/v2/ferretb1001R.wav.
+EXAMPLE_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           'data', 'ferretb1001R.wav')
+
+# If True (default), the ACNet-embeddings panel's manifold dimensions are
+# reordered by descending activity (sum of squared response) so the most
+# active dimensions plot together, near the bottom -- purely a display
+# convenience; the dimensions themselves, and everything returned by
+# get_embeddings, are unaffected.
+SORT_ACNET_DIM = True
 
 
 ########################################################
@@ -84,26 +94,46 @@ print(f"3. From precomputed gtg: embeddings shape {embeddings_from_gtg.shape}, "
 dur_ms = 1e3 * len(wav) / fs_stim
 
 # gtg's channel axis runs low-to-high frequency (nems.preprocessing.
-# spectrogram.gammatone.gtgram_xe flips the ERB filterbank to this order) --
-# compute matching center frequencies for the y-axis ticks.
+# spectrogram.gammatone.gtgram_xe flips the ERB filterbank to this order --
+# confirmed empirically with pure tones, not just by reading the code: a
+# 300/1000/5000/15000 Hz tone peaks at channel 2/9/21/30 of 32). Tick
+# positions are evenly spaced across the channels actually present, and
+# each is labeled with its own true center frequency -- never a rounded
+# target value that may not be the nearest channel's actual CF.
 cf_khz = centre_freqs(model.fs_gtg, model.num_cfs, model.f_min, model.f_max)[::-1] / 1e3
-cf_tick_khz = np.array([0.2, 2, 20])
-cf_tick_pos = [int(np.argmin(np.abs(cf_khz - t))) + 0.5 for t in cf_tick_khz]
+n_ticks = min(5, len(cf_khz))
+tick_idx = np.linspace(0, len(cf_khz) - 1, n_ticks).round().astype(int)
+cf_tick_pos = tick_idx + 0.5
+cf_tick_labels = [f'{cf_khz[i]:.2g}' for i in tick_idx]
 
-fig, ax = plt.subplots(3, 1, figsize=(7, 6.6), sharex=True)
+if SORT_ACNET_DIM:
+    dim_order = np.argsort(-(embeddings_from_path**2).sum(axis=0))
+    embeddings_plotted = embeddings_from_path[:, dim_order]
+    embeddings_title = 'ACNet embeddings (sorted by activity)'
+else:
+    embeddings_plotted = embeddings_from_path
+    embeddings_title = 'ACNet embeddings (unsorted)'
+
+fig, ax = plt.subplots(3, 1, figsize=(7, 6.6), sharex=True,
+                       gridspec_kw={'height_ratios': [1, 2.5, 2.5]})
 
 t_wav_ms = 1e3 * np.arange(len(wav)) / fs_stim
-ax[0].plot(t_wav_ms, wav, linewidth=0.5)
+ax[0].plot(t_wav_ms, wav, linewidth=0.5, color='k')
 ax[0].set(ylabel='amplitude', title='Waveform')
+ax[0].set_xmargin(0)
+for spine in ax[0].spines.values():
+    spine.set_visible(False)
+ax[0].tick_params(axis='both', length=0)
+ax[0].set_yticks([])
 
 ax[1].imshow(gtg.T, origin='lower', aspect='auto', extent=(0, dur_ms, 0, gtg.shape[1]))
 ax[1].set_yticks(cf_tick_pos)
-ax[1].set_yticklabels([f'{t:g}' for t in cf_tick_khz])
+ax[1].set_yticklabels(cf_tick_labels)
 ax[1].set(ylabel='CF (kHz)', title='Gammatonegram (input to ACNet, sqrt-domain)')
 
-ax[2].imshow(embeddings_from_path.T, origin='lower', aspect='auto',
-             extent=(0, dur_ms, 0, embeddings_from_path.shape[1]))
-ax[2].set(ylabel='manifold dimension', xlabel='time (ms)', title='ACNet embeddings')
+ax[2].imshow(embeddings_plotted.T, origin='lower', aspect='auto',
+             extent=(0, dur_ms, 0, embeddings_plotted.shape[1]))
+ax[2].set(ylabel='manifold dimension', xlabel='time (ms)', title=embeddings_title)
 
 fig.tight_layout()
 out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), '17_acnet_embeddings.png')
