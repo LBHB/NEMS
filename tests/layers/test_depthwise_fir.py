@@ -61,6 +61,21 @@ class TestEvaluate:
         assert not np.allclose(out_full[:, 0], out_zeroed[:, 0])
         assert np.allclose(out_full[:, 1:], out_zeroed[:, 1:])
 
+    def test_bias_added_per_channel(self):
+        # Matches nn.Conv1d's default bias=True -- Conv1DRowLayer never
+        # passes bias=False.
+        T, N, K = 10, 3, 4
+        rng = np.random.RandomState(3)
+        x = rng.rand(T, N)
+        dfir = DepthwiseFIR(shape=(K, N))
+        dfir.parameters['coefficients'].update(rng.rand(K, N))
+        out_no_bias = dfir.evaluate(x)
+
+        bias = np.array([1.0, -2.0, 0.5])
+        dfir.parameters['bias'].update(bias)
+        out_with_bias = dfir.evaluate(x)
+        assert np.allclose(out_with_bias, out_no_bias + bias)
+
     def test_matches_hand_rolled_reference(self):
         T, N, K = 25, 3, 4
         rng = np.random.RandomState(1)

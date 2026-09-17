@@ -50,19 +50,27 @@ class DepthwiseFIR(Layer):
         coefficients : ndarray
             Shape matches `DepthwiseFIR.shape` (kernel_size, channels).
             Prior: Normal(mean=0, sd=1/kernel_size).
+        bias : ndarray
+            Shape (channels,). Added per-channel after the convolution,
+            matching `nn.Conv1d`'s default `bias=True` (`Conv1DRowLayer`
+            never passes `bias=False`). Prior: Normal(mean=0, sd=0.1).
 
         Returns
         -------
         nems.layers.base.Phi
 
         """
-        kernel_size = self.shape[0]
+        kernel_size, channels = self.shape
         mean = np.zeros(shape=self.shape)
         sd = np.full(shape=self.shape, fill_value=1/kernel_size)
         coefficients = Parameter(
             name='coefficients', shape=self.shape, prior=Normal(mean, sd)
             )
-        return Phi(coefficients)
+        bias = Parameter(
+            name='bias', shape=(channels,),
+            prior=Normal(np.zeros(channels), np.full(channels, 0.1)),
+            )
+        return Phi(coefficients, bias)
 
     @property
     def coefficients(self):
@@ -90,7 +98,8 @@ class DepthwiseFIR(Layer):
         # coef[0] should correspond to lag=0 (most recent sample), matching
         # FiniteImpulseResponse's convention.
         coef_t = np.flip(self.coefficients, axis=0)
-        return np.einsum('tnf,fn->tn', windowed, coef_t)
+        bias = self.parameters['bias'].values
+        return np.einsum('tnf,fn->tn', windowed, coef_t) + bias
 
     @layer('dfir')
     def from_keyword(keyword):
@@ -136,7 +145,7 @@ class DepthwiseFIR(Layer):
                 out = tf.nn.depthwise_conv2d(
                     x, filt, strides=[1, 1, 1, 1], padding='VALID'
                     )
-                return out[:, 0, :, :]
+                return out[:, 0, :, :] + self.bias
 
         return DepthwiseFIRTF(self, **kwargs)
 # [AGENT EDIT END]
