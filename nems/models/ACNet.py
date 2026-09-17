@@ -41,11 +41,23 @@ class ACNet(Model):
         Number of output channels (recorded neurons) in the readout.
     compress : str; one of {'sqrt', 'log10x'}; default='log10x'.
         See `nems.layers.compression.PowerCompress`. `'log10x'` is the
-        released checkpoint's actual training config.
+        released checkpoint's actual training config. This is the ONLY
+        place compression is specified -- `get_embeddings` never takes a
+        `compress` argument, since the model's own first layer is always
+        the single source of truth for how its input gets compressed.
     res_scale : float; default=1.0.
         Fixed (non-fittable) residual scale for every block but the first
         (which has no residual). Matches the released checkpoint's config
         (`ACNet_v1.acnet_model.DEFAULT_CONFIG['res_scale']`).
+    f_min, f_max, fs_gtg : float; default=200.0, 20e3, 100.0.
+        Gammatone front-end parameters, used by `get_embeddings` when given
+        a wav file or raw waveform. Defaults match the released checkpoint
+        (`ACNet_v1.acnet_model.DEFAULT_CONFIG`).
+    lbhb_mode : bool; default=False.
+    overall_db : float; default=65.
+    level_mode : str; default='exact'.
+        Level-normalization defaults for `get_embeddings`'s front end; see
+        `nems.preprocessing.spectrogram.nems_audio_preprocess`.
     from_saved : bool; default=False.
         If True, skip layer construction (for loading a saved Model where
         layers will be restored separately).
@@ -78,8 +90,21 @@ class ACNet(Model):
 
     def __init__(self, num_cfs=32, hidden_dim=(75, 100, 125, 150, 175, 200),
                  kernel_size=7, n_neurons=3124, compress='log10x', res_scale=1.0,
+                 f_min=200.0, f_max=20e3, fs_gtg=100.0, lbhb_mode=False,
+                 overall_db=65, level_mode='exact',
                  from_saved=False, **model_init_kwargs):
-        super().__init__(**model_init_kwargs)
+        # Model.__init__ already accepts f_min/f_max (stored in self.meta,
+        # exposed as read-only properties) -- pass them through rather than
+        # assigning self.f_min/self.f_max directly, which would collide.
+        super().__init__(f_min=f_min, f_max=f_max, **model_init_kwargs)
+        # Stored for get_embeddings's wav/waveform front end -- not used by
+        # the trunk/readout itself, which only ever sees the (T, num_cfs)
+        # gtg array produced from these.
+        self.num_cfs = num_cfs
+        self.fs_gtg = fs_gtg
+        self.lbhb_mode = lbhb_mode
+        self.overall_db = overall_db
+        self.level_mode = level_mode
         if from_saved:
             return
 
@@ -131,20 +156,38 @@ class ACNet(Model):
             )
         self.output_name = 'psth'
 
-    def get_embeddings(self, input, **eval_kwargs):
+    def get_embeddings(self, input, fs=None, **eval_kwargs):
         """Return the shared-trunk ("manifold") embeddings for `input`.
 
         Equivalent to `ACNet_v1.acnet_model.ACNet.get_mf_embeddings`'s
         `shared_rep` -- the trunk's output just before the readout, i.e. the
-        representation shared across every recorded neuron.
+        representation shared across every recorded neuron. Accepts three
+        kinds of input, disambiguated by type and by whether `fs` is given
+        -- compression is never something you need to think about for the
+        wav/waveform cases; it's handled internally either way:
+
+        - `input` is a wav file path (`str`): loaded, level-normalized, and
+          run through the gammatone filterbank. `fs` is ignored (read from
+          the file).
+        - `input` is a raw waveform (`np.ndarray`/`tf.Tensor`, shape
+          (n_samples,)) and `fs` is given: same level-norm + filterbank
+          processing, at the given sampling rate.
+        - `input` is already a (T, `num_cfs`) gammatone spectrogram and `fs`
+          is None: used as-is. This is assumed to be uncompressed
+          (sqrt-domain) magnitude -- the same convention
+          `nems.preprocessing.spectrogram.gammagram`/`gtgram` return -- and
+          this model's own first layer applies its configured `compress`
+          mode (`log10x` for the released checkpoint) to it internally,
+          exactly once, same as the wav/waveform cases. There's no way to
+          verify that assumption from the array alone, so it's printed
+          rather than silently assumed.
 
         Parameters
         ----------
-        input : np.ndarray
-            Shape (T, `num_cfs`) -- sqrt-domain gammatone magnitude (see
-            `nems.preprocessing.spectrogram.acnet_gtgram`). Compression is
-            applied internally by this model's own first layer; do not
-            pre-compress `input` yourself.
+        input : str, np.ndarray, or tf.Tensor
+        fs : float; optional.
+            Sampling rate of `input`, if it's a raw waveform. Leave as None
+            for a wav file path or a precomputed gtg.
         eval_kwargs : dict; optional.
             Passed through to `Model.evaluate`.
 
@@ -154,8 +197,44 @@ class ACNet(Model):
             Shape (T, `hidden_dim[-1]`).
 
         """
-        data = self.evaluate(input, return_full_data=True, **eval_kwargs)
+        gtg = self._to_gtg(input, fs)
+        data = self.evaluate(gtg, return_full_data=True, **eval_kwargs)
         return data['embeddings']
+
+    def _to_gtg(self, input, fs=None):
+        """Coerce `input` to the (T, num_cfs) sqrt-domain gtg this model expects.
+
+        See `get_embeddings` for the three accepted input kinds.
+        """
+        from nems.preprocessing.spectrogram import load_wav, acnet_gtgram
+
+        front_end_kwargs = dict(
+            num_cfs=self.num_cfs, f_min=self.f_min, f_max=self.f_max,
+            fs_gtg=self.fs_gtg, lbhb_mode=self.lbhb_mode,
+            overall_db=self.overall_db, level_mode=self.level_mode,
+            )
+
+        if isinstance(input, str):
+            wav, wav_fs = load_wav(input)
+            # compress='sqrt' is a no-op (PowerCompress identity) -- this
+            # hands back raw magnitude for this model's own first layer to
+            # compress, rather than compressing here and again there.
+            return acnet_gtgram(wav, wav_fs, compress='sqrt', **front_end_kwargs)
+
+        if fs is not None:
+            wav = np.asarray(input)
+            return acnet_gtgram(wav, fs, compress='sqrt', **front_end_kwargs)
+
+        gtg = np.asarray(input)
+        print(
+            f"get_embeddings: `input` (shape {gtg.shape}) treated as an "
+            f"already-computed gammatone spectrogram (no `fs` given). "
+            f"Assuming it is uncompressed (sqrt-domain) magnitude and "
+            f"applying this model's own compress={self.layers[0].mode!r} "
+            f"internally -- pass a wav path or (waveform, fs) instead if "
+            f"that's not what you meant."
+            )
+        return gtg
 # [AGENT EDIT END]
 
 

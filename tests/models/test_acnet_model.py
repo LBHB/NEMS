@@ -86,3 +86,57 @@ class TestEvaluate:
         gtg = np.random.rand(T, 4)
         embeddings = model.get_embeddings(gtg)
         assert embeddings.shape == (T, 5)
+
+
+class TestGetEmbeddingsInputDispatch:
+    """get_embeddings accepts a wav path, a (waveform, fs) pair, or a
+    precomputed gtg (no fs) -- all three must agree when they describe the
+    same underlying sound."""
+
+    def _write_wav(self, path, fs=40000, duration=0.2):
+        import wave
+        n_samples = int(fs * duration)
+        t = np.arange(n_samples) / fs
+        sig = 0.1 * np.sin(2 * np.pi * 1000 * t)
+        with wave.open(str(path), 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(fs)
+            w.writeframes((sig * 32767).astype(np.int16).tobytes())
+        return sig, fs
+
+    def test_wav_path_and_waveform_agree(self, tmp_path):
+        from nems.preprocessing.spectrogram import load_wav
+
+        path = tmp_path / 'tone.wav'
+        self._write_wav(path)
+        model = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=2,
+                      f_max=10e3)
+
+        emb_from_path = model.get_embeddings(str(path))
+        wav, fs = load_wav(str(path))
+        emb_from_wav = model.get_embeddings(wav, fs=fs)
+
+        assert emb_from_path.shape == emb_from_wav.shape
+        assert np.array_equal(emb_from_path, emb_from_wav)
+
+    def test_gtg_without_fs_used_directly(self, capsys):
+        model = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=2)
+        gtg = np.random.rand(40, 8)
+
+        embeddings = model.get_embeddings(gtg)
+        out = capsys.readouterr().out
+        assert "assuming" in out.lower()
+        assert embeddings.shape == (40, 6)
+
+    def test_wav_and_gtg_paths_agree(self, tmp_path):
+        model = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=2,
+                      f_max=10e3)
+        path = tmp_path / 'tone2.wav'
+        wav, fs = self._write_wav(path)
+
+        emb_from_wav = model.get_embeddings(wav, fs=fs)
+        gtg = model._to_gtg(wav, fs)
+        emb_from_gtg = model.get_embeddings(gtg)
+
+        assert np.array_equal(emb_from_wav, emb_from_gtg)
