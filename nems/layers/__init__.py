@@ -15,4 +15,5 @@ from .numpy import NumPy
 from .stp import ShortTermPlasticity, STP
 from .algebra import SwapDims, ConcatSignals, MultiplySignals, MultiplyByExp, ApplyHRTF, ApplyHRTFGainLayer
 from .conv2d import Conv2d
+from .compression import PowerCompress
 from .base import Layer, Phi, Parameter
