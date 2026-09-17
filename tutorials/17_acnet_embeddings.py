@@ -12,7 +12,7 @@ import os
 
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # headless-safe; drop this if you want an interactive window
+# matplotlib.use('Agg')  # headless-safe; drop this if you want an interactive window
 import matplotlib.pyplot as plt
 
 from nems.models.ACNet import load_acnet
@@ -46,7 +46,7 @@ SAVE_FIGURE = False
 # torch), by:
 #   conda activate ptn  # or any env with a working torch -- NOT acnet_v1,
 #                        # see project_acnet_in_nems memory for why
-#   python ACNet_v1/Claude/claude_debug/export_acnet_v1_weights.py
+#   python ACNet_v1/data/export_acnet_v1_weights.py
 # version='v2' (sqrt compression) isn't trained/released yet -- raises
 # NotImplementedError.
 ########################################################
@@ -115,7 +115,9 @@ else:
     embeddings_plotted = embeddings_from_path
     embeddings_title = 'ACNet embeddings (unsorted)'
 
-fig, ax = plt.subplots(3, 1, figsize=(7, 6.6), sharex=True,
+plt.rcParams.update({'font.size': plt.rcParams['font.size'] + 2})
+
+fig, ax = plt.subplots(3, 1, figsize=(8, 6), sharex=True,
                        gridspec_kw={'height_ratios': [1, 2.5, 2.5]})
 
 t_wav_ms = 1e3 * np.arange(len(wav)) / fs_stim

@@ -244,7 +244,7 @@ def load_acnet_v1_weights(model, npz_path):
     """Load real ACNet_v1 checkpoint weights (exported to an npz) into `model`.
 
     The npz must be produced by
-    `ACNet_v1/Claude/claude_debug/export_acnet_v1_weights.py` (run separately,
+    `ACNet_v1/data/export_acnet_v1_weights.py` (run separately,
     under a torch env -- this function only ever touches plain numpy arrays).
     `model` must have been constructed with matching `hidden_dim`/`kernel_size`/
     `num_cfs`/`n_neurons` (see the npz's own `hidden_dim`/`kernel_size`/
