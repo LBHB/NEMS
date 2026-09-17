@@ -1,9 +1,48 @@
+import wave
+
 import pytest
 import numpy as np
 
 from nems.preprocessing.spectrogram import (
-    remove_clicks, nems_audio_preprocess, acnet_gtgram,
+    load_wav, remove_clicks, nems_audio_preprocess, acnet_gtgram,
 )
+
+
+class TestLoadWav:
+
+    def _write_wav(self, path, fs=40000, duration=0.1, n_channels=1, bits=16):
+        n_samples = int(fs * duration)
+        t = np.arange(n_samples) / fs
+        sig = 0.5 * np.sin(2 * np.pi * 1000 * t)
+        with wave.open(str(path), 'wb') as w:
+            w.setnchannels(n_channels)
+            w.setsampwidth(bits // 8)
+            w.setframerate(fs)
+            if n_channels > 1:
+                sig = np.tile(sig[:, None], (1, n_channels)).flatten()
+            ints = (sig * 32767).astype(np.int16)
+            w.writeframes(ints.tobytes())
+        return sig, fs
+
+    def test_mono_16bit_roundtrip(self, tmp_path):
+        path = tmp_path / 'test.wav'
+        expected, fs = self._write_wav(path)
+        wav, fs_out = load_wav(str(path))
+        assert fs_out == fs
+        assert wav.shape == expected.shape
+        assert np.allclose(wav, expected, atol=1e-4)
+
+    def test_stereo_mixed_to_mono(self, tmp_path):
+        path = tmp_path / 'stereo.wav'
+        self._write_wav(path, n_channels=2)
+        wav, fs = load_wav(str(path))
+        assert wav.ndim == 1
+
+    def test_not_a_wav_raises(self, tmp_path):
+        path = tmp_path / 'not_a_wav.txt'
+        path.write_bytes(b'not a riff file')
+        with pytest.raises(ValueError):
+            load_wav(str(path))
 
 
 class TestRemoveClicks:

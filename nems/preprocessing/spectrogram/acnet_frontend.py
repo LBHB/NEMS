@@ -22,10 +22,84 @@ comment on the difference: "Differs audibly little from the polyphase one
 """
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: port ACNet's raw-audio front end (level norm + click limiter) as NEMS-native numpy, for the ACNet-in-NEMS model port -- gammatone filterbank itself is NOT reimplemented, NEMS's own gtgram already covers it | date: 2026-09-16]
+import struct
+
 import numpy as np
 from scipy.signal import resample
 
 from .gammatone import gammagram
+
+
+def load_wav(path, int16_scale=32768.0):
+    """Decode a WAV file to a mono float64 array in [-1, 1], no torch.
+
+    Ported from `ACNet_v1.acnet_model._load_wav` (parses the RIFF container
+    directly, so no audio-decoding dependency is needed). Supports integer
+    PCM (8/16/24/32-bit) and IEEE-float (32/64-bit) WAV, including
+    WAVE_FORMAT_EXTENSIBLE.
+
+    Parameters
+    ----------
+    path : str
+    int16_scale : float; default=32768.0.
+        Divisor for 16-bit PCM. The default is the full-scale convention;
+        pass 32767 to match `nems_lbhb.runclass` (divides int16 by 32767).
+        The two differ by 3e-5 relative.
+
+    Returns
+    -------
+    wav : np.ndarray
+        Shape (n_samples,).
+    fs : int
+
+    """
+    with open(path, 'rb') as f:
+        riff = f.read()
+    if riff[:4] != b'RIFF' or riff[8:12] != b'WAVE':
+        raise ValueError(f"Not a RIFF/WAVE file: {path}")
+
+    fmt_tag = n_channels = fs = bits = None
+    raw = None
+    pos = 12
+    while pos + 8 <= len(riff):
+        cid = riff[pos:pos + 4]
+        csize = struct.unpack('<I', riff[pos + 4:pos + 8])[0]
+        body = riff[pos + 8:pos + 8 + csize]
+        if cid == b'fmt ':
+            fmt_tag, n_channels, fs, _, _, bits = struct.unpack('<HHIIHH', body[:16])
+            if fmt_tag == 0xFFFE and csize >= 26:  # EXTENSIBLE: real tag is in the subformat GUID
+                fmt_tag = struct.unpack('<H', body[24:26])[0]
+        elif cid == b'data':
+            raw = body
+        pos += 8 + csize + (csize & 1)  # chunks are word-aligned
+
+    if fmt_tag is None or raw is None:
+        raise ValueError(f"Missing fmt/data chunk in {path}")
+
+    if fmt_tag == 1:  # integer PCM
+        if bits == 8:  # 8-bit PCM is unsigned
+            data = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64) - 128.0) / 128.0
+        elif bits == 16:
+            data = np.frombuffer(raw, dtype=np.int16).astype(np.float64) / int16_scale
+        elif bits == 24:
+            b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+            ints = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+            ints[ints >= 1 << 23] -= 1 << 24  # sign-extend
+            data = ints.astype(np.float64) / (1 << 23)
+        elif bits == 32:
+            data = np.frombuffer(raw, dtype=np.int32).astype(np.float64) / 2147483648.0
+        else:
+            raise ValueError(f"Unsupported PCM bit depth {bits} in {path}")
+    elif fmt_tag == 3:  # IEEE float
+        dtype = np.float32 if bits == 32 else np.float64
+        data = np.frombuffer(raw, dtype=dtype).astype(np.float64)
+    else:
+        raise ValueError(f"Unsupported WAV format tag {fmt_tag} in {path}")
+
+    if n_channels > 1:
+        data = data.reshape(-1, n_channels).mean(axis=1)  # mix to mono
+
+    return np.ascontiguousarray(data), fs
 
 
 def remove_clicks(w, max_threshold=50):

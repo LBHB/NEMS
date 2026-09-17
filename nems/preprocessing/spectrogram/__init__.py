@@ -48,5 +48,5 @@ from .gammatone import (
 # [AGENT EDIT END]
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: export ACNet's level-norm/click-limiter front end for the ACNet-in-NEMS model port; not part of the gammatone-toolkit lineage above | date: 2026-09-16]
-from .acnet_frontend import remove_clicks, nems_audio_preprocess, acnet_gtgram
+from .acnet_frontend import load_wav, remove_clicks, nems_audio_preprocess, acnet_gtgram
 # [AGENT EDIT END]
