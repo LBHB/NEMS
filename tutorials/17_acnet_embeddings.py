@@ -15,14 +15,9 @@ import matplotlib
 matplotlib.use('Agg')  # headless-safe; drop this if you want an interactive window
 import matplotlib.pyplot as plt
 
-from nems.models.ACNet import ACNet, load_acnet_v1_weights
+from nems.models.ACNet import load_acnet
 from nems.preprocessing.spectrogram import load_wav
 from nems.preprocessing.spectrogram.filters import centre_freqs
-
-# Paths to the released ACNet_v1 package's own artifacts (a separate repo on
-# the same shared filesystem; adjust if you're running this elsewhere).
-ACNET_V1_DIR = '/auto/users/satya/code/projects_getting_started/ACNet_v1'
-WEIGHTS_PATH = os.path.join(ACNET_V1_DIR, 'weights', 'acnet_v1_weights_nems.npz')
 
 # Local copy of /auto/data/sounds/vocalizations/v2/ferretb1001R.wav.
 EXAMPLE_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -43,17 +38,19 @@ SAVE_FIGURE = False
 ########################################################
 # Build the model and load the real released weights.
 #
-# A freshly-constructed ACNet() has random weights -- fine for testing
-# shapes, useless for actual embeddings. load_acnet_v1_weights populates an
-# ACNet() built with matching hyperparameters (its defaults already match
-# the release) from a plain-numpy export of the real checkpoint. That npz is
-# produced once, outside NEMS (NEMS itself never imports torch):
+# load_acnet(version='v1') builds an ACNet and loads the released, trained
+# weights into it -- a freshly-constructed ACNet() alone has random weights,
+# fine for testing shapes, useless for actual embeddings. Where that npz
+# lives is load_acnet's own concern, not something you need to know; the
+# npz itself is produced once, outside NEMS (NEMS itself never imports
+# torch), by:
 #   conda activate ptn  # or any env with a working torch -- NOT acnet_v1,
 #                        # see project_acnet_in_nems memory for why
 #   python ACNet_v1/Claude/claude_debug/export_acnet_v1_weights.py
+# version='v2' (sqrt compression) isn't trained/released yet -- raises
+# NotImplementedError.
 ########################################################
-model = ACNet()  # compress='log10x' by default -- matches the checkpoint
-model = load_acnet_v1_weights(model, WEIGHTS_PATH)
+model = load_acnet(version='v1')
 print(f"Built ACNet: compress={model.layers[0].mode!r}, "
       f"embeddings dim={model.layers[-4].shape[0]}")  # hidden_dim[-1]
 

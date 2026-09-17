@@ -1,6 +1,9 @@
+import os
+
+import pytest
 import numpy as np
 
-from nems.models.ACNet import ACNet
+from nems.models.ACNet import ACNet, load_acnet, _RELEASED_WEIGHTS
 
 
 class TestConstruction:
@@ -140,3 +143,36 @@ class TestGetEmbeddingsInputDispatch:
         emb_from_gtg = model.get_embeddings(gtg)
 
         assert np.array_equal(emb_from_wav, emb_from_gtg)
+
+
+class TestLoadAcnet:
+    """load_acnet(version=...) -- the npz path itself is never a parameter."""
+
+    def test_v2_not_implemented(self):
+        with pytest.raises(NotImplementedError):
+            load_acnet(version='v2')
+
+    def test_unknown_version_raises(self):
+        with pytest.raises(ValueError):
+            load_acnet(version='v3')
+
+    def test_compress_kwarg_rejected(self):
+        # compress is determined by version; passing it separately would be
+        # ambiguous (which one wins?) so it's a hard error, not silently
+        # overridden either way.
+        with pytest.raises(TypeError):
+            load_acnet(version='v1', compress='sqrt')
+
+    @pytest.mark.skipif(
+        not os.path.exists(_RELEASED_WEIGHTS['v1']['npz_path']),
+        reason="released v1 weights npz not present on this machine",
+        )
+    def test_v1_loads_real_weights(self):
+        # The real npz's arrays are fixed-shape (the full released config) --
+        # no hidden_dim/n_neurons override here, unlike the synthetic-model
+        # tests elsewhere in this file.
+        model = load_acnet(version='v1')
+        assert model.layers[0].mode == 'log10x'
+        # Real weights, not the zero/random init defaults -- readout bias
+        # should not be all-zero.
+        assert not np.allclose(model.layers[-2].parameters['shift'].values, 0)

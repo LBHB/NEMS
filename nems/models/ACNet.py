@@ -83,6 +83,7 @@ class ACNet(Model):
 
     See also
     --------
+    load_acnet
     load_acnet_v1_weights
     nems.preprocessing.spectrogram.acnet_gtgram
 
@@ -303,4 +304,65 @@ def load_acnet_v1_weights(model, npz_path):
     readout_dexp.parameters['shift'].update(np.zeros_like(fx['readout_dexp_base']))
 
     return model
+
+
+# Released-checkpoint registry: version -> (compress mode, weights npz path).
+# Deliberately not exposed as a public path constant -- load_acnet() is the
+# public entry point; the file location is an implementation detail of it.
+_RELEASED_WEIGHTS = {
+    'v1': {
+        'compress': 'log10x',
+        'npz_path': '/auto/users/satya/code/projects_getting_started/ACNet_v1/'
+                    'weights/acnet_v1_weights_nems.npz',
+        },
+    }
+
+
+def load_acnet(version='v1', **model_kwargs):
+    """Build an `ACNet` and load a released checkpoint's real weights into it.
+
+    The weights npz's path is an internal detail of this function, not
+    something callers need to know or pass in -- `version` is the only
+    thing that selects which checkpoint gets loaded.
+
+    Parameters
+    ----------
+    version : str; one of {'v1', 'v2'}; default='v1'.
+        `'v1'` is the released, trained checkpoint (`compress='log10x'`).
+        `'v2'` (`compress='sqrt'`) has not been trained/released yet --
+        raises `NotImplementedError`.
+    model_kwargs : dict; optional.
+        Passed through to `ACNet.__init__` (e.g. to override `hidden_dim`
+        for a smaller test model). Do not pass `compress` here -- it's
+        determined by `version`.
+
+    Returns
+    -------
+    ACNet
+
+    See also
+    --------
+    ACNet
+    ACNet.get_embeddings
+    load_acnet_v1_weights
+
+    """
+    if version == 'v2':
+        raise NotImplementedError(
+            "version='v2' (sqrt compression) has not been trained or "
+            "released yet -- only version='v1' (log10x) is available."
+            )
+    if version not in _RELEASED_WEIGHTS:
+        raise ValueError(
+            f"Unknown version {version!r}; expected 'v1' (or 'v2', not yet "
+            f"implemented)."
+            )
+    if 'compress' in model_kwargs:
+        raise TypeError(
+            "compress is determined by `version`; don't pass it separately."
+            )
+
+    spec = _RELEASED_WEIGHTS[version]
+    model = ACNet(compress=spec['compress'], **model_kwargs)
+    return load_acnet_v1_weights(model, spec['npz_path'])
 # [AGENT EDIT END]
