@@ -126,13 +126,14 @@ for spine in ax[0].spines.values():
 ax[0].tick_params(axis='both', length=0)
 ax[0].set_yticks([])
 
-ax[1].imshow(gtg.T, origin='lower', aspect='auto', extent=(0, dur_ms, 0, gtg.shape[1]))
+ax[1].imshow(gtg.T, origin='lower', aspect='auto', extent=(0, dur_ms, 0, gtg.shape[1]),
+             cmap='gray_r')
 ax[1].set_yticks(cf_tick_pos)
 ax[1].set_yticklabels(cf_tick_labels)
 ax[1].set(ylabel='CF (kHz)', title='Gammatonegram (input to ACNet, sqrt-domain)')
 
 ax[2].imshow(embeddings_plotted.T, origin='lower', aspect='auto',
-             extent=(0, dur_ms, 0, embeddings_plotted.shape[1]))
+             extent=(0, dur_ms, 0, embeddings_plotted.shape[1]), cmap='gray_r')
 ax[2].set(ylabel='manifold dimension', xlabel='time (ms)', title=embeddings_title)
 
 fig.tight_layout()
