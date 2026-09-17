@@ -35,6 +35,10 @@ EXAMPLE_WAV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # get_embeddings, are unaffected.
 SORT_ACNET_DIM = True
 
+# If True, the figure in section 4 is written to disk (see out_png below).
+# False just builds/shows it in memory -- handy while iterating on the plot.
+SAVE_FIGURE = False
+
 
 ########################################################
 # Build the model and load the real released weights.
@@ -137,6 +141,9 @@ ax[2].imshow(embeddings_plotted.T, origin='lower', aspect='auto',
 ax[2].set(ylabel='manifold dimension', xlabel='time (ms)', title=embeddings_title)
 
 fig.tight_layout()
-out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), '17_acnet_embeddings.png')
-fig.savefig(out_png, dpi=300)
-print(f"\n4. Saved wav/gtg/embeddings figure to {out_png}")
+if SAVE_FIGURE:
+    out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), '17_acnet_embeddings.png')
+    fig.savefig(out_png, dpi=300)
+    print(f"\n4. Saved wav/gtg/embeddings figure to {out_png}")
+else:
+    print("\n4. Built wav/gtg/embeddings figure (SAVE_FIGURE=False, not written to disk)")
