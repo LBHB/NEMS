@@ -66,3 +66,23 @@ class TestEvaluate:
         # the first layer's mode should differ as expected.
         assert model_sqrt.layers[0].mode == 'sqrt'
         assert model_log.layers[0].mode == 'log10x'
+
+    def test_get_embeddings_shape_and_value(self):
+        # get_embeddings should return exactly the last trunk layer's output
+        # -- the same thing named 'embeddings' internally.
+        T = 60
+        model = ACNet(num_cfs=6, hidden_dim=(6, 7, 8), kernel_size=3, n_neurons=4)
+        gtg = np.random.rand(T, 6)
+
+        embeddings = model.get_embeddings(gtg)
+        assert embeddings.shape == (T, 8)  # hidden_dim[-1]
+
+        full = model.evaluate(gtg, return_full_data=True)
+        assert np.array_equal(embeddings, full['embeddings'])
+
+    def test_get_embeddings_single_block(self):
+        T = 40
+        model = ACNet(num_cfs=4, hidden_dim=(5,), kernel_size=3, n_neurons=2)
+        gtg = np.random.rand(T, 4)
+        embeddings = model.get_embeddings(gtg)
+        assert embeddings.shape == (T, 5)

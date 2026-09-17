@@ -19,7 +19,7 @@ import os
 import pytest
 import numpy as np
 
-from nems.models.ACNet import ACNet
+from nems.models.ACNet import ACNet, load_acnet_v1_weights
 
 FIXTURE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', 'fixtures', 'acnet_v1_parity.npz'
@@ -41,51 +41,12 @@ def _build_and_load_model(fx):
         n_neurons=int(fx['n_neurons']), compress=str(fx['compress']),
         res_scale=float(fx['res_scale']),
         )
-
-    # Layer order per block, matching ACNet.__init__ exactly:
-    # block 0: dfir, wc, lvl, bn, relu (no resadd)
-    # block i>0: dfir, wc, lvl, bn, resadd, relu
-    idx = 1  # index 0 is the PowerCompress layer
-    n_blocks = len(hidden_dim)
-    for i in range(n_blocks):
-        dfir = model.layers[idx]; idx += 1
-        wc = model.layers[idx]; idx += 1
-        lvl = model.layers[idx]; idx += 1
-        bn = model.layers[idx]; idx += 1
-
-        dfir.parameters['coefficients'].update(fx[f'block{i}_dfir_coefficients'])
-        dfir.parameters['bias'].update(fx[f'block{i}_dfir_bias'])
-        wc.parameters['coefficients'].update(fx[f'block{i}_wc_coefficients'])
-        lvl.parameters['shift'].update(fx[f'block{i}_lvl_shift'])
-        bn.parameters['gamma'].update(fx[f'block{i}_bn_gamma'])
-        bn.parameters['beta'].update(fx[f'block{i}_bn_beta'])
-        bn.parameters['running_mean'].update(fx[f'block{i}_bn_running_mean'])
-        bn.parameters['running_var'].update(fx[f'block{i}_bn_running_var'])
-
-        if i > 0:
-            resadd = model.layers[idx]; idx += 1
-            resadd.parameters['shortcut'].update(fx[f'block{i}_shortcut_weight'])
-            resadd.parameters['shortcut_bias'].update(fx[f'block{i}_shortcut_bias'])
-            resadd.parameters['gamma'].update(fx[f'block{i}_gamma'])
-
-        relu = model.layers[idx]; idx += 1  # no parameters to set
-
-    readout_wc = model.layers[idx]; idx += 1
-    readout_lvl = model.layers[idx]; idx += 1
-    readout_dexp = model.layers[idx]; idx += 1
-    assert idx == len(model.layers)
-
-    readout_wc.parameters['coefficients'].update(fx['readout_wc'])
-    readout_lvl.parameters['shift'].update(fx['readout_lvl'])
-    readout_dexp.parameters['base'].update(fx['readout_dexp_base'])
-    readout_dexp.parameters['amplitude'].update(fx['readout_dexp_amp'])
-    readout_dexp.parameters['kappa'].update(fx['readout_dexp_kappa'])
-    # ACNet's DEXP has no shift term (base + amp*exp(-exp(-exp(kappa)*x))) --
-    # NEMS's DoubleExponential does (base + amp*exp(-exp(-exp(kappa)*(x+shift))));
-    # zero it out to match exactly.
-    readout_dexp.parameters['shift'].update(np.zeros_like(fx['readout_dexp_base']))
-
-    return model
+    # This fixture uses the same per-block key naming convention as
+    # load_acnet_v1_weights's expected npz (both derive from the same
+    # gen_nems_parity_fixture.py extraction logic), so the production loader
+    # applies directly -- no need for a second, drifting copy of the loading
+    # logic here.
+    return load_acnet_v1_weights(model, FIXTURE_PATH)
 
 
 class TestACNetParity:
