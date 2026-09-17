@@ -50,7 +50,8 @@ SAVE_FIGURE = False
 # version='v2' (sqrt compression) isn't trained/released yet -- raises
 # NotImplementedError.
 ########################################################
-model = load_acnet(version='v1')
+# model = load_acnet(version='v1')
+model = load_acnet()  # default = v1
 print(f"Built ACNet: compress={model.layers[0].mode!r}, "
       f"embeddings dim={model.layers[-4].shape[0]}")  # hidden_dim[-1]
 
@@ -115,7 +116,7 @@ else:
     embeddings_plotted = embeddings_from_path
     embeddings_title = 'ACNet embeddings (unsorted)'
 
-plt.rcParams.update({'font.size': plt.rcParams['font.size'] + 2})
+plt.rcParams.update({'font.size': 11})
 
 fig, ax = plt.subplots(3, 1, figsize=(8, 6), sharex=True,
                        gridspec_kw={'height_ratios': [1, 2.5, 2.5]})
