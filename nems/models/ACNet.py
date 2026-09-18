@@ -39,12 +39,14 @@ class ACNet(Model):
         every block.
     n_neurons : int; default=3124.
         Number of output channels (recorded neurons) in the readout.
-    compress : str; one of {'sqrt', 'log10x'}; default='log10x'.
+    compress : str or None; one of {None, 'log10x'}; default='log10x'.
         See `nems.layers.compression.PowerCompress`. `'log10x'` is the
-        released checkpoint's actual training config. This is the ONLY
-        place compression is specified -- `get_embeddings` never takes a
-        `compress` argument, since the model's own first layer is always
-        the single source of truth for how its input gets compressed.
+        released checkpoint's actual training config; `None` means no
+        compression beyond the standard nems gtgram's own sqrt-domain
+        convention. This is the ONLY place compression is specified --
+        `get_embeddings` never takes a `compress` argument, since the
+        model's own first layer is always the single source of truth for
+        how its input gets compressed.
     res_scale : float; default=1.0.
         Fixed (non-fittable) residual scale for every block but the first
         (which has no residual). Matches the released checkpoint's config
@@ -174,8 +176,8 @@ class ACNet(Model):
           (n_samples,)) and `fs` is given: same level-norm + filterbank
           processing, at the given sampling rate.
         - `input` is already a (T, `num_cfs`) gammatone spectrogram and `fs`
-          is None: used as-is. This is assumed to be uncompressed
-          (sqrt-domain) magnitude -- the same convention
+          is None: used as-is. This is assumed to be the standard,
+          uncompressed nems gtgram -- the same convention
           `nems.preprocessing.spectrogram.gammagram`/`gtgram` return -- and
           this model's own first layer applies its configured `compress`
           mode (`log10x` for the released checkpoint) to it internally,
@@ -203,9 +205,12 @@ class ACNet(Model):
         return data['embeddings']
 
     def _to_gtg(self, input, fs=None):
-        """Coerce `input` to the (T, num_cfs) sqrt-domain gtg this model expects.
+        """Coerce `input` to the (T, num_cfs) standard gtg this model expects.
 
-        See `get_embeddings` for the three accepted input kinds.
+        See `get_embeddings` for the three accepted input kinds. `acnet_gtgram`
+        never applies compression itself (see its own docstring) -- this
+        model's own first layer (`PowerCompress`) is the only place that
+        happens, so the array returned here is handed straight to `evaluate`.
         """
         from nems.preprocessing.spectrogram import load_wav, acnet_gtgram
 
@@ -217,20 +222,17 @@ class ACNet(Model):
 
         if isinstance(input, str):
             wav, wav_fs = load_wav(input)
-            # compress='sqrt' is a no-op (PowerCompress identity) -- this
-            # hands back raw magnitude for this model's own first layer to
-            # compress, rather than compressing here and again there.
-            return acnet_gtgram(wav, wav_fs, compress='sqrt', **front_end_kwargs)
+            return acnet_gtgram(wav, wav_fs, **front_end_kwargs)
 
         if fs is not None:
             wav = np.asarray(input)
-            return acnet_gtgram(wav, fs, compress='sqrt', **front_end_kwargs)
+            return acnet_gtgram(wav, fs, **front_end_kwargs)
 
         gtg = np.asarray(input)
         print(
             f"get_embeddings: `input` (shape {gtg.shape}) treated as an "
             f"already-computed gammatone spectrogram (no `fs` given). "
-            f"Assuming it is uncompressed (sqrt-domain) magnitude and "
+            f"Assuming it is the standard, uncompressed nems gtgram and "
             f"applying this model's own compress={self.layers[0].mode!r} "
             f"internally -- pass a wav path or (waveform, fs) instead if "
             f"that's not what you meant."
@@ -329,8 +331,9 @@ def load_acnet(version='v1', **model_kwargs):
     ----------
     version : str; one of {'v1', 'v2'}; default='v1'.
         `'v1'` is the released, trained checkpoint (`compress='log10x'`).
-        `'v2'` (`compress='sqrt'`) has not been trained/released yet --
-        raises `NotImplementedError`.
+        `'v2'` (`compress=None` -- no compression beyond the standard nems
+        gtgram) has not been trained/released yet -- raises
+        `NotImplementedError`.
     model_kwargs : dict; optional.
         Passed through to `ACNet.__init__` (e.g. to override `hidden_dim`
         for a smaller test model). Do not pass `compress` here -- it's
@@ -349,8 +352,9 @@ def load_acnet(version='v1', **model_kwargs):
     """
     if version == 'v2':
         raise NotImplementedError(
-            "version='v2' (sqrt compression) has not been trained or "
-            "released yet -- only version='v1' (log10x) is available."
+            "version='v2' (compress=None -- no compression beyond the "
+            "standard nems gtgram) has not been trained or released yet -- "
+            "only version='v1' (log10x) is available."
             )
     if version not in _RELEASED_WEIGHTS:
         raise ValueError(
