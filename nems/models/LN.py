@@ -220,6 +220,9 @@ class LN_STRF(Model):
                 d['nonlinearity']=op
                 if op=='relu':
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+                elif op == 'relu0':
+                    d['nl_kwargs'] = {}
+                    d['nonlinearity'] = 'relu'
             elif op.startswith('l2'):
                 d['regularizer']=op
         return LN_STRF(**d)
