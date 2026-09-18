@@ -61,13 +61,13 @@ class TestEvaluate:
         np.random.seed(0)
         gtg = np.random.rand(T, 8)
 
-        model_sqrt = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=3,
-                           compress='sqrt')
+        model_none = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=3,
+                           compress=None)
         model_log = ACNet(num_cfs=8, hidden_dim=(6,), kernel_size=3, n_neurons=3,
                           compress='log10x')
         # Different random inits mean we can't compare outputs directly, but
         # the first layer's mode should differ as expected.
-        assert model_sqrt.layers[0].mode == 'sqrt'
+        assert model_none.layers[0].mode is None
         assert model_log.layers[0].mode == 'log10x'
 
     def test_get_embeddings_shape_and_value(self):
@@ -161,7 +161,7 @@ class TestLoadAcnet:
         # ambiguous (which one wins?) so it's a hard error, not silently
         # overridden either way.
         with pytest.raises(TypeError):
-            load_acnet(version='v1', compress='sqrt')
+            load_acnet(version='v1', compress=None)
 
     @pytest.mark.skipif(
         not os.path.exists(_RELEASED_WEIGHTS['v1']['npz_path']),

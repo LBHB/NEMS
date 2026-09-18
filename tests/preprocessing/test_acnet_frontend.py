@@ -104,23 +104,16 @@ class TestAcnetGtgram:
         duration = 0.5
         sig = np.random.randn(int(fs_stim * duration))
         out = acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=10e3,
-                           fs_gtg=100.0, compress='sqrt', duration=duration,
+                           fs_gtg=100.0, duration=duration,
                            overall_db=65, level_mode='exact', lbhb_mode=False)
         assert out.shape[1] == 32
         assert out.shape[0] > 0
 
-    def test_compress_modes_differ(self):
+    def test_no_compress_kwarg(self):
+        # acnet_gtgram never applies compression -- that's PowerCompress's
+        # job, inside the model. Passing compress here should be a hard
+        # error (no such parameter), not silently ignored.
         fs_stim = 40000
-        duration = 0.5
-        np.random.seed(0)
-        sig = np.random.randn(int(fs_stim * duration))
-        sqrt_out = acnet_gtgram(sig, fs_stim, num_cfs=8, f_max=10e3, duration=duration,
-                                overall_db=65, level_mode='exact', lbhb_mode=False,
-                                compress='sqrt')
-        log_out = acnet_gtgram(sig, fs_stim, num_cfs=8, f_max=10e3, duration=duration,
-                               overall_db=65, level_mode='exact', lbhb_mode=False,
-                               compress='log10x')
-        assert sqrt_out.shape == log_out.shape
-        assert not np.allclose(sqrt_out, log_out)
-        # Exact relationship: log10x = 0.5*log(1 + 10*sqrt_out**2)
-        assert np.allclose(log_out, 0.5 * np.log(1 + 10 * sqrt_out**2))
+        sig = np.random.randn(fs_stim)
+        with pytest.raises(TypeError):
+            acnet_gtgram(sig, fs_stim, compress='log10x')
