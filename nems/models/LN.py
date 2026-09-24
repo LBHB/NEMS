@@ -216,7 +216,7 @@ class LN_STRF(Model):
         for op in options:
             if op=='g':
                 d['gaussian']=True
-            elif op in ['lvl','dexp','relu']:
+            elif op in ['lvl','dexp','relu','relu0']:
                 d['nonlinearity']=op
                 if op=='relu':
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
@@ -441,10 +441,13 @@ class LN_pop(Model):
                 d['gaussian']=True
             elif op=='i':
                 d['share_tuning']=False
-            elif op in ['lvl','dexp','relu']:
+            elif op in ['lvl','dexp','relu','relu0']:
                 d['nonlinearity']=op
                 if op=='relu':
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+                elif op == 'relu0':
+                    d['nl_kwargs'] = {}
+                    d['nonlinearity'] = 'relu'
             elif op.startswith('l1'):
                 d['regularizer'] = op
             elif op.startswith('l2'):
