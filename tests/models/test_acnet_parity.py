@@ -57,8 +57,9 @@ class TestACNetParity:
 
         # fx['gtg_mag'] is genuine linear magnitude (the PT-side fixture used
         # gtg_compress='none', i.e. no undo needed before PT's apply_compress).
-        # PowerCompress's contract expects sqrt-domain input (matching NEMS's
-        # own gtgram convention) -- convert domains before feeding the model.
+        # This model's own first layer expects the standard nems gtgram
+        # (sqrt-domain, per gammagram's own convention) as input -- convert
+        # domains before feeding the model.
         out = model.predict(np.sqrt(fx['gtg_mag']))
         expected = fx['expected_psth']
 

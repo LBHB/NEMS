@@ -1,13 +1,21 @@
-"""ACNet's raw-audio front end: level normalization + gammatonegram + compression.
+"""ACNet's raw-audio front end: level normalization + the standard nems gtgram.
 
 Ported (numpy/scipy, no torch) from `ACNet_v1.acnet_model.nems_audio_preprocess`/
 `remove_clicks`, which were themselves vendored from `PT_EncMdl_helpers_v2`'s
 `GammatoneFilterbankProcessing`. This module reproduces the level-normalization
 and click-limiter steps -- the pieces that don't already exist in NEMS -- and
-combines them with NEMS's own `gammagram`/`gtgram` (`.gammatone`) and
-`PowerCompress` (`nems.layers.compression`) into one convenience function,
-`acnet_gtgram`, that turns a raw waveform into the (T, `num_cfs`) compressed
-spectrogram a ported ACNet model expects as its stimulus input.
+combines them with NEMS's own `gammagram`/`gtgram` (`.gammatone`) into one
+convenience function, `acnet_gtgram`, that turns a raw waveform into the
+(T, `num_cfs`) standard gtgram a ported ACNet model expects as its stimulus
+input.
+
+Deliberately NOT done here: compression. `acnet_gtgram` always returns the
+plain nems gtgram (see `.gammatone.gammagram`'s own sqrt-domain convention --
+that's an intrinsic property of `gammagram`'s output, not a choice made by
+this module). Compression is exclusively `nems.layers.compression.
+PowerCompress`'s job, applied inside the model itself -- keeping it out of
+this front end means there's exactly one place a compression choice is made,
+not two.
 
 Substitution flagged explicitly (not silent): the released ACNet weights were
 trained with a **polyphase** resampler (`torchaudio.transforms.Resample`),
@@ -216,13 +224,15 @@ def nems_audio_preprocess(sig, fs_stim, fs_gtg, f_max=20e3, duration=None,
 
 
 def acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=20e3, fs_gtg=100.0,
-                 compress='sqrt', duration=None, fixed_amp_scale=250,
+                 duration=None, fixed_amp_scale=250,
                  lbhb_mode=False, overall_db=65, level_mode='exact', verbose=False):
-    """Raw waveform -> level-normalized, compressed gammatonegram.
+    """Raw waveform -> level-normalized, standard nems gtgram. No compression.
 
-    Combines `nems_audio_preprocess` (level norm + click limiter), NEMS's own
-    `gammagram` gammatone filterbank, and `nems.layers.compression.PowerCompress`
-    into the (T, `num_cfs`) array a ported ACNet model expects as its stimulus.
+    Combines `nems_audio_preprocess` (level norm + click limiter) with NEMS's
+    own `gammagram` gammatone filterbank into the (T, `num_cfs`) array a
+    ported ACNet model expects as its stimulus -- before compression, which
+    is exclusively `nems.layers.compression.PowerCompress`'s job (applied
+    inside the model, not here).
 
     Parameters
     ----------
@@ -234,28 +244,24 @@ def acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=20e3, fs_gtg=100.0
     f_min : float; default=200.0.
     f_max : float; default=20e3.
     fs_gtg : float; default=100.0.
-    compress : str; one of {'sqrt', 'log10x'}; default='sqrt'.
     duration, fixed_amp_scale, lbhb_mode, overall_db, level_mode, verbose :
         Passed through to `nems_audio_preprocess`.
 
     Returns
     -------
     np.ndarray
-        Shape (T, `num_cfs`).
+        Shape (T, `num_cfs`). Standard nems gtgram (sqrt-domain magnitude,
+        per `gammagram`'s own convention) -- uncompressed.
 
     """
-    from nems.layers.compression import PowerCompress
-
     sig, fs0 = nems_audio_preprocess(
         sig, fs_stim, fs_gtg, f_max=f_max, duration=duration,
         fixed_amp_scale=fixed_amp_scale, lbhb_mode=lbhb_mode,
         overall_db=overall_db, level_mode=level_mode, verbose=verbose,
         )
 
-    gtg = gammagram(
+    return gammagram(
         sig, fs=fs0, window_time=1/fs_gtg, hop_time=1/fs_gtg,
         channels=num_cfs, f_min=f_min, f_max=f_max,
         )
-
-    return PowerCompress(mode=compress).evaluate(gtg)
 # [AGENT EDIT END]

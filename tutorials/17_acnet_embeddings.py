@@ -47,8 +47,8 @@ SAVE_FIGURE = False
 #   conda activate ptn  # or any env with a working torch -- NOT acnet_v1,
 #                        # see project_acnet_in_nems memory for why
 #   python ACNet_v1/data/export_acnet_v1_weights.py
-# version='v2' (sqrt compression) isn't trained/released yet -- raises
-# NotImplementedError.
+# version='v2' (compress=None -- no compression beyond the standard nems
+# gtgram) isn't trained/released yet -- raises NotImplementedError.
 ########################################################
 # model = load_acnet(version='v1')
 model = load_acnet()  # default = v1

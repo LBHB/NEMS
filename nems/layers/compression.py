@@ -4,7 +4,7 @@ from nems.registry import layer
 from .base import Layer, Phi
 
 
-# [AGENT EDIT START | agent: claude | user: sbp894 | reason: port ACNet's fixed sqrt/log10x gammatone compression as a NEMS Layer, for the ACNet-in-NEMS model port | date: 2026-09-16]
+# [AGENT EDIT START | agent: claude | user: sbp894 | reason: port ACNet's fixed sqrt/log10x gammatone compression as a NEMS Layer, for the ACNet-in-NEMS model port; 2026-09-17 renamed mode='sqrt' (a no-op that was confusing precisely because its name implied an operation it doesn't perform) to mode=None -- compression is now exclusively this layer's concern, gtgram helpers no longer apply any compression themselves | date: 2026-09-16]
 class PowerCompress(Layer):
     """Apply a fixed elementwise magnitude compression to gammatone input.
 
@@ -12,10 +12,15 @@ class PowerCompress(Layer):
     passed through a NEMS-style `gtgram` (see
     `nems.preprocessing.spectrogram.gammatone.gammagram`), whose last step is
     `sqrt(segment_energy.mean())` -- i.e. `gtgram` output is already in the
-    sqrt-magnitude domain, not linear magnitude. `PowerCompress` treats its
-    input accordingly:
+    sqrt-magnitude domain, not linear magnitude. This is simply what `gtgram`
+    produces, not a compression choice -- `PowerCompress` is the only place
+    in this port that a compression choice is actually made:
 
-    - `mode='sqrt'` : identity (input is already `sqrt(mag)`).
+    - `mode=None` (default) : identity. Use the standard `gtgram` output
+      as-is. (This used to be spelled `mode='sqrt'`, which was confusing --
+      it implied an operation was being applied here, when the sqrt is
+      really just an intrinsic property of `gtgram`'s own output, computed
+      upstream of this layer, not by it.)
     - `mode='log10x'` : `0.5*log(1 + 10*mag**2)`, recovering linear magnitude
       by squaring the sqrt-domain input first. Matches
       `PT_EncMdl_helpers_v2.MultiTask_BNTDataSet_Site_Nems`'s `log10x` branch
@@ -27,7 +32,7 @@ class PowerCompress(Layer):
 
     Parameters
     ----------
-    mode : str; one of {'sqrt', 'log10x'}; default='sqrt'.
+    mode : str or None; one of {None, 'log10x'}; default=None.
 
     See also
     --------
@@ -36,17 +41,17 @@ class PowerCompress(Layer):
     Examples
     --------
     >>> pc = PowerCompress(mode='log10x')
-    >>> gtg = np.random.rand(1000, 32)  # (time, channels), sqrt-domain
+    >>> gtg = np.random.rand(1000, 32)  # (time, channels), standard nems gtgram
     >>> out = pc.evaluate(gtg)
     >>> out.shape
     (1000, 32)
 
     """
 
-    def __init__(self, mode='sqrt', **kwargs):
-        if mode not in ('sqrt', 'log10x'):
+    def __init__(self, mode=None, **kwargs):
+        if mode not in (None, 'log10x'):
             raise ValueError(
-                f"PowerCompress mode must be 'sqrt' or 'log10x', got {mode!r}."
+                f"PowerCompress mode must be None or 'log10x', got {mode!r}."
                 )
         self.mode = mode
         super().__init__(**kwargs)
@@ -67,14 +72,14 @@ class PowerCompress(Layer):
         Parameters
         ----------
         input : np.ndarray
-            Gammatone magnitude in the sqrt domain (NEMS `gtgram` convention).
+            The standard `gtgram` output (sqrt-domain gammatone magnitude).
 
         Returns
         -------
         np.ndarray
 
         """
-        if self.mode == 'sqrt':
+        if self.mode is None:
             return input
         else:
             # log10x: recover linear magnitude (input**2), then compress.
@@ -87,7 +92,7 @@ class PowerCompress(Layer):
 
         Keyword options
         ---------------
-        sqrt : mode='sqrt' (identity; input already sqrt-domain magnitude).
+        none : mode=None (identity; use the standard gtgram output as-is).
         log10x : mode='log10x'.
 
         Returns
@@ -102,11 +107,11 @@ class PowerCompress(Layer):
         options = keyword.split('.')
         if 'log10x' in options:
             mode = 'log10x'
-        elif 'sqrt' in options:
-            mode = 'sqrt'
+        elif 'none' in options:
+            mode = None
         else:
             raise ValueError(
-                f"PowerCompress keyword must specify 'sqrt' or 'log10x', got {keyword!r}."
+                f"PowerCompress keyword must specify 'none' or 'log10x', got {keyword!r}."
                 )
         return PowerCompress(mode=mode)
 
@@ -115,11 +120,11 @@ class PowerCompress(Layer):
         import tensorflow as tf
         from nems.backends.tf import NemsKerasLayer
 
-        mode = self.mode  # Python str captured in closure
+        mode = self.mode  # Python str/None captured in closure
 
         class PowerCompressTF(NemsKerasLayer):
             def call(self, inputs):
-                if mode == 'sqrt':
+                if mode is None:
                     return inputs
                 else:
                     c_gain, c_factor = 0.5, 10
