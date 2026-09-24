@@ -13,10 +13,14 @@ log = logging.getLogger(__name__)
 from nems.registry import keyword_lib
 from nems.backends import get_backend
 from nems.metrics import get_metric
-from nems.visualization import plot_model, plot_model_outputs, plot_model_list
+# nems.visualization is imported lazily inside the plot methods below: it
+# pulls in nems.preprocessing, which imports back into nems.models, so a
+# module-level import here is a circular import whenever nems.models is
+# loaded before nems.visualization (e.g. `from nems.visualization import ...`
+# as the first nems import, when nems/__init__.py hasn't run).
 from nems.tools.lookup import lookup_fn_at
 from nems.tools.arrays import one_or_more_nan
-from nems.models.dataset import DataSet
+from nems.tools.dataset import DataSet
 # Temporarily import layers to make sure they're registered in keyword_lib
 import nems.layers
 del nems.layers
@@ -457,7 +461,7 @@ class Model:
         See also
         --------
         nems.layers.base.Layer._evaluate
-        nems.models.dataset.DataSet
+        nems.tools.dataset.DataSet
         Model.generate_layer_data
 
         Warnings
@@ -868,6 +872,95 @@ class Model:
 
         """
         return self.evaluate(input, return_full_data=return_full_data, **eval_kwargs)
+
+    def predict_recording(self, rec, input_name='stim', output_name='resp',
+                          epoch_name=None):
+        """Evaluate this model on `rec[input_name]` and add the result as `rec['pred']`.
+
+        Single-recording, non-jackknifed port of the batching/stitching logic in
+        nems_lbhb.xforms.predict_lite (lines ~1109-1164): resolve a batching
+        epoch if one isn't given, build per-window (or continuous) input arrays,
+        predict, then scatter the flattened prediction back into a full-length
+        signal using the recording's mask (or an epoch-derived mask) so gaps
+        stay NaN.
+
+        Parameters
+        ----------
+        rec : nems.tools.recording.Recording
+            Must contain `input_name` and `output_name` signals.
+        input_name : str
+            Signal in `rec` to use as model input (default 'stim').
+        output_name : str
+            Signal in `rec` used only to determine the target shape/epochs for
+            stitching the prediction back together (default 'resp').
+        epoch_name : str or None
+            Epoch to batch predictions over (e.g. 'REFERENCE', 'WINDOW'). If
+            None, autodetect from `rec[input_name].epochs`; if none of those
+            epochs are present, prediction is done as one continuous batch.
+
+        Returns
+        -------
+        rec : nems.tools.recording.Recording
+            The same recording, with a 'pred' signal added.
+        """
+        if rec is None:
+            raise ValueError('rec must be provided')
+
+        all_inputs, _ = self.get_io_names()
+        existing_inputs = [i for i in all_inputs if i in rec.signals.keys()]
+        if ('state' in rec.signals.keys()) and ('state' not in existing_inputs):
+            existing_inputs.append('state')
+
+        if epoch_name is None:
+            if (rec[input_name].epochs.name == "WINDOW").sum() > 0:
+                epoch_name = "WINDOW"
+            elif (rec[input_name].epochs.name == "REFERENCE").sum() > 0:
+                epoch_name = "REFERENCE"
+            elif (rec[input_name].epochs.name == "EST_STIM").sum() > 0:
+                epoch_name = "EST_STIM"
+            elif (rec[input_name].epochs.name == "VAL_STIM").sum() > 0:
+                epoch_name = "VAL_STIM"
+            else:
+                epoch_name = ""
+            #log.info(f"predict_recording: found epoch_name {epoch_name!r} for batching")
+
+        batched = len(epoch_name) > 0
+        rr = rec.apply_mask()
+        if batched:
+            # (n_windows, T, C) — Model.evaluate expects a leading sample dim.
+            insig = rr[input_name].rasterize()
+            X = {'input': np.moveaxis(insig.extract_epoch(epoch_name), -1, 1)}
+            for i in existing_inputs:
+                X[i] = np.moveaxis(rr[i].rasterize().extract_epoch(epoch_name), -1, 1)
+            batch_size = X['input'].shape[0]
+        else:
+            # (T, C) — no sample dim; batch_size=0 tells evaluate() not to expect one.
+            X = {'input': np.moveaxis(rr[input_name].as_continuous(), -1, 0)}
+            for i in existing_inputs:
+                X[i] = np.moveaxis(rr[i].as_continuous(), -1, 0)
+            batch_size = 0
+
+        prediction = self.predict(X, batch_size=batch_size)
+        if type(prediction) is dict:
+            prediction = prediction['output']
+
+        if batched:
+            prediction = np.reshape(
+                prediction, (prediction.shape[0] * prediction.shape[1], -1)
+            )
+
+        pdata = np.zeros(rec[output_name].shape) * np.nan
+        if 'mask' in rec.signals.keys():
+            m = rec.get_mask_vector(match_signal=output_name)
+            pdata[:, m] = prediction.T
+        elif len(epoch_name) > 0:
+            m = rec[output_name].generate_epoch_mask(epoch_name).flatten().astype(bool)
+            pdata[:, m] = prediction.T
+        else:
+            pdata = prediction.T
+
+        rec['pred'] = rec[output_name]._modified_copy(data=pdata)
+        return rec
 
     def fit(self, input, target, target_name=None, prediction_name=None,
             backend='scipy', fitter_options=None, backend_options=None,
@@ -1618,6 +1711,7 @@ class Model:
 
         By default, the result of each `Layer.evaluate` will be shown.
         """
+        from nems.visualization import plot_model
         return plot_model(self, input, target, **kwargs)
 
     # added .summary() to mirror tensorflow models, for intuitive comparisons.
@@ -2046,6 +2140,7 @@ class Model_List:
         -------
         Figure
         """
+        from nems.visualization import plot_model_list
         return plot_model_list(self.model_list, input, target, plot_comparitive, plot_full, correlation=correlation)
 
 

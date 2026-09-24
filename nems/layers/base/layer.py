@@ -2,7 +2,10 @@ import numpy as np
 import logging
 
 from nems.registry import layer
-from nems.visualization import plot_layer
+# nems.visualization is imported lazily in Layer.plot() below: visualization
+# imports nems.layers (via visualization.layers -> layers.stp -> layers.base),
+# so a module-level import here is a circular import when nems.layers loads
+# before nems.visualization.
 from nems.tools.arrays import one_or_more_nan
 from .phi import Phi
 from .map import DataMap
@@ -861,6 +864,7 @@ class Layer:
         >>> layer.plot(output)
         
         """
+        from nems.visualization import plot_layer
         return plot_layer(output, fig=fig, ax=ax, **plot_kwargs)
 
     @property
