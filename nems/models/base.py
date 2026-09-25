@@ -1804,8 +1804,10 @@ class Model:
                     # (already set by the registry) instead of always getting
                     # a numeric suffix.
                     layers[i]._name = f"{k}{kwdict[k]}"
-                    if (layers[i].output is None) & (i < len(keywords) - 1):
-                        layers[i].output = f"{k}{kwdict[k]}"
+                # [AGENT EDIT START | agent: claude | user: svd | reason: name every intermediate layer's output (not just ones renamed above for a keyword clash), so each layer is individually addressable by name -- e.g. by TensorFlowBackend.evaluate_all_layers(), which looks up each layer's saved output by this key and silently skipped layers where it was still None | date: 2026-09-25]
+                if (layers[i].output is None) & (i < len(keywords) - 1):
+                    layers[i].output = layers[i].name
+                # [AGENT EDIT END]
             return cls(layers=layers)
 
     # Add compatibility for saving to json
