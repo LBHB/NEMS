@@ -1,3 +1,7 @@
+import csv
+import os
+import warnings
+
 import numpy as np
 
 from .base import Model
@@ -369,4 +373,64 @@ def load_acnet(version='v1', **model_kwargs):
     spec = _RELEASED_WEIGHTS[version]
     model = ACNet(compress=spec['compress'], **model_kwargs)
     return load_acnet_v1_weights(model, spec['npz_path'])
+# [AGENT EDIT END]
+
+
+# [AGENT EDIT START | agent: claude | user: sbp894 | reason: per-site overall_db/fixed_amp_scale table -- all 62 of ACNet's real training sites (verified ground truth, not just a live-query passthrough) plus 8 Reishi sites where a live BAPHY exptparams query is wrong (a rig hardware bug). A caller that queries per-site calibration live (e.g. nems_db's NAT_stim, building an acgram recording) should check this before using the queried value -- not wired into that caller here, that edit belongs in nems_db, a separate repo | date: 2026-09-28]
+SITE_CALIBRATION_CSV = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '..',
+    'tutorials', 'data', 'acnet_site_calibration.csv')
+
+
+def resolve_site_calibration(siteid, overall_db, fixed_amp_scale,
+                             calibration_csv=SITE_CALIBRATION_CSV):
+    """Correct a site's queried overall_db/fixed_amp_scale against a table
+    of verified values, trusting the table whenever `siteid` is listed.
+
+    The table (`tutorials/data/acnet_site_calibration.csv`) has two kinds of
+    rows: all 62 of ACNet's real training sites (the ground truth the
+    released checkpoint was actually trained on -- most agree with a live
+    query, a handful legitimately don't need to, e.g. the 8 CLT sites
+    genuinely recorded at fixed_amp_scale=50 rather than the more common
+    250), and 8 Reishi sites (never part of training) where a live query
+    is simply wrong -- a rig hardware bug reports overall_db=50 when the
+    real recording level was 65 dB SPL. Either way, if `siteid` is in the
+    table, its value is trusted over whatever was queried; a mismatch
+    triggers a warning (so a genuinely stale table entry doesn't go
+    unnoticed) but the table's value is still what's returned.
+
+    Parameters
+    ----------
+    siteid : str
+    overall_db, fixed_amp_scale : float
+        The values a live `BAPHYExperiment.get_baphy_exptparams()` query
+        returned for this site.
+    calibration_csv : str; optional.
+        Pass None to disable the table lookup entirely (e.g. for a site
+        you've separately confirmed needs none).
+
+    Returns
+    -------
+    overall_db, fixed_amp_scale : float
+        The table's values if `siteid` is listed, otherwise unchanged.
+
+    """
+    if calibration_csv is None or not os.path.exists(calibration_csv):
+        return overall_db, fixed_amp_scale
+    with open(calibration_csv) as fh:
+        rows = {r['site']: r for r in csv.DictReader(fh)}
+    if siteid not in rows:
+        return overall_db, fixed_amp_scale
+
+    row = rows[siteid]
+    table_db = float(row['overall_db'])
+    table_fas = float(row['fixed_amp_scale'])
+    if table_db != overall_db or table_fas != fixed_amp_scale:
+        warnings.warn(
+            f"{siteid}: live query (overall_db={overall_db}, "
+            f"fixed_amp_scale={fixed_amp_scale}) disagrees with the "
+            f"calibration table (overall_db={table_db}, "
+            f"fixed_amp_scale={table_fas}) -- trusting the table.",
+            stacklevel=2)
+    return table_db, table_fas
 # [AGENT EDIT END]

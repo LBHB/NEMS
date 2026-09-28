@@ -6,7 +6,6 @@ import numpy as np
 from nems.layers.compression import PowerCompress
 from nems.preprocessing.spectrogram import (
     load_wav, remove_clicks, nems_audio_preprocess, acnet_gtgram,
-    resolve_site_calibration,
 )
 from nems.preprocessing.spectrogram.gammatone import gammagram
 
@@ -158,29 +157,3 @@ class TestAcnetGtgram:
         out = PowerCompress(mode='log10x').evaluate(gtg)
         expected = 0.5 * np.log(1 + 10 * gtg)
         assert np.allclose(out, expected)
-
-
-class TestResolveSiteCalibration:
-
-    def test_unlisted_site_passes_through(self):
-        assert resolve_site_calibration('PRN007a', 65, 250) == (65, 250)
-
-    def test_listed_site_overridden(self):
-        # REI058a: confirmed 2026-09-28 via direct celldb query -- reports
-        # OveralldB=50 (Reishi rig hardware bug), actually recorded at 65.
-        assert resolve_site_calibration('REI058a', 50, 250) == (65, 250)
-
-    def test_listed_site_query_mismatch_still_trusts_table(self):
-        # Even if the live query no longer matches what the table recorded
-        # as the query value (celldb changed, or a typo), the table's
-        # true_* values are still what's returned -- just with a warning.
-        with pytest.warns(UserWarning):
-            out = resolve_site_calibration('REI058a', 999, 250)
-        assert out == (65, 250)
-
-    def test_overrides_csv_none_disables_lookup(self):
-        assert resolve_site_calibration('REI058a', 50, 250, overrides_csv=None) == (50, 250)
-
-    def test_missing_csv_path_passes_through(self):
-        assert resolve_site_calibration('REI058a', 50, 250,
-                                        overrides_csv='/nonexistent/path.csv') == (50, 250)

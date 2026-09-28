@@ -3,7 +3,7 @@ import os
 import pytest
 import numpy as np
 
-from nems.models.ACNet import ACNet, load_acnet, _RELEASED_WEIGHTS
+from nems.models.ACNet import ACNet, load_acnet, _RELEASED_WEIGHTS, resolve_site_calibration
 
 
 class TestConstruction:
@@ -176,3 +176,46 @@ class TestLoadAcnet:
         # Real weights, not the zero/random init defaults -- readout bias
         # should not be all-zero.
         assert not np.allclose(model.layers[-2].parameters['shift'].values, 0)
+
+
+class TestResolveSiteCalibration:
+
+    def test_unlisted_site_passes_through(self):
+        # SQD sites are a different animal entirely, not in this table.
+        assert resolve_site_calibration('SQD040a', 60, 250) == (60, 250)
+
+    def test_one_of_62_training_sites_agrees_with_query(self):
+        # Most of the table's 62 real-training-site rows just confirm what
+        # a live query already returns -- no correction happening, but
+        # still the ground truth this checkpoint was actually trained on.
+        assert resolve_site_calibration('PRN007a', 65, 250) == (65, 250)
+
+    def test_one_of_62_training_sites_legitimate_non_default_value(self):
+        # CLT028c genuinely was recorded at fixed_amp_scale=50 (not a bug --
+        # a real, different historical calibration setting from the more
+        # common 250 used elsewhere).
+        assert resolve_site_calibration('CLT028c', 65, 50) == (65, 50)
+
+    def test_reishi_hardware_bug_corrected(self):
+        # REI058a: confirmed 2026-09-28 via direct celldb query -- reports
+        # overall_db=50 (Reishi rig hardware bug), actually recorded at 65.
+        # A real query for this site always disagrees with the table by
+        # construction (that's the whole bug), so this one warns too.
+        with pytest.warns(UserWarning):
+            out = resolve_site_calibration('REI058a', 50, 250)
+        assert out == (65, 250)
+
+    def test_listed_site_query_mismatch_still_trusts_table(self):
+        # Even if the live query disagrees with the table for a listed
+        # site (celldb changed, or the table's stale), the table's value
+        # is still what's returned -- just with a warning.
+        with pytest.warns(UserWarning):
+            out = resolve_site_calibration('REI058a', 999, 250)
+        assert out == (65, 250)
+
+    def test_calibration_csv_none_disables_lookup(self):
+        assert resolve_site_calibration('REI058a', 50, 250, calibration_csv=None) == (50, 250)
+
+    def test_missing_csv_path_passes_through(self):
+        assert resolve_site_calibration('REI058a', 50, 250,
+                                        calibration_csv='/nonexistent/path.csv') == (50, 250)
