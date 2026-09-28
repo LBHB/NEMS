@@ -1,0 +1,9 @@
+site,animal,query_overall_db,true_overall_db,query_fixed_amp_scale,true_fixed_amp_scale,note
+REI058a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI066a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI071a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI083a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI113d,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI116a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI119a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL
+REI121a,REI,50,65,250,250,Reishi rig hardware bug: nominal 50 dB was actually 65 dB SPL

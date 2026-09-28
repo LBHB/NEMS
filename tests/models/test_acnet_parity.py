@@ -55,12 +55,12 @@ class TestACNetParity:
         fx = _load_fixture()
         model = _build_and_load_model(fx)
 
-        # fx['gtg_mag'] is genuine linear magnitude (the PT-side fixture used
-        # gtg_compress='none', i.e. no undo needed before PT's apply_compress).
-        # This model's own first layer expects the standard nems gtgram
-        # (sqrt-domain, per gammagram's own convention) as input -- convert
-        # domains before feeding the model.
-        out = model.predict(np.sqrt(fx['gtg_mag']))
+        # fx['gtg_mag'] is genuine linear (amplitude-domain) magnitude (the
+        # PT-side fixture used gtg_compress='none', i.e. no undo needed
+        # before PT's apply_compress) -- exactly what the standard nems
+        # gtgram/acnet_gtgram returns and what this model's own first layer
+        # (PowerCompress) expects directly, no domain conversion needed.
+        out = model.predict(fx['gtg_mag'])
         expected = fx['expected_psth']
 
         assert out.shape == expected.shape
