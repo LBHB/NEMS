@@ -279,8 +279,8 @@ def acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=20e3, fs_gtg=100.0
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: known sites where a live BAPHY exptparams query reports a different overall_db/fixed_amp_scale than what the site was actually recorded/trained at (e.g. the Reishi rig hardware bug) -- for use wherever a caller queries per-site calibration live, not inside acnet_gtgram/nems_audio_preprocess itself (those always take explicit, already-correct overall_db/fixed_amp_scale) | date: 2026-09-28]
 SITE_CALIBRATION_OVERRIDES_CSV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'data',
-    'acnet_site_calibration_overrides.csv')
+    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..',
+    'tutorials', 'data', 'acnet_site_calibration_overrides.csv')
 
 
 def resolve_site_calibration(siteid, overall_db, fixed_amp_scale,
