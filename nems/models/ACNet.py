@@ -41,12 +41,12 @@ class ACNet(Model):
         Number of output channels (recorded neurons) in the readout.
     compress : str or None; one of {None, 'log10x'}; default='log10x'.
         See `nems.layers.compression.PowerCompress`. `'log10x'` is the
-        released checkpoint's actual training config; `None` means no
-        compression beyond the standard nems gtgram's own sqrt-domain
-        convention. This is the ONLY place compression is specified --
-        `get_embeddings` never takes a `compress` argument, since the
-        model's own first layer is always the single source of truth for
-        how its input gets compressed.
+        released checkpoint's actual training config, applied directly to
+        the standard nems gtgram's amplitude-domain output; `None` means no
+        compression at all (raw amplitude). This is the ONLY place
+        compression is specified -- `get_embeddings` never takes a
+        `compress` argument, since the model's own first layer is always
+        the single source of truth for how its input gets compressed.
     res_scale : float; default=1.0.
         Fixed (non-fittable) residual scale for every block but the first
         (which has no residual). Matches the released checkpoint's config

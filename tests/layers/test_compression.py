@@ -35,11 +35,16 @@ class TestEvaluate:
 
     def test_log10x_formula(self, spectrogram):
         # Matches PT_EncMdl_helpers_v2.MultiTask_BNTDataSet_Site_Nems's
-        # log10x branch: c_gain=0.5, c_factor=10, applied to linear magnitude
-        # recovered by squaring the sqrt-domain (standard gtgram) input.
+        # log10x branch: c_gain=0.5, c_factor=10, applied directly to the
+        # standard gtgram's amplitude-domain input. PT's own archived
+        # training data happened to be cached as amplitude**0.5 for storage
+        # efficiency (squared back before this formula there) -- that is
+        # not part of the compression itself, and `acnet_gtgram` never
+        # introduces it, so no squaring belongs here (see PowerCompress's
+        # own docstring for the 2026-09-28 bug this used to have).
         pc = PowerCompress(mode='log10x')
         out = pc.evaluate(spectrogram)
-        expected = 0.5 * np.log(1 + 10 * spectrogram**2)
+        expected = 0.5 * np.log(1 + 10 * spectrogram)
         assert out.shape == spectrogram.shape
         assert np.allclose(out, expected)
 

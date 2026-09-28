@@ -10,12 +10,17 @@ convenience function, `acnet_gtgram`, that turns a raw waveform into the
 input.
 
 Deliberately NOT done here: compression. `acnet_gtgram` always returns the
-plain nems gtgram (see `.gammatone.gammagram`'s own sqrt-domain convention --
-that's an intrinsic property of `gammagram`'s output, not a choice made by
-this module). Compression is exclusively `nems.layers.compression.
-PowerCompress`'s job, applied inside the model itself -- keeping it out of
-this front end means there's exactly one place a compression choice is made,
-not two.
+plain nems gtgram in AMPLITUDE units (see `.gammatone.gammagram`'s own
+`sqrt(segment_energy.mean())` step -- that's how amplitude is recovered from
+energy, an intrinsic property of `gammagram`'s output, not a compression
+choice made by this module). Compression is exclusively `nems.layers.
+compression.PowerCompress`'s job, applied inside the model itself -- keeping
+it out of this front end means there's exactly one place a compression
+choice is made, not two. `PowerCompress(mode='log10x')` takes this
+function's amplitude output directly (`0.5*log(1+10*amplitude)`, no further
+domain conversion) -- see its own docstring for the 2026-09-28 bug where an
+extra, incorrect squaring there required this function's output to be
+manually sqrt()'d by every caller.
 
 Substitution flagged explicitly (not silent): the released ACNet weights were
 trained with a **polyphase** resampler (`torchaudio.transforms.Resample`),
@@ -250,8 +255,10 @@ def acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=20e3, fs_gtg=100.0
     Returns
     -------
     np.ndarray
-        Shape (T, `num_cfs`). Standard nems gtgram (sqrt-domain magnitude,
-        per `gammagram`'s own convention) -- uncompressed.
+        Shape (T, `num_cfs`). Standard nems gtgram, amplitude-domain
+        magnitude (`gammagram`'s native `sqrt(energy)` output) --
+        uncompressed. Feed this directly to `PowerCompress`/
+        `ACNet.get_embeddings`; no further domain conversion needed.
 
     """
     sig, fs0 = nems_audio_preprocess(

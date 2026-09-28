@@ -8,23 +8,34 @@ from .base import Layer, Phi
 class PowerCompress(Layer):
     """Apply a fixed elementwise magnitude compression to gammatone input.
 
-    ACNet trains on gammatone-filterbank magnitude that has already been
-    passed through a NEMS-style `gtgram` (see
-    `nems.preprocessing.spectrogram.gammatone.gammagram`), whose last step is
-    `sqrt(segment_energy.mean())` -- i.e. `gtgram` output is already in the
-    sqrt-magnitude domain, not linear magnitude. This is simply what `gtgram`
-    produces, not a compression choice -- `PowerCompress` is the only place
-    in this port that a compression choice is actually made:
+    ACNet trains on gammatone-filterbank magnitude straight from a
+    NEMS-style `gtgram` (see
+    `nems.preprocessing.spectrogram.gammatone.gammagram`), in AMPLITUDE
+    units: `gtgram`'s last step, `sqrt(segment_energy.mean())`, is a
+    physical amplitude-from-energy conversion, not a compression choice, so
+    its output is plain (uncompressed) amplitude. `PowerCompress` is the
+    only place in this port that a compression choice is actually made:
 
     - `mode=None` (default) : identity. Use the standard `gtgram` output
-      as-is. (This used to be spelled `mode='sqrt'`, which was confusing --
-      it implied an operation was being applied here, when the sqrt is
-      really just an intrinsic property of `gtgram`'s own output, computed
-      upstream of this layer, not by it.)
-    - `mode='log10x'` : `0.5*log(1 + 10*mag**2)`, recovering linear magnitude
-      by squaring the sqrt-domain input first. Matches
-      `PT_EncMdl_helpers_v2.MultiTask_BNTDataSet_Site_Nems`'s `log10x` branch
-      exactly (`c_gain=0.5`, `c_factor=10`).
+      (amplitude) as-is. (This used to be spelled `mode='sqrt'`, which was
+      confusing -- it implied an operation was being applied here, when the
+      sqrt inside `gtgram` is really just how amplitude is recovered from
+      energy, computed upstream of this layer, not by it.)
+    - `mode='log10x'` : `0.5*log(1 + 10*amplitude)`, applied directly to
+      `gtgram`'s amplitude output. Matches
+      `PT_EncMdl_helpers_v2.MultiTask_BNTDataSet_Site_Nems`'s `log10x`
+      branch (`c_gain=0.5`, `c_factor=10`) -- there, the archived training
+      data had been cached as `amplitude**0.5` purely for storage
+      efficiency, so that code squares it back to amplitude first
+      (`self.x_tasks ** 2`) before applying this same formula. NEMS's
+      `acnet_gtgram` never introduces that storage-driven extra sqrt --
+      it returns amplitude directly (see its own docstring) -- so no
+      squaring belongs here; doing so would double-compress the input.
+      Confirmed 2026-09-28: squaring here silently broke `get_embeddings`
+      on a fresh wav-computed `acnet_gtgram` input (r_test ratio ~0.40
+      vs. published, across 8 sites/4 animals) despite `acnet_gtgram`'s
+      own docstring being correct the whole time -- this layer's `**2`
+      was the actual bug, not the front end.
 
     This Layer has no fittable parameters -- the compression mode is a fixed
     choice, not something to optimize (contrast with `nems.layers.LogCompress`,
@@ -72,7 +83,8 @@ class PowerCompress(Layer):
         Parameters
         ----------
         input : np.ndarray
-            The standard `gtgram` output (sqrt-domain gammatone magnitude).
+            The standard `gtgram` output (amplitude-domain gammatone
+            magnitude, uncompressed).
 
         Returns
         -------
@@ -82,9 +94,8 @@ class PowerCompress(Layer):
         if self.mode is None:
             return input
         else:
-            # log10x: recover linear magnitude (input**2), then compress.
             c_gain, c_factor = 0.5, 10
-            return c_gain * np.log(1 + c_factor * input**2)
+            return c_gain * np.log(1 + c_factor * input)
 
     @layer('pow')
     def from_keyword(keyword):
@@ -128,9 +139,7 @@ class PowerCompress(Layer):
                     return inputs
                 else:
                     c_gain, c_factor = 0.5, 10
-                    return c_gain * tf.math.log(
-                        1 + c_factor * tf.math.square(inputs)
-                        )
+                    return c_gain * tf.math.log(1 + c_factor * inputs)
 
         return PowerCompressTF(self, **kwargs)
 # [AGENT EDIT END]
