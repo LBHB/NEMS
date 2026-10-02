@@ -173,10 +173,21 @@ def nems_audio_preprocess(sig, fs_stim, fs_gtg, f_max=20e3, duration=None,
         If True, apply `remove_clicks` (peak limiter) before level scaling.
     overall_db : float; default=65.
         Target level, dB SPL.
-    level_mode : str; one of {'exact', 'approx'}; default='exact'.
+    level_mode : str; one of {'exact', 'approx', 'max', 'rms'}; default='exact'.
         `'exact'` scales using the signal's own measured dB SPL.  `'approx'`
         (only valid when `lbhb_mode=True`) assumes a nominal 80 dB SPL
         pre-limiter level instead of measuring it.
+        `'max'` and `'rms'` (only valid when `lbhb_mode=True`) reproduce the
+        per-sound normalizations used by baphy OverlappingPairs
+        (`NormalizeRMS`; see `nems_lbhb.runclass.olp_normalize`), in baphy
+        units where peak 5 / RMS 3.5349 == 80 dB SPL. `fixed_amp_scale` is
+        ignored for both:
+        `'max'`: `5 * sig / max|sig|` (NormalizeRMS='No'); no click limiter.
+        `'rms'`: `remove_clicks(sig / rms(sig), 15) * 3.5349`
+        (NormalizeRMS='Yes', psi normalization='rms').
+        Both then attenuate by `10**((80 - overall_db)/20)`, like `'approx'`.
+        The level is measured over the whole (ramped) signal, so pass
+        `duration` to match a presentation that truncated the wav.
     verbose : bool; default=False.
 
     Returns
@@ -207,10 +218,19 @@ def nems_audio_preprocess(sig, fs_stim, fs_gtg, f_max=20e3, duration=None,
     sig[-len(ramp):] *= ramp[::-1]
 
     if lbhb_mode:
-        sig = remove_clicks(sig * fixed_amp_scale, 15)
+        # [AGENT EDIT START | agent: claude | user: svd | reason: add level_mode 'max'/'rms' to match baphy OLP NormalizeRMS 'No'/'Yes' per-sound normalization (baphy units, peak 5 / RMS 3.5349 == 80 dB) | date: 2026-10-02]
+        if level_mode == 'max':
+            sig = 5 * sig / np.max(np.abs(sig))
+        elif level_mode == 'rms':
+            sig = remove_clicks(sig / np.sqrt(np.mean(sig**2)), 15) * 3.5349
+        else:
+            sig = remove_clicks(sig * fixed_amp_scale, 15)
+        # [AGENT EDIT END]
         pre_dbspl = 20 * np.log10(np.sqrt(np.mean(sig**2)) / 20e-6)
         if overall_db is not None:
-            if level_mode == 'approx':
+            # [AGENT EDIT START | agent: claude | user: svd | reason: 'max'/'rms' use the same fixed 80 dB reference as 'approx' | date: 2026-10-02]
+            if level_mode in ('approx', 'max', 'rms'):
+            # [AGENT EDIT END]
                 sf = 10 ** ((80 - overall_db) / 20)
             elif level_mode == 'exact':
                 sf = 10 ** ((pre_dbspl - overall_db) / 20)
