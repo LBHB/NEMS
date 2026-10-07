@@ -185,21 +185,26 @@ class CNN_reconstruction(Model):
         super().__init__(**model_init_kwargs)
         if from_saved:
             return
-
-        wc1 = WeightChannels(shape=(channels, 1, L1))
-        fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
         relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
+        if time_bins>1:
+            wc1 = WeightChannels(shape=(channels, 1, L1))
+            fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
+            self.add_layers(wc1, fir1, relu1)
+        else:
+            wc1 = WeightChannels(shape=(channels, L1))
+            self.add_layers(wc1, relu1)
+
         if L2 > 0:
 
             wc2 = WeightChannels(shape=(L1, L2))
             relu2 = RectifiedLinear(shape=(L2,), no_offset=False, no_shift=False)
             wc3 = WeightChannels(shape=(L2, out_channels))
 
-            self.add_layers(wc1, fir1, relu1, wc2, relu2, wc3)
+            self.add_layers(wc2, relu2, wc3)
         else:
             wc2 = WeightChannels(shape=(L1, out_channels))
 
-            self.add_layers(wc1, fir1, relu1, wc2)
+            self.add_layers(wc2)
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
@@ -221,21 +226,21 @@ class CNN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
-
-        fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': 5e-3,
-                          'validation_split': 0,
-                          'learning_rate': 1e-2, 'epochs': 3000
-                          }
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
+                 **fitopts_kwargs):
         fitter_options2 = {'cost_function': cost_function,
                            'early_stopping_tolerance': 5e-4,
                            'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000
-                           }
+                           'learning_rate': 1e-3, 'epochs': 8000}
+        fitter_options2.update(**fitopts_kwargs)
+
+        fitter_options=fitter_options2.copy()
+        fitter_options['early_stopping_tolerance'] *= 10
+        fitter_options['learning_rate'] *= 10
+        fitter_options['epochs'] = 3000
 
         model = self.sample_from_priors()
-        #model = model.sample_from_priors()
+        model = model.sample_from_priors()
 
         model.layers[-1].skip_nonlinearity()
         model = model.fit(input=X, target=Y, backend=fitter,
