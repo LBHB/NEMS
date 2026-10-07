@@ -216,7 +216,9 @@ class DoubleExponential(StaticNonlinearity):
         kappa : scalar or ndarray
             Sigmoid curvature. Larger numbers mean steeper slope.
             Prior:  Normal(mean=1, sd=10)
-            Bounds: TODO
+            Bounds: (-inf, 5). Slope scales as exp(kappa); across 1121 batch 341
+            fits kappa never exceeded 4.06 (99.9th pct 3.13), while runaway
+            cells that drive the inner exponent to overflow reach >5.
 
         Returns
         -------
@@ -230,7 +232,10 @@ class DoubleExponential(StaticNonlinearity):
             Parameter('base', shape=self.shape, prior=Normal(-one/10, one/50)),
             Parameter('amplitude', shape=self.shape, prior=Normal(one/2, one/5)),
             Parameter('shift', shape=self.shape, prior=Normal(zero, one/10)),
-            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10))
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: upper-bound kappa (slope = exp(kappa)) to keep cells out of the regime where the inner exponent overflows; 5 is above every kappa in 1121 existing batch 341 fits (max 4.06). Saved models keep their own stored bounds when loaded | date: 2026-10-07]
+            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10),
+                      bounds=(-np.inf, 5))
+            # [AGENT EDIT END]
             )
         return phi
 
