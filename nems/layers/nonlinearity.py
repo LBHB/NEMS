@@ -288,9 +288,11 @@ class DoubleExponential(StaticNonlinearity):
         else:
             class DoubleExponentialTF(NemsKerasLayer):
                 def call(self, inputs):
-                    exp = tf.math.exp(-tf.math.exp(
-                        -tf.math.exp(self.kappa) * (inputs + self.shift)
-                        ))
+                    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: when u=-exp(kappa)*(x+shift) is large, exp(u) overflows to inf; the output is still finite (exp(-inf)=0) but d/d(x, shift, kappa) = exp(u)*exp(-exp(u)) = inf*0 = NaN, which poisoned every upstream weight mid-fit (batch 341 ARM fits). Capping u at 50 leaves the output unchanged (exp(-exp(50)) is already exactly 0 in float32/float64) and makes that gradient 0 instead of NaN | date: 2026-10-06]
+                    u = -tf.math.exp(self.kappa) * (inputs + self.shift)
+                    u = tf.minimum(u, tf.constant(50, dtype=u.dtype))
+                    exp = tf.math.exp(-tf.math.exp(u))
+                    # [AGENT EDIT END]
                     return self.base + self.amplitude * exp
 
             return DoubleExponentialTF(self, **kwargs)
