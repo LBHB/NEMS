@@ -176,3 +176,47 @@ class TestLoadAcnet:
         # Real weights, not the zero/random init defaults -- readout bias
         # should not be all-zero.
         assert not np.allclose(model.layers[-2].parameters['shift'].values, 0)
+
+
+# [AGENT EDIT START | agent: claude | user: svd | reason: tests for get_embeddings(silence_lead=...) and ACNet.receptive_field_bins | date: 2026-10-07]
+class TestSilenceLead:
+
+    def test_receptive_field_bins(self):
+        model = ACNet(num_cfs=6, hidden_dim=(6, 7, 8), kernel_size=3, n_neurons=4)
+        assert model.receptive_field_bins == 3 * 2
+        assert ACNet().receptive_field_bins == 6 * 6  # released v1 config
+
+    def test_default_unchanged(self):
+        # silence_lead defaults to False: identical to the raw trunk output
+        model = ACNet(num_cfs=6, hidden_dim=(6, 7, 8), kernel_size=3, n_neurons=4)
+        gtg = np.random.rand(60, 6)
+        full = model.evaluate(gtg, return_full_data=True)
+        assert np.array_equal(model.get_embeddings(gtg), full['embeddings'])
+        assert np.array_equal(model.get_embeddings(gtg, silence_lead=False), full['embeddings'])
+
+    def test_matches_manual_padding(self):
+        model = ACNet(num_cfs=6, hidden_dim=(6, 7, 8), kernel_size=3, n_neurons=4)
+        gtg = np.random.rand(60, 6)
+        for lead, n in [(True, model.receptive_field_bins), (10, 10)]:
+            padded = np.concatenate([np.zeros((n, 6)), gtg])
+            expected = model.evaluate(padded, return_full_data=True)['embeddings'][n:]
+            emb = model.get_embeddings(gtg, silence_lead=lead)
+            assert emb.shape == (60, 8)
+            assert np.allclose(emb, expected)
+
+    @pytest.mark.skipif(
+        not os.path.exists(_RELEASED_WEIGHTS['v1']['npz_path']),
+        reason="released v1 weights npz not present on this machine",
+        )
+    def test_v1_silence_is_steady_state(self):
+        # With real weights the silence steady state is non-zero, so a cold
+        # start shows an edge transient; silence_lead removes it entirely.
+        model = load_acnet(version='v1')
+        silence = np.zeros((50, model.num_cfs))
+        cold = model.get_embeddings(silence)
+        warm = model.get_embeddings(silence, silence_lead=True)
+        steady = cold[-1]
+        assert np.abs(steady).max() > 0
+        assert np.abs(cold[0] - steady).max() > 0.1
+        assert np.allclose(warm, steady[None, :], atol=1e-10)
+# [AGENT EDIT END]

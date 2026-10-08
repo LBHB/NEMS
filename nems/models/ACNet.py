@@ -162,7 +162,23 @@ class ACNet(Model):
             )
         self.output_name = 'psth'
 
-    def get_embeddings(self, input, fs=None, **eval_kwargs):
+    # [AGENT EDIT START | agent: claude | user: svd | reason: expose the trunk's causal receptive field so get_embeddings can prepend enough silence to reach ACNet's silence steady state | date: 2026-10-07]
+    @property
+    def receptive_field_bins(self):
+        """Causal receptive field of the trunk, in gtg frames.
+
+        Sum of (kernel_size - 1) over every DepthwiseFIR block (36 for v1).
+        Each block's FIR zero-pads its own input; past block 0 that input is a
+        ReLU output whose response to silence is not zero, so the first frames
+        of any evaluation are an edge transient rather than a response to
+        silence. Prepending at least this many silent frames
+        (`get_embeddings(..., silence_lead=True)`) removes it.
+        """
+        return int(sum(layer.shape[0] - 1 for layer in self.layers
+                       if isinstance(layer, DepthwiseFIR)))
+    # [AGENT EDIT END]
+
+    def get_embeddings(self, input, fs=None, silence_lead=False, **eval_kwargs):
         """Return the shared-trunk ("manifold") embeddings for `input`.
 
         Equivalent to `ACNet_v1.acnet_model.ACNet.get_mf_embeddings`'s
@@ -194,6 +210,17 @@ class ACNet(Model):
         fs : float; optional.
             Sampling rate of `input`, if it's a raw waveform. Leave as None
             for a wav file path or a precomputed gtg.
+        silence_lead : bool or int; default=False.
+            If True, prepend `receptive_field_bins` frames of silence (a zero
+            gtg) before evaluating, and drop them from the output, so the
+            sound is entered from ACNet's steady-state response to silence.
+            An int gives the number of frames explicitly. If False, the
+            trunk starts cold: each block's FIR zero-pads its own input, and
+            for blocks past the first that is not what silence looks like
+            there, so the first frames of the output (30 for v1) are an edge
+            transient, with values up to ~3.7 for v1 versus ~0.1-0.2 for
+            real sound. The silence is added in the gtg domain, after any
+            wav front end, so it never affects level normalization.
         eval_kwargs : dict; optional.
             Passed through to `Model.evaluate`.
 
@@ -204,8 +231,19 @@ class ACNet(Model):
 
         """
         gtg = self._to_gtg(input, fs)
+        # [AGENT EDIT START | agent: claude | user: svd | reason: optional silent lead-in so embeddings start from ACNet's silence steady state instead of the conv zero-padding edge transient | date: 2026-10-07]
+        if silence_lead is True:
+            n_lead = self.receptive_field_bins
+        else:
+            n_lead = int(silence_lead)
+        if n_lead > 0:
+            # time is the second-to-last axis for both (T, N) and (S, T, N)
+            pad = [(0, 0)] * gtg.ndim
+            pad[-2] = (n_lead, 0)
+            gtg = np.pad(gtg, pad)
         data = self.evaluate(gtg, return_full_data=True, **eval_kwargs)
-        return data['embeddings']
+        return data['embeddings'][..., n_lead:, :]
+        # [AGENT EDIT END]
 
     def _to_gtg(self, input, fs=None):
         """Coerce `input` to the (T, num_cfs) standard gtg this model expects.
