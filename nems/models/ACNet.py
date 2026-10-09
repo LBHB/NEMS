@@ -45,11 +45,11 @@ class ACNet(Model):
         every block.
     n_neurons : int; default=3124.
         Number of output channels (recorded neurons) in the readout.
-    compress : str or None; one of {None, 'log10x'}; default='log10x'.
-        See `nems.layers.compression.PowerCompress`. `'log10x'` is the
-        released checkpoint's actual training config, applied directly to
-        the standard nems gtgram's amplitude-domain output; `None` means no
-        compression at all (raw amplitude). This is the ONLY place
+    compress : str or None; one of {None, 'sqrt', 'log10x'}; default='log10x'.
+        See `nems.layers.compression.PowerCompress`. `'log10x'` is
+        `load_acnet`'s `version='v1.0'` checkpoint's actual training config;
+        `'sqrt'` is `'v2.0'`/`'v2.1'`'s. `None` (identity, raw amplitude) isn't
+        any released checkpoint's training config. This is the ONLY place
         compression is specified -- `get_embeddings` never takes a
         `compress` argument, since the model's own first layer is always
         the single source of truth for how its input gets compressed.
@@ -249,15 +249,20 @@ class ACNet(Model):
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: loader for the real released ACNet_v1 checkpoint's weights (exported to a portable npz outside NEMS, since NEMS must stay torch-free) -- needed for the wav/gtg embeddings usage tutorial to demonstrate the actual shipped manifold, not a randomly-initialized one | date: 2026-09-16]
 def load_acnet_v1_weights(model, npz_path):
-    """Load real ACNet_v1 checkpoint weights (exported to an npz) into `model`.
+    """Load a released ACNet checkpoint's weights (exported to an npz) into `model`.
+
+    Despite the name (kept for backward compatibility -- this function
+    predates `'v2.0'`/`'v2.1'`), this works for any of `load_acnet`'s
+    versions: the npz schema is the same regardless of which checkpoint
+    produced it.
 
     The npz must be produced by
     `ACNet_v1/data/export_acnet_v1_weights.py` (run separately,
     under a torch env -- this function only ever touches plain numpy arrays).
     `model` must have been constructed with matching `hidden_dim`/`kernel_size`/
-    `num_cfs`/`n_neurons` (see the npz's own `hidden_dim`/`kernel_size`/
-    `num_cfs`/`n_neurons` entries, which `ACNet`'s defaults already match for
-    the released checkpoint).
+    `num_cfs`/`n_neurons` -- `load_acnet` reads these directly from the npz's
+    own stored metadata so they can never drift from what's actually in it;
+    call this function directly only if you're building `model` by hand.
 
     Parameters
     ----------
@@ -314,40 +319,110 @@ def load_acnet_v1_weights(model, npz_path):
     return model
 
 
-# Released-checkpoint registry: version -> (compress mode, weights npz path).
-# Deliberately not exposed as a public path constant -- load_acnet() is the
-# public entry point; the file location is an implementation detail of it.
+# Released-checkpoint registry: version -> weights npz path. Deliberately not
+# exposed as a public path constant -- load_acnet() is the public entry
+# point; the file location is an implementation detail of it. Everything
+# else (compress, kernel_size, n_neurons, num_cfs) is read from each npz's
+# own stored metadata (see export_weights_dict in ACNet_v1/data/
+# _acnet_weight_export.py) rather than duplicated here, so a 4th version
+# can't silently drift from what its checkpoint actually is.
 _RELEASED_WEIGHTS = {
-    'v1': {
-        'compress': 'log10x',
-        'npz_path': '/auto/users/satya/code/projects_getting_started/ACNet_v1/'
-                    'weights/acnet_v1_weights_nems.npz',
-        },
+    'v1.0': '/auto/users/satya/code/projects_getting_started/ACNet_v1/'
+            'weights/acnet_v1_weights_nems.npz',
+    'v2.0': '/auto/users/satya/code/projects_getting_started/ACNet_v1/'
+            'weights/acnet_v2_0_weights_nems.npz',
+    'v2.1': '/auto/users/satya/code/projects_getting_started/ACNet_v1/'
+            'weights/acnet_v2_1_weights_nems.npz',
     }
 
+# Architecture/front-end kwargs that come from the checkpoint's own stored
+# metadata, not from the caller -- see the TypeError below.
+_LOCKED_KWARGS = ('compress', 'kernel_size', 'n_neurons', 'num_cfs')
 
-def load_acnet(version='v1', **model_kwargs):
+# A released-checkpoint npz's 'compress' field is written in the PT standalone
+# exporter's own vocabulary (ACNet_v1.acnet_model.DEFAULT_CONFIG['compress']).
+# 'log10x' and 'sqrt' both happen to be spelled identically to the matching
+# nems.layers.compression.PowerCompress mode (see that layer's docstring for
+# why 'sqrt' is a REAL transform -- the archive a 'sqrt'-trained checkpoint's
+# dataset loaded from is already in the sqrt-amplitude domain, not raw
+# amplitude -- and is not interchangeable with mode=None). This mapping is an
+# explicit whitelist, not a no-op pass-through: it's the one place that fails
+# loudly, naming the npz's own vocabulary, if some future checkpoint used a
+# PT compress this port doesn't implement (e.g. 'cbrt', 'log50x') instead of
+# silently handing PowerCompress an unrecognized string. Use it everywhere an
+# npz's stored compress is read, not just here (e.g. test fixture loaders).
+_PT_COMPRESS_TO_NEMS = {'log10x': 'log10x', 'sqrt': 'sqrt'}
+
+
+def pt_compress_to_nems(pt_compress):
+    """Translate a released checkpoint npz's stored `compress` string (PT
+    standalone-exporter vocabulary) to the value `ACNet(compress=...)` expects.
+
+    Parameters
+    ----------
+    pt_compress : str
+        E.g. `str(np.load(npz_path)['compress'])`.
+
+    Returns
+    -------
+    str or None
+
+    """
+    if pt_compress not in _PT_COMPRESS_TO_NEMS:
+        raise ValueError(
+            f"Unrecognized compress mode {pt_compress!r} -- expected one of "
+            f"{sorted(_PT_COMPRESS_TO_NEMS)}."
+            )
+    return _PT_COMPRESS_TO_NEMS[pt_compress]
+
+
+def load_acnet(version='v1.0', **model_kwargs):
     """Build an `ACNet` and load a released checkpoint's real weights into it.
 
     The weights npz's path is an internal detail of this function, not
     something callers need to know or pass in -- `version` is the only
-    thing that selects which checkpoint gets loaded.
+    thing that selects which checkpoint gets loaded. `compress`,
+    `kernel_size`, `n_neurons` and `num_cfs` are read directly from that
+    checkpoint's own npz metadata (not hardcoded per version here), so they
+    always describe what was actually trained.
 
     Parameters
     ----------
-    version : str; one of {'v1', 'v2'}; default='v1'.
-        `'v1'` is the released, trained checkpoint (`compress='log10x'`).
-        `'v2'` (`compress=None` -- no compression beyond the standard nems
-        gtgram) has not been trained/released yet -- raises
-        `NotImplementedError`.
+    version : str; one of {'v1.0', 'v2.0', 'v2.1'}; default='v1.0'.
+        `'v1.0'` -- the originally released checkpoint. `compress='log10x'`,
+        `kernel_size=7` (uniform), 62 sites / 3124 neurons.
+        `'v2.0'` -- sqrt compression (`compress='sqrt'` -- a real transform,
+        `sqrt(amplitude)`, not identity; see `PowerCompress`'s docstring)
+        with BatchNorm recalibrated against the training set ("fixed BN")
+        and a longer, graduated receptive field (`kernel_size=[8,8,8,8,9,
+        9]`); otherwise the same 62 sites / 3124 neurons as `'v1.0'`. Best
+        of 2 trained seeds (seed 1; the margin over seed 0 is within seed
+        noise).
+        `'v2.1'` -- same compress/BN-recal recipe as `'v2.0'`, trained on a
+        bigger panel (81 sites / 4799 neurons, the `all_minus_SDS_SLJ` BNT
+        panel -- CLT/LMD/PRN/REI/SQD, i.e. the original 62-site animals
+        minus SLJ, plus REI/SQD) -- but with a uniform `kernel_size=7`
+        (`fit_per_animal.py`'s own default for this run, never overridden),
+        not `'v2.0'`'s graduated one. On the 2846 cells `'v2.0'` and
+        `'v2.1'` both cover, `'v2.1'` is within noise of `'v2.0'` (-0.0016
+        to -0.0029 depending on the stim set, noise floor ~0.005) -- more
+        coverage at no measured cost, not a new architecture or a
+        different compression choice, which is why this is a minor bump
+        (`'v2.1'`) and not a new major version (`'v3.0'`).
     model_kwargs : dict; optional.
-        Passed through to `ACNet.__init__` (e.g. to override `hidden_dim`
-        for a smaller test model). Do not pass `compress` here -- it's
-        determined by `version`.
+        Passed through to `ACNet.__init__` for anything NOT determined by
+        the checkpoint itself (e.g. `f_min`/`f_max` for a nonstandard front
+        end). Do not pass `compress`, `kernel_size`, `n_neurons` or
+        `num_cfs` here -- those describe the actual trained checkpoint, not
+        a free choice, and come from the npz automatically.
 
     Returns
     -------
     ACNet
+        Also carries `model.cell_names` (list of str, one per readout
+        neuron in the same order as the output channels), if the npz has
+        them -- `'v1.0'`'s does not (exported before this was added);
+        `'v2.0'`/`'v2.1'`'s do.
 
     See also
     --------
@@ -356,25 +431,28 @@ def load_acnet(version='v1', **model_kwargs):
     load_acnet_v1_weights
 
     """
-    if version == 'v2':
-        raise NotImplementedError(
-            "version='v2' (compress=None -- no compression beyond the "
-            "standard nems gtgram) has not been trained or released yet -- "
-            "only version='v1' (log10x) is available."
-            )
     if version not in _RELEASED_WEIGHTS:
         raise ValueError(
-            f"Unknown version {version!r}; expected 'v1' (or 'v2', not yet "
-            f"implemented)."
+            f"Unknown version {version!r}; expected one of "
+            f"{sorted(_RELEASED_WEIGHTS)}."
             )
-    if 'compress' in model_kwargs:
+    bad = _LOCKED_KWARGS and set(_LOCKED_KWARGS) & set(model_kwargs)
+    if bad:
         raise TypeError(
-            "compress is determined by `version`; don't pass it separately."
+            f"{sorted(bad)} come from the released checkpoint's own stored "
+            f"metadata and cannot be overridden; don't pass them separately."
             )
 
-    spec = _RELEASED_WEIGHTS[version]
-    model = ACNet(compress=spec['compress'], **model_kwargs)
-    return load_acnet_v1_weights(model, spec['npz_path'])
+    npz_path = _RELEASED_WEIGHTS[version]
+    fx = np.load(npz_path)
+    model = ACNet(
+        compress=pt_compress_to_nems(str(fx['compress'])),
+        kernel_size=[int(k) for k in np.atleast_1d(fx['kernel_size'])],
+        n_neurons=int(fx['n_neurons']), num_cfs=int(fx['num_cfs']),
+        **model_kwargs)
+    load_acnet_v1_weights(model, npz_path)
+    model.cell_names = [str(c) for c in fx['cell_names']] if 'cell_names' in fx else None
+    return model
 # [AGENT EDIT END]
 
 

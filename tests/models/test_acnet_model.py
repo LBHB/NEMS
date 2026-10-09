@@ -148,34 +148,43 @@ class TestGetEmbeddingsInputDispatch:
 class TestLoadAcnet:
     """load_acnet(version=...) -- the npz path itself is never a parameter."""
 
-    def test_v2_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            load_acnet(version='v2')
-
     def test_unknown_version_raises(self):
         with pytest.raises(ValueError):
             load_acnet(version='v3')
 
-    def test_compress_kwarg_rejected(self):
-        # compress is determined by version; passing it separately would be
-        # ambiguous (which one wins?) so it's a hard error, not silently
-        # overridden either way.
+    @pytest.mark.parametrize('locked_kwarg, value', [
+        ('compress', None), ('kernel_size', 7), ('n_neurons', 100), ('num_cfs', 32),
+        ])
+    def test_locked_kwarg_rejected(self, locked_kwarg, value):
+        # These come from the checkpoint's own stored npz metadata; passing
+        # them separately would be ambiguous (which one wins?) so it's a
+        # hard error, not silently overridden either way.
         with pytest.raises(TypeError):
-            load_acnet(version='v1', compress=None)
+            load_acnet(version='v1.0', **{locked_kwarg: value})
 
-    @pytest.mark.skipif(
-        not os.path.exists(_RELEASED_WEIGHTS['v1']['npz_path']),
-        reason="released v1 weights npz not present on this machine",
-        )
-    def test_v1_loads_real_weights(self):
+    @pytest.mark.parametrize('version, expected_compress, expected_n_neurons', [
+        ('v1.0', 'log10x', 3124),
+        ('v2.0', 'sqrt', 3124),
+        ('v2.1', 'sqrt', 4799),
+        ])
+    def test_loads_real_weights(self, version, expected_compress, expected_n_neurons):
+        if not os.path.exists(_RELEASED_WEIGHTS[version]):
+            pytest.skip(f"released {version} weights npz not present on this machine")
         # The real npz's arrays are fixed-shape (the full released config) --
         # no hidden_dim/n_neurons override here, unlike the synthetic-model
         # tests elsewhere in this file.
-        model = load_acnet(version='v1')
-        assert model.layers[0].mode == 'log10x'
+        model = load_acnet(version=version)
+        assert model.layers[0].mode == expected_compress
+        assert model.layers[-1].shape[0] == expected_n_neurons
         # Real weights, not the zero/random init defaults -- readout bias
         # should not be all-zero.
         assert not np.allclose(model.layers[-2].parameters['shift'].values, 0)
+        # cell_names: present (and the right length) for v2.0/v2.1's npz,
+        # which were exported with this field; v1.0's predates it.
+        if model.cell_names is not None:
+            assert len(model.cell_names) == expected_n_neurons
+        else:
+            assert version == 'v1.0'
 
 
 class TestResolveSiteCalibration:
