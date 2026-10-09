@@ -35,7 +35,6 @@ comment on the difference: "Differs audibly little from the polyphase one
 """
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: port ACNet's raw-audio front end (level norm + click limiter) as NEMS-native numpy, for the ACNet-in-NEMS model port -- gammatone filterbank itself is NOT reimplemented, NEMS's own gtgram already covers it | date: 2026-09-16]
-import csv
 import os
 import struct
 import warnings
@@ -296,63 +295,3 @@ def acnet_gtgram(sig, fs_stim, num_cfs=32, f_min=200.0, f_max=20e3, fs_gtg=100.0
         )
 # [AGENT EDIT END]
 
-
-# [AGENT EDIT START | agent: claude | user: sbp894 | reason: known sites where a live BAPHY exptparams query reports a different overall_db/fixed_amp_scale than what the site was actually recorded/trained at (e.g. the Reishi rig hardware bug) -- for use wherever a caller queries per-site calibration live, not inside acnet_gtgram/nems_audio_preprocess itself (those always take explicit, already-correct overall_db/fixed_amp_scale) | date: 2026-09-28]
-SITE_CALIBRATION_OVERRIDES_CSV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..',
-    'tutorials', 'data', 'acnet_site_calibration_overrides.csv')
-
-
-def resolve_site_calibration(siteid, overall_db, fixed_amp_scale,
-                             overrides_csv=SITE_CALIBRATION_OVERRIDES_CSV):
-    """Correct a site's queried overall_db/fixed_amp_scale against known
-    exceptions where a live BAPHY exptparams query is wrong relative to what
-    the site was actually recorded/trained at.
-
-    Confirmed 2026-09-28 via direct celldb query (batch 390): 8 of Reishi's
-    14 sites report `OveralldB=50` when the rig's actual recording level was
-    65 dB SPL (a hardware bug -- see `data/acnet_site_calibration_overrides.
-    csv` for the exact site list; the other 6 Reishi sites already report 65
-    correctly, and StinkySquid's 8 sites correctly report 60 -- neither
-    needs an override). Trusts the table over the query whenever `siteid` is
-    listed: the table means someone independently confirmed the true
-    recording/training level, which is exactly what a query for one of
-    these specific sites gets wrong.
-
-    Parameters
-    ----------
-    siteid : str
-    overall_db, fixed_amp_scale : float
-        The values a live `BAPHYExperiment.get_baphy_exptparams()` query
-        returned for this site.
-    overrides_csv : str; optional.
-        Pass None to disable the override lookup entirely (e.g. for a site
-        you've separately confirmed needs none).
-
-    Returns
-    -------
-    overall_db, fixed_amp_scale : float
-        Corrected values -- identical to the input unless `siteid` has a
-        matching row in the overrides table.
-
-    """
-    if overrides_csv is None or not os.path.exists(overrides_csv):
-        return overall_db, fixed_amp_scale
-    with open(overrides_csv) as fh:
-        rows = {r['site']: r for r in csv.DictReader(fh)}
-    if siteid not in rows:
-        return overall_db, fixed_amp_scale
-
-    row = rows[siteid]
-    true_db = float(row['true_overall_db'])
-    true_fas = float(row['true_fixed_amp_scale'])
-    if float(row['query_overall_db']) != overall_db or float(row['query_fixed_amp_scale']) != fixed_amp_scale:
-        warnings.warn(
-            f"{siteid}: overrides table's recorded query values "
-            f"(overall_db={row['query_overall_db']}, fixed_amp_scale={row['query_fixed_amp_scale']}) "
-            f"don't match what was actually queried just now (overall_db={overall_db}, "
-            f"fixed_amp_scale={fixed_amp_scale}) -- table may be stale (or celldb was corrected "
-            f"since), but its true_* values are still trusted over the query.",
-            stacklevel=2)
-    return true_db, true_fas
-# [AGENT EDIT END]

@@ -3,7 +3,7 @@ import os
 import pytest
 import numpy as np
 
-from nems.models.ACNet import ACNet, load_acnet, _RELEASED_WEIGHTS
+from nems.models.ACNet import ACNet, load_acnet, _RELEASED_WEIGHTS, resolve_site_calibration
 
 
 class TestConstruction:
@@ -148,31 +148,83 @@ class TestGetEmbeddingsInputDispatch:
 class TestLoadAcnet:
     """load_acnet(version=...) -- the npz path itself is never a parameter."""
 
-    def test_v2_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            load_acnet(version='v2')
-
     def test_unknown_version_raises(self):
         with pytest.raises(ValueError):
             load_acnet(version='v3')
 
-    def test_compress_kwarg_rejected(self):
-        # compress is determined by version; passing it separately would be
-        # ambiguous (which one wins?) so it's a hard error, not silently
-        # overridden either way.
+    @pytest.mark.parametrize('locked_kwarg, value', [
+        ('compress', None), ('kernel_size', 7), ('n_neurons', 100), ('num_cfs', 32),
+        ])
+    def test_locked_kwarg_rejected(self, locked_kwarg, value):
+        # These come from the checkpoint's own stored npz metadata; passing
+        # them separately would be ambiguous (which one wins?) so it's a
+        # hard error, not silently overridden either way.
         with pytest.raises(TypeError):
-            load_acnet(version='v1', compress=None)
+            load_acnet(version='v1.0', **{locked_kwarg: value})
 
-    @pytest.mark.skipif(
-        not os.path.exists(_RELEASED_WEIGHTS['v1']['npz_path']),
-        reason="released v1 weights npz not present on this machine",
-        )
-    def test_v1_loads_real_weights(self):
+    @pytest.mark.parametrize('version, expected_compress, expected_n_neurons', [
+        ('v1.0', 'log10x', 3124),
+        ('v2.0', 'sqrt', 3124),
+        ('v2.1', 'sqrt', 4799),
+        ])
+    def test_loads_real_weights(self, version, expected_compress, expected_n_neurons):
+        if not os.path.exists(_RELEASED_WEIGHTS[version]):
+            pytest.skip(f"released {version} weights npz not present on this machine")
         # The real npz's arrays are fixed-shape (the full released config) --
         # no hidden_dim/n_neurons override here, unlike the synthetic-model
         # tests elsewhere in this file.
-        model = load_acnet(version='v1')
-        assert model.layers[0].mode == 'log10x'
+        model = load_acnet(version=version)
+        assert model.layers[0].mode == expected_compress
+        assert model.layers[-1].shape[0] == expected_n_neurons
         # Real weights, not the zero/random init defaults -- readout bias
         # should not be all-zero.
         assert not np.allclose(model.layers[-2].parameters['shift'].values, 0)
+        # cell_names: present (and the right length) for v2.0/v2.1's npz,
+        # which were exported with this field; v1.0's predates it.
+        if model.cell_names is not None:
+            assert len(model.cell_names) == expected_n_neurons
+        else:
+            assert version == 'v1.0'
+
+
+class TestResolveSiteCalibration:
+
+    def test_unlisted_site_passes_through(self):
+        # SQD sites are a different animal entirely, not in this table.
+        assert resolve_site_calibration('SQD040a', 60, 250) == (60, 250)
+
+    def test_one_of_62_training_sites_agrees_with_query(self):
+        # Most of the table's 62 real-training-site rows just confirm what
+        # a live query already returns -- no correction happening, but
+        # still the ground truth this checkpoint was actually trained on.
+        assert resolve_site_calibration('PRN007a', 65, 250) == (65, 250)
+
+    def test_one_of_62_training_sites_legitimate_non_default_value(self):
+        # CLT028c genuinely was recorded at fixed_amp_scale=50 (not a bug --
+        # a real, different historical calibration setting from the more
+        # common 250 used elsewhere).
+        assert resolve_site_calibration('CLT028c', 65, 50) == (65, 50)
+
+    def test_reishi_hardware_bug_corrected(self):
+        # REI058a: confirmed 2026-09-28 via direct celldb query -- reports
+        # overall_db=50 (Reishi rig hardware bug), actually recorded at 65.
+        # A real query for this site always disagrees with the table by
+        # construction (that's the whole bug), so this one warns too.
+        with pytest.warns(UserWarning):
+            out = resolve_site_calibration('REI058a', 50, 250)
+        assert out == (65, 250)
+
+    def test_listed_site_query_mismatch_still_trusts_table(self):
+        # Even if the live query disagrees with the table for a listed
+        # site (celldb changed, or the table's stale), the table's value
+        # is still what's returned -- just with a warning.
+        with pytest.warns(UserWarning):
+            out = resolve_site_calibration('REI058a', 999, 250)
+        assert out == (65, 250)
+
+    def test_calibration_csv_none_disables_lookup(self):
+        assert resolve_site_calibration('REI058a', 50, 250, calibration_csv=None) == (50, 250)
+
+    def test_missing_csv_path_passes_through(self):
+        assert resolve_site_calibration('REI058a', 50, 250,
+                                        calibration_csv='/nonexistent/path.csv') == (50, 250)
