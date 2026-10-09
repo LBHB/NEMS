@@ -155,6 +155,9 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
         C = _response.shape[0]
         N = []
         D = []
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: track which segments have any finite response, so only those with no response data are excluded below (not segments where the prediction is NaN) | date: 2026-10-06]
+        V = []
+        # [AGENT EDIT END]
         for i in range(C):
             r = tf.boolean_mask(_response[i], tf.math.is_finite(_response[i]))
             p = tf.boolean_mask(_prediction[i], tf.math.is_finite(_response[i]))
@@ -162,20 +165,32 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
             squared_error = ((r - p) ** 2)
             N.append(tf.math.reduce_mean(squared_error, axis=-1))
             D.append(tf.math.reduce_mean(r**2, axis=-1))
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: see above | date: 2026-10-06]
+            V.append(tf.size(r) > 0)
+            # [AGENT EDIT END]
         numers = tf.stack(N, 0)
         denoms = tf.stack(D, 0)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: see above | date: 2026-10-06]
+        has_response = tf.stack(V, 0)
+        # [AGENT EDIT END]
     else:
         squared_error = ((_response - _prediction) ** 2)
         numers = tf.math.reduce_mean(squared_error, axis=-1)
         denoms = tf.math.reduce_mean(_response**2, axis=-1)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: no response masking in this branch, every segment counts | date: 2026-10-06]
+        has_response = tf.ones_like(numers, dtype=tf.bool)
+        # [AGENT EDIT END]
 
     denoms = tf.where(tf.equal(denoms, 0), tf.ones_like(denoms), denoms)
 
     nmses = (numers / denoms) ** 0.5
     nmses = tf.reshape(nmses, (10,-1))
 
-    # Exclude all-NaN segments (where boolean_mask produced NaN) from the average
-    finite_mask = tf.math.is_finite(nmses)
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: previously masked every non-finite segment, so all-NaN predictions (eg NaN weights) gave loss 0, early stopping kept the NaN weights as "best", and the backend's NaN-loss guard never fired. Now only segments with no finite response are excluded; a NaN prediction where the response is valid makes the loss NaN | date: 2026-10-06]
+    # Exclude segments with no finite response (boolean_mask produced an empty
+    # set -> NaN) from the average. NaN predictions are NOT masked.
+    finite_mask = tf.reshape(has_response, (10, -1))
+    # [AGENT EDIT END]
     safe_nmses = tf.where(finite_mask, nmses, tf.zeros_like(nmses))
     n_finite = tf.reduce_sum(tf.cast(finite_mask, nmses.dtype), axis=0)
     n_finite = tf.maximum(n_finite, 1.0)

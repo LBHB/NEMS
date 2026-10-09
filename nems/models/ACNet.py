@@ -1,4 +1,5 @@
 import csv
+import logging
 import os
 import warnings
 
@@ -10,6 +11,7 @@ from nems.layers import (
     PowerCompress, BatchNorm1d, DepthwiseFIR, ResAdd,
     )
 
+log = logging.getLogger(__name__)
 
 # [AGENT EDIT START | agent: claude | user: sbp894 | reason: assemble ACNet's shared trunk + concatenated readout as a native NEMS Model, built from the new PowerCompress/BatchNorm1d/DepthwiseFIR/ResAdd layers plus reused wc/lvl/relu/dexp -- the ACNet-in-NEMS model port | date: 2026-09-16]
 class ACNet(Model):
@@ -233,7 +235,7 @@ class ACNet(Model):
             return acnet_gtgram(wav, fs, **front_end_kwargs)
 
         gtg = np.asarray(input)
-        print(
+        log.debug(
             f"get_embeddings: `input` (shape {gtg.shape}) treated as an "
             f"already-computed gammatone spectrogram (no `fs` given). "
             f"Assuming it is the standard, uncompressed nems gtgram and "

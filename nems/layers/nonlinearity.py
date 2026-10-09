@@ -216,7 +216,9 @@ class DoubleExponential(StaticNonlinearity):
         kappa : scalar or ndarray
             Sigmoid curvature. Larger numbers mean steeper slope.
             Prior:  Normal(mean=1, sd=10)
-            Bounds: TODO
+            Bounds: (-inf, 5). Slope scales as exp(kappa); across 1121 batch 341
+            fits kappa never exceeded 4.06 (99.9th pct 3.13), while runaway
+            cells that drive the inner exponent to overflow reach >5.
 
         Returns
         -------
@@ -230,7 +232,10 @@ class DoubleExponential(StaticNonlinearity):
             Parameter('base', shape=self.shape, prior=Normal(-one/10, one/50)),
             Parameter('amplitude', shape=self.shape, prior=Normal(one/2, one/5)),
             Parameter('shift', shape=self.shape, prior=Normal(zero, one/10)),
-            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10))
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: upper-bound kappa (slope = exp(kappa)) to keep cells out of the regime where the inner exponent overflows; 5 is above every kappa in 1121 existing batch 341 fits (max 4.06). Saved models keep their own stored bounds when loaded | date: 2026-10-07]
+            Parameter('kappa', shape=self.shape, prior=Normal(one/5, one/10),
+                      bounds=(-np.inf, 5))
+            # [AGENT EDIT END]
             )
         return phi
 
@@ -288,9 +293,11 @@ class DoubleExponential(StaticNonlinearity):
         else:
             class DoubleExponentialTF(NemsKerasLayer):
                 def call(self, inputs):
-                    exp = tf.math.exp(-tf.math.exp(
-                        -tf.math.exp(self.kappa) * (inputs + self.shift)
-                        ))
+                    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: when u=-exp(kappa)*(x+shift) is large, exp(u) overflows to inf; the output is still finite (exp(-inf)=0) but d/d(x, shift, kappa) = exp(u)*exp(-exp(u)) = inf*0 = NaN, which poisoned every upstream weight mid-fit (batch 341 ARM fits). Capping u at 50 leaves the output unchanged (exp(-exp(50)) is already exactly 0 in float32/float64) and makes that gradient 0 instead of NaN | date: 2026-10-06]
+                    u = -tf.math.exp(self.kappa) * (inputs + self.shift)
+                    u = tf.minimum(u, tf.constant(50, dtype=u.dtype))
+                    exp = tf.math.exp(-tf.math.exp(u))
+                    # [AGENT EDIT END]
                     return self.base + self.amplitude * exp
 
             return DoubleExponentialTF(self, **kwargs)

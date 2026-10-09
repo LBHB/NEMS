@@ -13,7 +13,9 @@ from nems.layers import (
     WeightChannels, WeightChannelsGaussian, FiniteImpulseResponse,
     RectifiedLinear, DoubleExponential, LevelShift
     )
-from nems.visualization.model import plot_nl
+# nems.visualization.model.plot_nl is imported lazily in LN.plot() below --
+# a module-level nems.visualization import from within nems.models is a
+# circular import (visualization -> preprocessing/layers -> models).
 # [AGENT EDIT START | agent: claude | user: svd | reason: use shared joblib_memory decorator from nems.tools.utils instead of a local duplicate, now that nems.preprocessing.spectrogram also needs one | date: 2026-07-16]
 from nems.tools.utils import joblib_memory, get_joblib_memory
 # [AGENT EDIT END]
@@ -174,6 +176,7 @@ class LN_STRF(Model):
 
         LN_plot_strf(self, ax=ax[0], **kwargs)
         if len(ax)>1:
+            from nems.visualization.model import plot_nl
             ymin, ymax = self.out_range[0][0], self.out_range[1][0]
             plot_nl(self.layers[-1], range=[ymin, ymax], ax=ax[1])
             plt.tight_layout()
@@ -213,10 +216,13 @@ class LN_STRF(Model):
         for op in options:
             if op=='g':
                 d['gaussian']=True
-            elif op in ['lvl','dexp','relu']:
+            elif op in ['lvl','dexp','relu','relu0']:
                 d['nonlinearity']=op
                 if op=='relu':
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+                elif op == 'relu0':
+                    d['nl_kwargs'] = {}
+                    d['nonlinearity'] = 'relu'
             elif op.startswith('l2'):
                 d['regularizer']=op
         return LN_STRF(**d)
@@ -435,10 +441,13 @@ class LN_pop(Model):
                 d['gaussian']=True
             elif op=='i':
                 d['share_tuning']=False
-            elif op in ['lvl','dexp','relu']:
+            elif op in ['lvl','dexp','relu','relu0']:
                 d['nonlinearity']=op
                 if op=='relu':
                     d['nl_kwargs'] = {'no_shift': False, 'no_offset': False}
+                elif op == 'relu0':
+                    d['nl_kwargs'] = {}
+                    d['nonlinearity'] = 'relu'
             elif op.startswith('l1'):
                 d['regularizer'] = op
             elif op.startswith('l2'):

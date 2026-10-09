@@ -98,6 +98,38 @@ class TestNemsAudioPreprocess:
                                        level_mode='exact')
         assert fs0 == 20e3
 
+    # [AGENT EDIT START | agent: claude | user: svd | reason: cover new level_mode 'max'/'rms' (baphy OLP NormalizeRMS No/Yes) | date: 2026-10-02]
+    def _noise(self, fs_stim=40000, scale=0.01):
+        rng = np.random.default_rng(0)
+        return scale * rng.standard_normal(fs_stim)
+
+    def test_max_mode_peak_5_at_80db(self):
+        out, _ = nems_audio_preprocess(self._noise(), 40000, fs_gtg=100, f_max=20e3,
+                                       lbhb_mode=True, level_mode='max', overall_db=80)
+        assert np.isclose(np.max(np.abs(out)), 5.0)
+
+    def test_rms_mode_rms_3p5349_at_80db(self):
+        out, _ = nems_audio_preprocess(self._noise(), 40000, fs_gtg=100, f_max=20e3,
+                                       lbhb_mode=True, level_mode='rms', overall_db=80)
+        # remove_clicks only touches samples > 10.05 SD, so RMS is ~exact
+        assert np.isclose(np.sqrt(np.mean(out**2)), 3.5349, rtol=1e-3)
+
+    @pytest.mark.parametrize('level_mode', ['max', 'rms'])
+    def test_input_scale_invariant_and_overall_db_attenuates(self, level_mode):
+        kw = dict(fs_stim=40000, fs_gtg=100, f_max=20e3, lbhb_mode=True, level_mode=level_mode)
+        a, _ = nems_audio_preprocess(self._noise(scale=0.01), overall_db=65, **kw)
+        b, _ = nems_audio_preprocess(self._noise(scale=0.3), overall_db=65, **kw)
+        c, _ = nems_audio_preprocess(self._noise(scale=0.01), overall_db=80, **kw)
+        assert np.allclose(a, b)
+        assert np.allclose(c, a * 10 ** (15 / 20))
+
+    @pytest.mark.parametrize('level_mode', ['max', 'rms'])
+    def test_new_modes_require_lbhb_mode(self, level_mode):
+        with pytest.raises(AssertionError):
+            nems_audio_preprocess(self._noise(), 40000, fs_gtg=100, level_mode=level_mode,
+                                  lbhb_mode=False)
+    # [AGENT EDIT END]
+
 
 class TestAcnetGtgram:
 

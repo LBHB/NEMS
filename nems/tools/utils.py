@@ -31,6 +31,19 @@ def get_joblib_memory():
     3. `~/.cache/nems`.
     4. The system temp directory (`nems-cache` subdirectory).
 
+    Note: candidates are built as `pathlib.Path` objects, not `str`. Passing a
+    `str` to `joblib.Memory(location)` makes joblib append an extra `joblib`
+    subdirectory (`Memory.__init__`: `if isinstance(location, str): location
+    = os.path.join(location, 'joblib')`); passing a `Path` skips that, so a
+    cached function's files land directly at
+    `<cache_dir>/<module>/<qualname>/`, e.g.
+    `/auto/data/tmp/tstim/nems_lbhb/analysis/dstrf/load_dstrf_subspace/` --
+    no `joblib/` in the path. Don't "fix" this by passing strings instead;
+    it's deliberate. (A stale `.../joblib/nems_lbhb/runclass/c_gtgram/` tree
+    exists on disk from before the 2026-07-16 migration, when
+    `nems_lbhb.runclass` built its own `joblib.Memory(<str path>)` directly --
+    that's dead, unrelated to this function, and safe to delete.)
+
     If none of these directories are writable, caching is disabled (calls to
     `@memory.cache`-decorated functions run normally, without memoization).
 
