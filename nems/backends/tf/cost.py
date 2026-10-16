@@ -108,6 +108,14 @@ def tf_nmse(response, prediction, per_cell=False, allow_nan=True):
     s_dyn = tf.shape(prediction)
     n_time = s_dyn[1]
     n_cells = s_static[2] if s_static[2] is not None else s_dyn[2]
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: fewer than 10 time bins trims to an empty tensor and silently returns loss=0 (no gradient); fail loudly instead | date: 2026-10-16]
+    _nmse_short_msg = ("tf_nmse needs >= 10 time bins (axis 1) to form 10 jackknife segments; "
+                       "got {}. For (samples, 1, channels) data use a per-sample cost such as "
+                       "'squared_error' or 'binary_crossentropy'.")
+    if s_static[1] is not None and s_static[1] < 10:
+        raise ValueError(_nmse_short_msg.format(s_static[1]))
+    tf.debugging.assert_greater_equal(n_time, 10, message=_nmse_short_msg.format("fewer"))
+    # [AGENT EDIT END]
     n_per = n_time // 10
     n_usable = n_per * 10
     n_drop = n_time%10
