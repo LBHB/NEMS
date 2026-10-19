@@ -54,7 +54,9 @@ def loss_tf_nmse(response, prediction, per_cell=False):
     else:
         mE, sE = tf_nmse(response, prediction, per_cell=per_cell)
 
-        return mE
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: mE has shape (1,) here; return a 0-d scalar loss (same value and gradient). numpy >= 2.5 refuses float() on a 1-element array, which broke the tf backend's float(cost_function(...)) | date: 2026-10-19]
+        return tf.math.reduce_mean(mE)
+        # [AGENT EDIT END]
 
 
 def tf_nmse_shrinkage(response, prediction, shrink_factor=0.5, per_cell=True, thresh=False):
@@ -87,8 +89,9 @@ def tf_nmse_shrinkage(response, prediction, shrink_factor=0.5, per_cell=True, th
 
     mE = tf.cond(tf.math.reduce_any(mE < 1), lambda: shrink(mE, sE, shrink_factor, thresh), lambda: mE)
 
-    if per_cell:
-        mE = tf.math.reduce_mean(mE)
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: per_cell=False gave the overall error with shape (1,); reduce in both cases so the loss is a 0-d scalar (numpy >= 2.5 refuses float() on 1-element arrays) | date: 2026-10-19]
+    mE = tf.math.reduce_mean(mE)
+    # [AGENT EDIT END]
 
     return mE
 
