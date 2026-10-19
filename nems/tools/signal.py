@@ -1438,7 +1438,7 @@ class RasterizedSignal(SignalBase):
     def load_from_streams(csv_stream, json_stream, epoch_stream=None):
         ''' Loads from BytesIO objects rather than files. '''
         # Read the epochs stream if it exists
-        epochs = pd.read_csv(epoch_stream) if epoch_stream else None
+        epochs = _read_epochs(epoch_stream) if epoch_stream else None
         # Read the json metadata
         js = json.load(json_stream)
         # Read the CSV
@@ -2726,18 +2726,19 @@ def fill_gaps_with_silence(sig):
     epochs = sig.epochs
     if epochs is None or len(epochs) == 0:
         return sig
+    # epoch times can be object dtype (eg mixed int/float from event parsing)
     x = sig.as_continuous()
     T = x.shape[-1]
     st = epochs.loc[epochs.name.str.startswith('STIM_')]
-    b0 = np.round(st.start.values * sig.fs).astype(int)
-    b1 = np.round(st.end.values * sig.fs).astype(int)
+    b0 = np.round(st.start.values.astype(float) * sig.fs).astype(int)
+    b1 = np.round(st.end.values.astype(float) * sig.fs).astype(int)
     inside = np.zeros(T, dtype=bool)
     for a, b in zip(b0, b1):
         inside[a:b] = True
 
     pre = epochs.loc[epochs.name == 'PreStimSilence']
-    p0 = np.round(pre.start.values * sig.fs).astype(int)
-    p1 = np.round(pre.end.values * sig.fs).astype(int)
+    p0 = np.round(pre.start.values.astype(float) * sig.fs).astype(int)
+    p1 = np.round(pre.end.values.astype(float) * sig.fs).astype(int)
     valid = (p1 > p0) & (p0 < T)
     p0 = p0[valid]
     p0 = p0[inside[p0]]
@@ -3026,6 +3027,17 @@ def _list_json_files(files):
     csvs = {just_fileroot(f) for f in files if f.endswith('.csv')}
     return list(jsons.intersection(csvs))
 
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: epoch start/end read from .epoch.csv by type inference come back int64 if every value is whole; always float, matching epochs built in memory | date: 2026-10-19]
+def _read_epochs(src):
+    """Epochs DataFrame from an .epoch.csv path or stream, with start/end as float."""
+    epochs = pd.read_csv(src)
+    for col in ('start', 'end'):
+        if col in epochs.columns:
+            epochs[col] = epochs[col].astype(float)
+    return epochs
+# [AGENT EDIT END]
+
+
 def load_signal(basepath):
     '''
     Generic signal loader. Load JSON file, figure out signal type and
@@ -3036,7 +3048,7 @@ def load_signal(basepath):
     epochfilepath = basepath + '.epoch.csv'
     jsonfilepath = basepath + '.json'
     if os.path.isfile(epochfilepath):
-        epochs = pd.read_csv(epochfilepath)
+        epochs = _read_epochs(epochfilepath)
     else:
         epochs = None
     # TODO: reduce code duplication and call load_from_streams
@@ -3110,7 +3122,7 @@ def load_signal_from_streams(data_stream, json_stream, epoch_stream=None):
         csv stream, but this could be an hdf5 file (or something else?)
     '''
     # Read the epochs stream if it exists
-    epochs = pd.read_csv(epoch_stream) if epoch_stream else None
+    epochs = _read_epochs(epoch_stream) if epoch_stream else None
     # Read the json metadata
     js = json.load(json_stream)
     js['dtype'] = js.get('dtype','float')
@@ -3196,7 +3208,7 @@ def load_rasterized_signal(basepath):
         js = json.load(f)
     js['dtype'] = js.get('dtype','float')
     if os.path.isfile(epochfilepath):
-        epochs = pd.read_csv(epochfilepath)
+        epochs = _read_epochs(epochfilepath)
     else:
         epochs = None
     print(js)
