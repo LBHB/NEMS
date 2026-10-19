@@ -2709,10 +2709,59 @@ class PointProcess(SignalBase):
         return epoch_data
 
 
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: moved from nems_db scripts/ftc_demo.py -- fill inter-trial gaps of a rasterized stim with the stim format's own silence representation (eg ACNet silence embedding for acgram) instead of 0; applied by TiledSignal.rasterize | date: 2026-10-19]
+def fill_gaps_with_silence(sig):
+    '''
+    Replace bins of a rasterized signal that fall outside every STIM_ epoch
+    (inter-trial gaps, which a rasterized TiledSignal fills with 0) with the
+    signal's response to silence.
+
+    Silence is the per-channel median, across trials, of the first bin of each
+    PreStimSilence epoch. For acgram (ACNet run with silence_lead=True) that bin
+    is the steady-state silence embedding; for spectrogram-type stim it is ~0.
+
+    Returns sig unchanged if it has no STIM_ epochs or no valid PreStimSilence
+    epochs (at least one bin long, inside a STIM_ epoch).
+    '''
+    epochs = sig.epochs
+    if epochs is None or len(epochs) == 0:
+        return sig
+    x = sig.as_continuous()
+    T = x.shape[-1]
+    st = epochs.loc[epochs.name.str.startswith('STIM_')]
+    b0 = np.round(st.start.values * sig.fs).astype(int)
+    b1 = np.round(st.end.values * sig.fs).astype(int)
+    inside = np.zeros(T, dtype=bool)
+    for a, b in zip(b0, b1):
+        inside[a:b] = True
+
+    pre = epochs.loc[epochs.name == 'PreStimSilence']
+    p0 = np.round(pre.start.values * sig.fs).astype(int)
+    p1 = np.round(pre.end.values * sig.fs).astype(int)
+    valid = (p1 > p0) & (p0 < T)
+    p0 = p0[valid]
+    p0 = p0[inside[p0]]
+    if len(p0) == 0 or inside.all():
+        return sig
+
+    silence = np.nanmedian(x[..., p0], axis=-1)
+    x = x.copy()
+    x[..., ~inside] = silence[..., np.newaxis]
+    log.debug(f"{sig.name}: filled {(~inside).sum()} of {T} bins outside STIM_ epochs "
+              f"with median of {len(p0)} PreStimSilence onset bins")
+    return sig._modified_copy(x)
+# [AGENT EDIT END]
+
+
 class TiledSignal(SignalBase):
     '''
     Expects data to be a dictionary of the form:
         {<string>: <ndarray of stim data, two dimensional>}
+
+    rasterize() fills inter-trial gaps with the signal's silence representation
+    (see fill_gaps_with_silence). Disable per call with
+    rasterize(fill_silence=False), or for the signal with
+    meta['fill_silence'] = False.
     '''
     def __init__(self, fs, data, name, recording, chans=None, epochs=None,
                  segments=None, meta=None, safety_checks=True,
@@ -2745,11 +2794,16 @@ class TiledSignal(SignalBase):
             if 'none' != normalization:
                 raise ValueError('normalization not supported for TiledSignal')
 
-    def rasterize(self, fs=None, sparse=False, dtype=None):
+    def rasterize(self, fs=None, sparse=False, dtype=None, fill_silence=None):
         '''
         Create a rasterized version of the signal and return it
 
         fs is not used but in parameters for compatibility with PointProcess
+
+        fill_silence : bool or None
+            fill bins outside STIM_ epochs with the signal's silence
+            representation (fill_gaps_with_silence) rather than 0.
+            None (default): self.meta.get('fill_silence', True)
         '''
         maxtime = np.max(self.epochs["end"])
         maxbin = self.shape[1]
@@ -2768,6 +2822,13 @@ class TiledSignal(SignalBase):
         s = signal._data.copy()
         s[np.isnan(signal._data)] = 0
         signal = signal._modified_copy(s)
+
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: fill inter-trial gaps with silence representation by default | date: 2026-10-19]
+        if fill_silence is None:
+            fill_silence = (self.meta or {}).get('fill_silence', True)
+        if fill_silence and not sparse:
+            signal = fill_gaps_with_silence(signal)
+        # [AGENT EDIT END]
 
         return signal
 
