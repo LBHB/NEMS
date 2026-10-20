@@ -3,6 +3,16 @@ import warnings
 import numpy as np
 
 
+
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- replacement for `x.shape = shape` (deprecated in numpy 2.5) that, like it, raises instead of copying; works on numpy 1.x (no reshape copy= kwarg) and 2.x | date: 2026-10-19]
+def _reshape_no_copy(x, shape):
+    """`x` reshaped to `shape` as a view; raise ValueError if that needs a copy."""
+    y = x.reshape(shape)
+    if y.size and not np.shares_memory(y, x):
+        raise ValueError(f"cannot reshape array of shape {x.shape} to {shape} without copying")
+    return y
+# [AGENT EDIT END]
+
 def minmax(x, floor=1e-6, warn_on_nan=True, inplace=False):
     """Normalize array `x` within each output channel to have min 0 and max 1.
     
@@ -87,9 +97,9 @@ def minmax(x, floor=1e-6, warn_on_nan=True, inplace=False):
         # Make sure there's an output dimension.
         x = x[..., np.newaxis]
     new_shape = (x[..., 0].size, x.shape[-1])
-    # Use this instead of reshape to raise error on copy (only want one copy or
-    # zero for the entire scope of the function).
-    x.shape = new_shape
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- setting ndarray.shape is deprecated in numpy 2.5; _reshape_no_copy keeps the old raise-on-copy guarantee (only want one copy or zero for the entire scope of the function) | date: 2026-10-19]
+    x = _reshape_no_copy(x, new_shape)
+    # [AGENT EDIT END]
 
     # Shift minimum to 0
     min_per_channel = np.nanmin(x, axis=0, keepdims=True)
@@ -102,7 +112,7 @@ def minmax(x, floor=1e-6, warn_on_nan=True, inplace=False):
     max_per_channel[max_per_channel == 0] = 1
     try:
         normalized = np.divide(min_zero, max_per_channel, out=x)
-    except np.core._exceptions.UFuncTypeError as e:
+    except TypeError as e:  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- numpy.core is deprecated in numpy 2; UFuncTypeError subclasses TypeError | date: 2026-10-19]
         # Print info about float dtype
         print('Numpy division resulted in a casting error, make sure the '
               'dtype of the input to `normalization.minmax` is float-like.')
@@ -110,7 +120,7 @@ def minmax(x, floor=1e-6, warn_on_nan=True, inplace=False):
 
     # Force data to be exactly 0 for "small" values.
     normalized[normalized < floor] = 0
-    normalized.shape = original_shape
+    normalized = _reshape_no_copy(normalized, original_shape)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- ndarray.shape assignment deprecated in numpy 2.5 | date: 2026-10-19]
 
     return normalized, min_per_channel, max_per_channel
 
@@ -134,7 +144,7 @@ def undo_minmax(y, _min, _max):
     
     """
     z = y*_max + _min
-    z.shape = y.shape
+    z = z.reshape(y.shape)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- ndarray.shape assignment deprecated in numpy 2.5 | date: 2026-10-19]
     return z
 
 

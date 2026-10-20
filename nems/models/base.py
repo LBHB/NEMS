@@ -1098,8 +1098,11 @@ class Model:
         # Initialize Backend subclass if not running in place on the same backend
         # note that for TF models, frozen parameters have to be labeled as such before the
         # backend is initialized. Is this actually true???
-        if ~in_place | (new_model.backend is None):
-            backend_class = get_backend(name=backend)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- `~` on a bool is deprecated (removed in Python 3.16), and `~in_place | ...` was always truthy (~True == -2, ~False == -1), so the backend was rebuilt on every fit (bug). Fixed to the intended test: reuse the existing backend for in-place fits | date: 2026-10-19]
+        backend_class = get_backend(name=backend)
+        # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: in-place fits only reuse an existing backend of the requested kind (eg a scipy fit after a tf fit rebuilds); new backend_options still need in_place=False | date: 2026-10-19]
+        if (not in_place) or (new_model.backend is None) or \
+                not isinstance(new_model.backend, backend_class):
             # Build backend model.
             backend_obj = backend_class(
                 new_model, data, verbose=verbose, eval_kwargs=eval_kwargs,
@@ -1108,6 +1111,7 @@ class Model:
             new_model.backend = backend_obj
         else:
             log.info('Using in-place backend')
+        # [AGENT EDIT END]
         # Fit backend, save results.
         fit_results = new_model.backend._fit(
             data, verbose=verbose, eval_kwargs=eval_kwargs, **fitter_options

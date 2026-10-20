@@ -31,7 +31,7 @@ class TestMinmax:
 
     def test_dtype_error(self):
         x = np.arange(10)
-        with pytest.raises(np.core._exceptions.UFuncTypeError):
+        with pytest.raises(TypeError):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- numpy.core deprecated in numpy 2; UFuncTypeError subclasses TypeError | date: 2026-10-19]
             # Error due to integer dtype
             y, _, _ = minmax(x)
 

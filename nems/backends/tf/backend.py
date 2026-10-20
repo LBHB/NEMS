@@ -386,7 +386,8 @@ class TensorFlowBackend(Backend):
         init_n = 0
         for bx, by in (_numpy_batches(np_inputs, np_target, effective_bs) if use_numpy_batching else train_ds):
             n = by.shape[0]
-            batch_loss = float(cost_function(by, self.model(bx, training=False)))
+            # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- numpy >= 2.5 refuses float() on a shape-(1,) loss; reduce like Keras does for a non-scalar loss so custom cost functions returning (1,) or per-cell losses still work | date: 2026-10-19]
+            batch_loss = float(tf.reduce_mean(cost_function(by, self.model(bx, training=False))))
             if self.model.losses:
                 batch_loss += float(tf.add_n(self.model.losses))
             init_loss += batch_loss * n
@@ -412,7 +413,7 @@ class TensorFlowBackend(Backend):
                     preds = model_ref(batch_x, training=True)
                     if isinstance(preds, (list, tuple)):
                         preds = preds[-1]
-                    loss = cost_function(batch_y, preds)
+                    loss = tf.reduce_mean(cost_function(batch_y, preds))  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- reduce to a 0-d loss so float(_train_step/_val_step(...)) works on numpy >= 2.5 for costs returning shape (1,); unchanged for scalar costs | date: 2026-10-19]
                     if model_ref.losses:
                         loss += tf.add_n(model_ref.losses)
                 grads = tape.gradient(loss, model_ref.trainable_variables)
@@ -429,7 +430,7 @@ class TensorFlowBackend(Backend):
                 preds = model_ref(batch_x, training=False)
                 if isinstance(preds, (list, tuple)):
                     preds = preds[-1]
-                loss = cost_function(batch_y, preds)
+                loss = tf.reduce_mean(cost_function(batch_y, preds))  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: py3.12+ upgrade -- reduce to a 0-d loss so float(_train_step/_val_step(...)) works on numpy >= 2.5 for costs returning shape (1,); unchanged for scalar costs | date: 2026-10-19]
                 if model_ref.losses:
                     loss += tf.add_n(model_ref.losses)
                 return loss
