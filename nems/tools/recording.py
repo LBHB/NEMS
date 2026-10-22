@@ -859,7 +859,7 @@ class Recording:
             return self.split_by_epochs(lo_rep_epochs, hi_rep_epochs)
 
     # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: turn average_away_epoch_occurrences into a Recording method; free function at end of file kept as a backward-compatible wrapper | date: 2026-08-04]
-    def average_away_epoch_occurrences(self, epoch_regex='^STIM_', use_mask=True):
+    def average_away_epoch_occurrences(self, epoch_regex='^STIM_', use_mask=True, tol_bins=1):
         """
         Returns a recording with _all_ signals averaged across epochs that
         match epoch_regex, shortening them so that each epoch occurs only
@@ -882,10 +882,32 @@ class Recording:
         that are based on behavioral state, you may need to create new epochs
         (based on stimulus and behaviorial state, for example) and then match
         the epoch_regex to those.
+
+        If occurrences of the same epoch name differ in duration by more than
+        tol_bins (eg, the same STIM_ name in files with different pre/stim/post
+        timing), only the longest occurrences are kept and averaged.
         """
         recording = self
         if use_mask:
             recording = recording.remove_masked_epochs()
+
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: drop shorter occurrences of epochs with inconsistent durations instead of nan-padding/mixing them | date: 2026-10-22]
+        fs = recording[list(recording.signals.keys())[0]].fs
+        e = recording['resp'].epochs
+        m = e['name'].str.contains(pat=epoch_regex, na=False, regex=True)
+        nbins = ((e.loc[m, 'end'] - e.loc[m, 'start']) * fs).round().astype(int)
+        maxbins = nbins.groupby(e.loc[m, 'name']).transform('max')
+        short = e.loc[nbins.index[nbins < maxbins - tol_bins], ['name', 'start', 'end']]
+        if len(short):
+            log.info(f"average_away_epoch_occurrences: dropping {len(short)} shorter occurrences "
+                     f"of {short['name'].nunique()} epochs with inconsistent durations")
+            recording = recording.copy()
+            for k, sig in recording.signals.items():
+                se = sig.epochs.merge(short, how='left', indicator=True)
+                sig = sig.copy()
+                sig.epochs = se.loc[se['_merge'] == 'left_only', ['name', 'start', 'end']].reset_index(drop=True)
+                recording[k] = sig
+        # [AGENT EDIT END]
 
         # need to edit the epochs dataframe, so make a working copy
         temp_epochs = recording['resp'].epochs.copy()
@@ -2044,10 +2066,11 @@ def get_demo_recordings(directory=None, name=None, unpack=False):
 
 
 # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: average_away_epoch_occurrences moved to Recording.average_away_epoch_occurrences; kept here as a backward-compatible wrapper for existing callers (e.g. nems_db) that use the free-function form | date: 2026-08-04]
-def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True):
+def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True, tol_bins=1):
     """Backward-compatible wrapper for `Recording.average_away_epoch_occurrences`.
 
     See `Recording.average_away_epoch_occurrences` for details.
     """
-    return recording.average_away_epoch_occurrences(epoch_regex=epoch_regex, use_mask=use_mask)
+    return recording.average_away_epoch_occurrences(epoch_regex=epoch_regex, use_mask=use_mask,
+                                                    tol_bins=tol_bins)
 # [AGENT EDIT END]
