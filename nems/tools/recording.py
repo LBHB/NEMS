@@ -735,11 +735,17 @@ class Recording:
                                                               epochs_for_val))
 
     def split_using_epoch_occurrence_counts(self, epoch_regex=None, keepfrac=1, selection=None,
-                                            filemask=None, est_all=False, verbose=False, **context):
+                                            filemask=None, est_all=False, verbose=False,
+                                            filemask_min_reps=None, **context):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: filemask_min_reps | date: 2026-10-21]
         """
         :param epoch_regex:
         :param keepfrac: if <1: save only keepfrac/100 of the trials
         :param selection
+        :param filemask: split by file: epochs occurring in any FILE epoch matching
+            '^FILE.*{filemask}$' go to val (all occurrences), all other epochs to est
+        :param filemask_min_reps: with filemask, val keeps only the masked files' epochs
+            that occur >= filemask_min_reps times there; their other epochs are in
+            neither est nor val
         :return:
 
         Returns (est, val) given a recording rec, a signal name 'stim_name', and an
@@ -774,6 +780,13 @@ class Recording:
             ep_all = ep.epoch_names_matching(epcopy, regex_str=epoch_regex)
             ep_sub = sum([e for k,e in groups.items()], [])
             ep_diff = list(set(ep_all)-set(ep_sub))
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: filemask_min_reps -- val = only the masked files' high-rep epochs; their low-rep epochs are in neither set (ep_diff above is computed from the full ep_sub so they stay out of est) | date: 2026-10-21]
+            if filemask_min_reps is not None:
+                ep_sub = sum([e for k,e in groups.items() if k >= filemask_min_reps], [])
+                if len(ep_sub) == 0:
+                    raise ValueError(f"filemask={filemask}: no {epoch_regex} epochs occur "
+                                     f">= {filemask_min_reps} times in the matching files")
+            # [AGENT EDIT END]
             groups= {0: ep_diff, 1: ep_sub}
         if len(groups) > 2:
             l=np.array(list(groups.keys()))
