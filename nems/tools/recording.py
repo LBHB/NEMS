@@ -859,7 +859,7 @@ class Recording:
             return self.split_by_epochs(lo_rep_epochs, hi_rep_epochs)
 
     # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: turn average_away_epoch_occurrences into a Recording method; free function at end of file kept as a backward-compatible wrapper | date: 2026-08-04]
-    def average_away_epoch_occurrences(self, epoch_regex='^STIM_', use_mask=True, tol_bins=1):
+    def average_away_epoch_occurrences(self, epoch_regex='^STIM_', use_mask=True, tol_bins=0):
         """
         Returns a recording with _all_ signals averaged across epochs that
         match epoch_regex, shortening them so that each epoch occurs only
@@ -2066,7 +2066,7 @@ def get_demo_recordings(directory=None, name=None, unpack=False):
 
 
 # [AGENT EDIT START | agent: claude-sonnet-5 | user: svd | reason: average_away_epoch_occurrences moved to Recording.average_away_epoch_occurrences; kept here as a backward-compatible wrapper for existing callers (e.g. nems_db) that use the free-function form | date: 2026-08-04]
-def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True, tol_bins=1):
+def average_away_epoch_occurrences(recording, epoch_regex='^STIM_', use_mask=True, tol_bins=0):
     """Backward-compatible wrapper for `Recording.average_away_epoch_occurrences`.
 
     See `Recording.average_away_epoch_occurrences` for details.
