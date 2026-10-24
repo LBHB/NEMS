@@ -736,11 +736,14 @@ class Recording:
 
     def split_using_epoch_occurrence_counts(self, epoch_regex=None, keepfrac=1, selection=None,
                                             filemask=None, est_all=False, verbose=False,
-                                            filemask_min_reps=None, **context):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: filemask_min_reps | date: 2026-10-21]
+                                            filemask_min_reps=None, lo_rep_selector=None, **context):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: filemask_min_reps; lo_rep_selector | date: 2026-10-24]
         """
         :param epoch_regex:
         :param keepfrac: if <1: save only keepfrac/100 of the trials
-        :param selection
+        :param selection: no longer supported (raises); use lo_rep_selector
+        :param lo_rep_selector: optional callable, list of low-rep (est) epoch
+            names -> the subset to keep, applied before keepfrac (eg balanced
+            mono/bin/match subsets from nems_lbhb.stim_subsets)
         :param filemask: split by file: epochs occurring in any FILE epoch matching
             '^FILE.*{filemask}$' go to val (all occurrences), all other epochs to est
         :param filemask_min_reps: with filemask, val keeps only the masked files' epochs
@@ -821,30 +824,15 @@ class Recording:
         lo_rep_epochs = groups[n_occurrences[0]]
         hi_rep_epochs = groups[n_occurrences[1]]
 
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: mono/bin/match est selection moved to nems_lbhb.stim_subsets (balanced by speaker and sound); nems only applies a caller-supplied selector | date: 2026-10-24]
         if selection is not None:
-            mono_epochs = [e for e in lo_rep_epochs if 'NULL' in e]
-            bin_epochs = [e for e in lo_rep_epochs if 'NULL' not in e]
-            #hi_mono_epochs = [e for e in hi_rep_epochs if 'NULL' in e]
-            #hi_bin_epochs = [e for e in hi_rep_epochs if 'NULL' not in e]
-            if selection == 'mono':
-                if len(mono_epochs) > len(bin_epochs):
-                    mono_epochs = mono_epochs[slice(0, -1, 2)]
-                    log.info('Mono stim only in fit set. Slicing subset to match len(bin_epochs)')
-                else:
-                    log.info(f"Mono stim only in fit set")
-                lo_rep_epochs = mono_epochs
-            elif selection == 'bin':
-                log.info(f"Binaural stim only in fit set")
-                lo_rep_epochs = bin_epochs
-            elif selection == 'match':
-                mono_epochs = [e for e in lo_rep_epochs if 'NULL' in e]
-                bin_epochs = [e for e in lo_rep_epochs if 'NULL' not in e]
-                minlen = np.min([len(mono_epochs),len(bin_epochs)])
-                l = int(minlen/2)
-                log.info(f'Matching fit set size to mono- or bin-only fits ({l} each)')
-                lo_rep_epochs = mono_epochs[slice(0,l*2,2)] + bin_epochs[slice(0,(minlen-l)*2,2)]
-            else:
-                raise ValueError(f"selection={selection} unknown")
+            raise ValueError(f"selection={selection!r} is no longer handled here; pass "
+                             f"lo_rep_selector (eg built by nems_lbhb.xforms.split_by_occurrence_counts)")
+        if lo_rep_selector is not None:
+            lo_rep_epochs = list(lo_rep_selector(lo_rep_epochs))
+            if len(lo_rep_epochs) == 0:
+                raise ValueError("lo_rep_selector returned no epochs")
+        # [AGENT EDIT END]
         lo_count = len(lo_rep_epochs)
         keep_count = int(np.ceil(keepfrac*lo_count))
         if keepfrac < 1:
