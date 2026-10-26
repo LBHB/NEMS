@@ -1,4 +1,4 @@
-# NEMS &middot; ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg) ![Python 3.10](https://img.shields.io/badge/Python-3.10-green) ![Python 3.10](https://img.shields.io/badge/Python-3.9-green)
+# NEMS &middot; ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg) ![Python 3.9-3.12](https://img.shields.io/badge/Python-3.9--3.12-green)
 
 The Neural Encoding Model System (NEMS) is helpful for fitting a 
 mathematical model to time series data, plotting the model predictions, 
@@ -19,28 +19,29 @@ but it will work with many different types of timeseries data.
 
 # Installation
 ## Recommended: `Install from source`
-### Prerequisites: Python 3.9/3.10 | Anaconda or Venv
+### Prerequisites: Python 3.9 - 3.12 | Anaconda or Venv
 NEMS is still under development, so this is the best way to ensure you're using the most up-to-date version.
-Currently NEMS has been tested with python 3.9 and 3.10. New versions are likely to work but not guaranteed.
+NEMS is currently tested with Python 3.12 and TensorFlow 2.21 (it has also been used with Python 3.9 and 3.10).
+Newer Python versions are likely to work but are not guaranteed.
 
 1. **Download source code**
 
 ```bash
 git clone https://github.com/LBHB/NEMS.git
 ```
-    
+
 2. **Set up python environment**
 - 2a. **Option 1.** Create an environment using Anaconda.
 
 ```bash
-conda create -n nems python=3.10 ipython
+conda create -n nems python=3.12 ipython
 conda activate nems
 ```
 
 - 2b. **Option 2.** Create an environment using `venv`:
 
 ```bash
-python -m venv ./nems-env
+python3.12 -m venv ./nems-env
 source nems-env/bin/activate
 ```
 
@@ -48,34 +49,67 @@ source nems-env/bin/activate
 Include development tools to permit testing. Make sure you run `pip` in the `nems` environment you just created.
 
 - 3a. **Option 1.** Lightweight, without Tensorflow support
-`
+
 ```console
 pip install -e NEMS[dev]
 ```
 
-- 3b. **Option 2.** Install along with Tensorflow and GPU support
-This may take a while to download all the required libraries. But it appears to work without requiring separate CUDA configuration.
-        
+- 3b. **Option 2.** Install along with Tensorflow and GPU support (Linux).
+This installs `tensorflow[and-cuda]`, which pulls the CUDA and cuDNN libraries in as pip packages
+(`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, ...). You do **not** need a system CUDA toolkit, only a
+recent NVIDIA driver (check with `nvidia-smi`). The download is large and may take a while.
+
 ```console
 pip install -e NEMS[dev,tf]
 ```
-Running Tensorflow requires CUDA drivers. The `tf` flag tells conda to install CUDA, but the path to the CUDA library files may not be set when you activate the environment. To add the CUDA drivers to `LD_LIBRARY_PATH` upon activation, run the following code in your terminal. (Credit to [https://ericmjl.github.io/blog/2024/6/1/how-to-manage-cuda-libraries-within-conda-environments/] for this fix!)
 
-```
+The pip CUDA libraries are installed under `site-packages/nvidia/*/lib`, and TensorFlow does not always
+find all of them. Some TF versions find none of them. TF 2.21 finds all of them except `libcusolver.so.11`, and one
+missing library is enough for TF to silently skip the GPU. To make the libraries visible, add them to
+`LD_LIBRARY_PATH` whenever the environment is activated. Run this once, inside the activated environment.
+(Adapted from [https://ericmjl.github.io/blog/2024/6/1/how-to-manage-cuda-libraries-within-conda-environments/].)
+
+```bash
 conda activate nems
 
-mkdir -p $CONDA_PREFIX/etc/conda/activate.d
-echo 'export OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}' > \
-    $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$(find $CONDA_PREFIX -name "lib" | grep "nvidia" | tr '\''\n'\'' '\'':'\'' | sed '\''s/:$//'\''):$OLD_LD_LIBRARY_PATH' >> \
-    $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d $CONDA_PREFIX/etc/conda/deactivate.d
 
-mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
-echo 'export LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}' > \
-    $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
-echo 'unset OLD_LD_LIBRARY_PATH' >> \
-    $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
+cat > $CONDA_PREFIX/etc/conda/activate.d/nvidia_libs.sh <<'EOF'
+export OLD_LD_LIBRARY_PATH="${LD_LIBRARY_PATH}"
+SITE_PKGS=$($CONDA_PREFIX/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+NVIDIA_LIBS=$(ls -d $SITE_PKGS/nvidia/*/lib 2>/dev/null | tr '\n' ':')
+export LD_LIBRARY_PATH="${NVIDIA_LIBS}${LD_LIBRARY_PATH}"
+unset SITE_PKGS NVIDIA_LIBS
+EOF
+
+cat > $CONDA_PREFIX/etc/conda/deactivate.d/nvidia_libs.sh <<'EOF'
+export LD_LIBRARY_PATH="${OLD_LD_LIBRARY_PATH}"
+unset OLD_LD_LIBRARY_PATH
+EOF
+
+conda deactivate && conda activate nems
 ```
+
+For a `venv` environment, add the equivalent `export LD_LIBRARY_PATH=...` line to the end of `nems-env/bin/activate`.
+
+Check that TensorFlow can see the GPU. This should print a list with at least one `PhysicalDevice`, not `[]`:
+
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+If it prints `[]`, run `TF_CPP_MAX_VLOG_LEVEL=1 python -c "import tensorflow as tf; tf.config.list_physical_devices('GPU')" 2>&1 | grep "Could not load"`
+to see which library is missing.
+
+**IDEs and job scripts.** The activation hook only runs when the environment is activated with `conda activate`.
+Anything that starts `envs/nems/bin/python` directly bypasses it. This includes PyCharm/VSCode consoles and run
+configurations, cron jobs, and cluster job scripts. In these cases, set `LD_LIBRARY_PATH` in the tool's
+environment-variable settings. To get the value, run the following in an activated environment:
+```bash
+echo $LD_LIBRARY_PATH
+```
+Restart the console after changing it. `LD_LIBRARY_PATH` is only read when the process starts, so setting
+`os.environ['LD_LIBRARY_PATH']` from inside a running Python session has no effect.
 
 4. **Test installation (optional).** If using the development installation, run tests to ensure proper installation. We recommend repeating this step after making changes to the source code.
 
