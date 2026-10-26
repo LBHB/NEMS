@@ -1204,29 +1204,73 @@ def LNpop_get_tuning(model, channels=None, cell_list=None, layer=2, binaural=Non
     df = df.set_index('cellid')
     return df
 
-def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaural=None, **fitopts):
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: cache gabor fits in model.meta['gabor_tuning'] (saved in modelspec.json, reloaded automatically); fit only cells missing from the cache; save=True re-saves the model when new fits were added | date: 2026-10-26]
+def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaural=None,
+                           store=True, save=True, force=False, **fitopts):
+    """Fit 2D Gabor functions to the STRF of each output channel.
+
+    Results are cached in model.meta['gabor_tuning'] (indexed by cellid) with the
+    fit options in model.meta['gabor_tuning_opts']. A later call with the same
+    options returns cached rows and fits only the missing cells. Changing the
+    options, or refitting the model so its STRFs change, discards the cache.
+
+    :param store: if True, cache results in model.meta
+    :param save: if True and new cells were fit, re-save the model to
+        meta['modelpath'] (nems.tools.json.resave_model) so the fits are
+        there on reload
+    :param force: if True, discard the cache and refit
+    :return: DataFrame indexed by cellid, one row per requested channel
+    """
     import pandas as pd
+    from nems.tools.meta_cache import cached_table, array_fingerprint
 
     if cell_list is not None:
         channels = [i for i,c in enumerate(model.meta['cellids']) if c in cell_list]
     if channels is None:
         channels = np.arange(len(model.meta['cellids']))
-    strf = LNpop_get_strf(model, channels=channels, layer=layer)
+    channels = list(channels)
     if binaural is None:
         binaural = is_binaural(model)
+    if 'f_min' not in fitopts.keys():
+        fitopts['f_min'] = model.f_min
+    if 'f_max' not in fitopts.keys():
+        fitopts['f_max'] = model.f_max
+    if 'fs' not in fitopts.keys():
+        fitopts['fs'] = model.fs
+    fitopts['include_offset']=False
+
+    cellids = model.meta.get('cellids', None)
+    if (not store) or (cellids is None):
+        return _LNpop_fit_gabor(model, channels, layer, binaural, fitopts)
+
+    opts = {k: v for k, v in fitopts.items() if k not in ('verbose', 'title')}
+    opts.update({'layer': layer, 'binaural': binaural,
+                 'strf_fingerprint': array_fingerprint(LNpop_get_strf(model, layer=layer))})
+    chan_of = {cellids[c]: c for c in channels}
+    requested = [cellids[c] for c in channels]
+
+    def fit_fn(missing):
+        return _LNpop_fit_gabor(model, [chan_of[m] for m in missing], layer, binaural, fitopts)
+
+    df, n_new = cached_table(model.meta, 'gabor_tuning', opts, requested, fit_fn, force=force)
+    if save and (n_new > 0):
+        from nems.tools.json import resave_model
+        resave_model(model)
+    return df
+
+
+def _LNpop_fit_gabor(model, channels, layer, binaural, fitopts):
+    """Gabor fits for `channels` (no caching). See LNpop_get_gabor_tuning."""
+    import pandas as pd
+
+    strf = LNpop_get_strf(model, channels=channels, layer=layer)
     dlist=[]
     for i, c in enumerate(channels):
+# [AGENT EDIT END]
         if 'cellids' in model.meta.keys():
             res = {'cellid': model.meta['cellids'][c]}
         else:
             res = {'cellid': 'cell'}
-        if 'f_min' not in fitopts.keys():
-            fitopts['f_min'] = model.f_min
-        if 'f_max' not in fitopts.keys():
-            fitopts['f_max'] = model.f_max
-        if 'fs' not in fitopts.keys():
-            fitopts['fs'] = model.fs
-        fitopts['include_offset']=False
         phiopt, E = strf2gabor(strf[:,:,i], binaural=binaural, primary_ear=model.primary_ear,
                                title=res['cellid'], **fitopts)
         if binaural:

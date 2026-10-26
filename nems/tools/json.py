@@ -89,6 +89,12 @@ class NEMSEncoder(json.JSONEncoder):
         #  this method will still find the correct base class).
         if isinstance(obj, np.float32):
             return float(obj)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: numpy int/bool scalars (eg fs=np.int64 in meta) were not JSON serializable | date: 2026-10-26]
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        # [AGENT EDIT END]
         inheritance_list = inspect.getmro(type(obj))
         for cls in inheritance_list:
             encoder = getattr(self, f"encode_{cls.__name__}", None)
@@ -103,6 +109,29 @@ class NEMSEncoder(json.JSONEncoder):
     def encode_ndarray(self, array):
         data = array.tolist()
         return {'data': data, 'dtype': str(array.dtype), 'shape': array.shape}
+
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: allow DataFrames in model.meta (eg meta['gabor_tuning']) to round-trip through modelspec.json; columns go through encode_ndarray so dtypes and (Multi)Index names are preserved | date: 2026-10-26]
+    def encode_DataFrame(self, df):
+        import pandas as pd
+        default_index = (isinstance(df.index, pd.RangeIndex) and (df.index.start == 0)
+                         and (df.index.step == 1) and (df.index.name is None))
+        if default_index:
+            flat = df.reset_index(drop=True)
+            index_names = []
+        else:
+            # unnamed index levels get placeholder names, restored to None on decode
+            index_names = [n if n is not None else f'__index_level_{i}__'
+                           for i, n in enumerate(df.index.names)]
+            flat = df.rename_axis(index_names).reset_index()
+        # columns as a list (not dict keys) so non-string labels survive
+        return {'columns': list(flat.columns),
+                'data': [flat.iloc[:, i].to_numpy() for i in range(flat.shape[1])],
+                'index_names': index_names}
+
+    def encode_Series(self, series):
+        return {'name': series.name,
+                'frame': self.encode_DataFrame(series.to_frame(name='__value__'))}
+    # [AGENT EDIT END]
 
 
 class NEMSDecoder(json.JSONDecoder):
@@ -123,6 +152,24 @@ class NEMSDecoder(json.JSONDecoder):
 
     def decode_ndarray(self, obj):
         return np.asarray(obj['data'], dtype=obj['dtype']).reshape(obj['shape'])
+
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: decode DataFrames/Series stored in model.meta | date: 2026-10-26]
+    def decode_DataFrame(self, obj):
+        import pandas as pd
+        df = pd.DataFrame(dict(zip(range(len(obj['columns'])), obj['data'])))
+        df.columns = obj['columns']
+        if obj['index_names']:
+            df = df.set_index(obj['index_names'])
+            df.index.names = [None if str(n).startswith('__index_level_') else n
+                              for n in df.index.names]
+        return df
+
+    def decode_Series(self, obj):
+        frame = obj['frame']
+        if isinstance(frame, dict):
+            frame = self.decode_DataFrame(frame)
+        return frame['__value__'].rename(obj['name'])
+    # [AGENT EDIT END]
 
 
 # Monkey-patch generic encode/decode methods for listed NEMS classes.
@@ -182,6 +229,56 @@ def save_model(model, filepath):
         except PermissionError:
             # File should already exist with the correct permissions
             pass
+
+
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: let analysis functions (eg LNpop_get_gabor_tuning) persist results they cache in model.meta back to the saved model; a package that manages saved fits (nems_lbhb.xforms) registers the hook | date: 2026-10-26]
+_resave_hook = None
+
+def register_resave_hook(fn):
+    """Register `fn(model)` as the function that re-saves a previously saved
+    model after its meta has changed. nems_lbhb.xforms registers
+    `resave_modelspec` on import, which handles http/local result paths.
+    """
+    global _resave_hook
+    _resave_hook = fn
+
+
+def resave_model(model):
+    """Re-save `model` to the location it was loaded from (meta['modelpath']).
+
+    Uses the registered hook if there is one. Otherwise writes
+    {modelpath}/modelspec.json when modelpath is an existing local folder.
+    Never raises: logs a warning and returns None if the model can't be saved.
+
+    Returns
+    -------
+    str or None : path of the saved file, None if not saved.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    if _resave_hook is not None:
+        try:
+            return _resave_hook(model)
+        except Exception as e:
+            log.warning(f"resave_model: hook failed ({e!r}), model not saved")
+            return None
+    modelpath = model.meta.get('modelpath', None)
+    if (modelpath is None) or (not os.path.isdir(modelpath)):
+        log.warning(f"resave_model: no local modelpath ({modelpath}), model not saved")
+        return None
+    filepath = os.path.join(modelpath, 'modelspec.json')
+    tmp = filepath + '.tmp'
+    try:
+        with open(tmp, mode='w') as f:
+            f.write(nems_to_json(model))
+        os.replace(tmp, filepath)
+    except OSError as e:
+        log.warning(f"resave_model: could not write {filepath} ({e!r})")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return None
+    return filepath
+# [AGENT EDIT END]
 
 
 def load_model(filepath):
