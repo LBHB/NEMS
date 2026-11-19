@@ -112,44 +112,11 @@ class LN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init, as in CNN_pop.fit_LBHB | date: 2026-11-19]
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf', init_from_priors=True,
-                 seed=None):
-        """2-stage fit (output NL skipped, then fit with NL).
-        init_from_priors : bool, default True. True: start from a fresh random
-            sample of the parameter priors; False: start from the current
-            parameters (eg to continue a previous fit).
-        seed : int or None. Seed for sample_from_priors (None: use self.seed,
-            unseeded if that is None too). Ignored if init_from_priors=False.
-        """
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: fit_LBHB moved to base Model | date: 2026-11-19]
+    # fit_LBHB inherited from nems.models.base.Model, with decoder defaults:
+    # stage-2 early-stopping tolerance 5e-4 (stage 1: 5e-3), 3000 stage-1 epochs
+    fit_LBHB_defaults = {'early_stopping_tolerance': 5e-4, 'stage1_epochs': 3000}
     # [AGENT EDIT END]
-        fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': 5e-3,
-                          'validation_split': 0,
-                          'learning_rate': 1e-2, 'epochs': 3000
-                          }
-        fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 5e-4,
-                           'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000
-                           }
-
-        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init | date: 2026-11-19]
-        if init_from_priors:
-            model = self.sample_from_priors(seed=seed)
-        else:
-            model = self.copy()
-        # [AGENT EDIT END]
-
-        model.layers[-1].skip_nonlinearity()
-        model = model.fit(input=X, target=Y, backend=fitter,
-                          fitter_options=fitter_options, batch_size=None)
-        model.layers[-1].unskip_nonlinearity()
-        log.info('Fit stage 2: with static output nonlinearity')
-        model = model.fit(input=X, target=Y, backend=fitter,
-                          verbose=0, fitter_options=fitter_options2, batch_size=None)
-
-        return model
 
     # TODO
     # @module('CNNrecon')
@@ -275,46 +242,11 @@ class CNN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init, as in CNN_pop.fit_LBHB | date: 2026-11-19]
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
-                 init_from_priors=True, seed=None, **fitopts_kwargs):
-        """2-stage fit (output NL skipped, then fit with NL).
-        init_from_priors : bool, default True. True: start from a fresh random
-            sample of the parameter priors; False: start from the current
-            parameters (eg to continue a previous fit).
-        seed : int or None. Seed for sample_from_priors (None: use self.seed,
-            unseeded if that is None too). Ignored if init_from_priors=False.
-        fitopts_kwargs : override stage-2 fitter options (stage 1 uses 10x
-            tolerance and learning rate, 3000 epochs).
-        """
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: fit_LBHB moved to base Model | date: 2026-11-19]
+    # fit_LBHB inherited from nems.models.base.Model, with decoder defaults:
+    # stage-2 early-stopping tolerance 5e-4 (stage 1: 5e-3), 3000 stage-1 epochs
+    fit_LBHB_defaults = {'early_stopping_tolerance': 5e-4, 'stage1_epochs': 3000}
     # [AGENT EDIT END]
-        fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 5e-4,
-                           'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000}
-        fitter_options2.update(**fitopts_kwargs)
-
-        fitter_options=fitter_options2.copy()
-        fitter_options['early_stopping_tolerance'] *= 10
-        fitter_options['learning_rate'] *= 10
-        fitter_options['epochs'] = 3000
-
-        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init (was sampled twice) | date: 2026-11-19]
-        if init_from_priors:
-            model = self.sample_from_priors(seed=seed)
-        else:
-            model = self.copy()
-        # [AGENT EDIT END]
-
-        model.layers[-1].skip_nonlinearity()
-        model = model.fit(input=X, target=Y, backend=fitter,
-                          fitter_options=fitter_options, batch_size=None)
-        model.layers[-1].unskip_nonlinearity()
-        log.info('Fit stage 2: with static output nonlinearity')
-        model = model.fit(input=X, target=Y, backend=fitter,
-                          verbose=0, fitter_options=fitter_options2, batch_size=None)
-
-        return model
 
     # TODO
     # @module('CNNrecon')
@@ -395,30 +327,18 @@ class binary(Model):
         time_bins = max(1, int(filter_duration / 1000 * sampling_rate))
         return cls(time_bins=time_bins, channels=channels, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='binary_crossentropy',
-                 fitter='tf', init_priors=True, seed=None,
-                 **fitopts_kwargs):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
-        # fitter_options = {'cost_function': cost_function,
-        #                   'early_stopping_tolerance': 5e-3,
-        #                   'validation_split': 0,
-        #                   'learning_rate': 1e-2, 'epochs': 3000}
-        fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': 5e-4,
-                           'validation_split': 0,
-                           'learning_rate': 1e-3, 'epochs': 8000}
-        fitter_options2.update(**fitopts_kwargs)
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: fit_LBHB moved to base Model | date: 2026-11-19]
+    # single-stage fit (no output-NL skipping: crossentropy needs sigmoid output)
+    fit_LBHB_defaults = {'cost_function': 'binary_crossentropy', 'two_stage': False,
+                         'early_stopping_tolerance': 5e-4}
 
-        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: seed pass-through; init_priors=False previously left `model` undefined | date: 2026-11-19]
-        if init_priors:
-            model = self.sample_from_priors(seed=seed)
-        else:
-            model = self.copy()
-        # [AGENT EDIT END]
-        #model = model.fit(input=X, target=Y, backend=fitter,
-        #                  fitter_options=fitter_options, batch_size=None)
-        model = model.fit(input=X, target=Y, backend=fitter,
-                          verbose=0, fitter_options=fitter_options2, batch_size=None)
-        return model
+    def fit_LBHB(self, X, Y, init_priors=True, **kwargs):
+        """Model.fit_LBHB, one stage with binary crossentropy.
+        init_priors : old name for init_from_priors (kept for existing callers).
+        """
+        kwargs.setdefault('init_from_priors', init_priors)
+        return super().fit_LBHB(X, Y, **kwargs)
+    # [AGENT EDIT END]
 # [AGENT EDIT END]
 
 ##

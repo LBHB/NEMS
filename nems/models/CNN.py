@@ -160,47 +160,7 @@ class CNN_pop(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_pop(time_bins, channels_in, channels_out, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
-                 learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4,
-                 init_from_priors=True, seed=None):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
-
-        """2-stage fit with freezing/unfreezing NL
-        :param Y:
-        :param cost_function:
-        :param fitter:
-        :return:
-        """
-
-        fitter_options = {'cost_function': cost_function,  # 'nmse'
-                          'early_stopping_tolerance': early_stopping_tolerance*10,
-                          'validation_split': 0,
-                          'learning_rate': learning_rate*10, 'epochs': int(epochs/2)
-                          }
-        fitter_options2 = {'cost_function': cost_function,
-                           'early_stopping_tolerance': early_stopping_tolerance,
-                           'validation_split': 0,
-                           'learning_rate': learning_rate, 'epochs': epochs
-
-                           }
-        
-        if init_from_priors:
-            strf = self.sample_from_priors(seed=seed)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
-        else:
-            strf = self.copy()
-            
-        strf.layers[-1].skip_nonlinearity()
-        strf = strf.fit(input=X, target=Y, backend=fitter,
-                        fitter_options=fitter_options, batch_size=None)
-        strf.layers[-1].unskip_nonlinearity()
-        log.info('Fit stage 2: with static output nonlinearity')
-        strf = strf.fit(input=X, target=Y, backend=fitter,
-                        verbose=0, fitter_options=fitter_options2, batch_size=None)
-
-        ymin, ymax = Y.min(axis=tuple(range(Y.ndim - 1))), Y.max(axis=tuple(range(Y.ndim - 1)))
-        ydelta = (ymax - ymin) * 0.1
-        strf.out_range = [ymin - ydelta, ymax + ydelta]
-
-        return strf
+    # fit_LBHB: inherited from nems.models.base.Model (default options)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: fit_LBHB moved to base Model | date: 2026-11-19]
 
     def get_strf(self, channels=None, pcidx=0, **opts):
         # [AGENT EDIT START | agent: claude-sonnet-4-6 | user: svd | reason: return dpc[channels, pcidx] instead of traditional STRF | date: 2026-06-02]

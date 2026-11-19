@@ -1618,6 +1618,99 @@ class Model:
         for k, v in layer_dict.items():
             self.layers[k].set_parameter_values(v)
 
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: one shared fit_LBHB for all prebuilt models (was copied into LN_STRF, LN_pop, CNN_pop, LN/CNN_reconstruction, binary) | date: 2026-11-19]
+    # Default options for fit_LBHB. Subclasses override individual entries with
+    # a class-level dict, eg fit_LBHB_defaults = {'early_stopping_tolerance': 5e-4}
+    fit_LBHB_defaults = {}
+    _fit_LBHB_base_defaults = {
+        'cost_function': 'nmse', 'learning_rate': 1e-3, 'epochs': 8000,
+        'early_stopping_tolerance': 1e-4, 'two_stage': True, 'stage1_epochs': None,
+    }
+
+    def fit_LBHB(self, X, Y, cost_function=None, fitter='tf', learning_rate=None,
+                 epochs=None, early_stopping_tolerance=None, init_from_priors=True,
+                 seed=None, two_stage=None, stage1_epochs=None, **fitter_kwargs):
+        """LBHB standard fit: optional random init, then a 2-stage fit.
+
+        Stage 1 fits with the output nonlinearity (last layer) skipped, using
+        10x the learning rate and early-stopping tolerance and `stage1_epochs`
+        epochs. Stage 2 unskips it and fits with `learning_rate`,
+        `early_stopping_tolerance` and `epochs`. With `two_stage=False`, or if
+        the last layer has no nonlinearity to skip, only stage 2 runs.
+
+        Options left as None take the class defaults: `fit_LBHB_defaults`
+        (set per subclass) on top of `_fit_LBHB_base_defaults`.
+
+        Parameters
+        ----------
+        X, Y : ndarray
+            Input and target, (S, T, N): fits use batch_size=None, so axis 0
+            is samples. Add a leading axis to (T, N) data.
+        cost_function : str; default 'nmse'.
+        fitter : str; default 'tf'. Backend name.
+        learning_rate : float; default 1e-3 (stage 2; stage 1 uses 10x).
+        epochs : int; default 8000 (stage 2).
+        early_stopping_tolerance : float; default 1e-4 (stage 2; stage 1 10x).
+        init_from_priors : bool; default True.
+            True: start from a fresh sample of the parameter priors (discards
+            current values). False: start from the current parameters, eg to
+            continue a previous fit.
+        seed : int or None.
+            Seed for sample_from_priors (None: use self.seed; unseeded if that
+            is None too). Ignored if init_from_priors=False.
+        two_stage : bool; default True.
+        stage1_epochs : int or None; default None = epochs // 2.
+        fitter_kwargs :
+            Extra backend fitter options (eg validation_split), used in both
+            stages.
+
+        Returns
+        -------
+        Model : fitted copy, with `out_range` set to the target range +-10%.
+
+        """
+        opts = {**self._fit_LBHB_base_defaults, **self.fit_LBHB_defaults}
+        given = {'cost_function': cost_function, 'learning_rate': learning_rate,
+                 'epochs': epochs, 'early_stopping_tolerance': early_stopping_tolerance,
+                 'two_stage': two_stage, 'stage1_epochs': stage1_epochs}
+        opts.update({k: v for k, v in given.items() if v is not None})
+        if opts['stage1_epochs'] is None:
+            opts['stage1_epochs'] = int(opts['epochs'] / 2)
+
+        fitter_options2 = {'cost_function': opts['cost_function'],
+                           'early_stopping_tolerance': opts['early_stopping_tolerance'],
+                           'validation_split': 0,
+                           'learning_rate': opts['learning_rate'],
+                           'epochs': opts['epochs']}
+        fitter_options2.update(fitter_kwargs)
+        fitter_options = {**fitter_options2,
+                          'early_stopping_tolerance': opts['early_stopping_tolerance'] * 10,
+                          'learning_rate': opts['learning_rate'] * 10,
+                          'epochs': opts['stage1_epochs']}
+
+        if init_from_priors:
+            model = self.sample_from_priors(seed=seed)
+        else:
+            model = self.copy()
+
+        nl_layer = model.layers[-1]
+        if opts['two_stage'] and hasattr(nl_layer, 'skip_nonlinearity'):
+            log.info('Fit stage 1: without static output nonlinearity')
+            nl_layer.skip_nonlinearity()
+            model = model.fit(input=X, target=Y, backend=fitter,
+                              fitter_options=fitter_options, batch_size=None)
+            model.layers[-1].unskip_nonlinearity()
+            log.info('Fit stage 2: with static output nonlinearity')
+        model = model.fit(input=X, target=Y, backend=fitter, verbose=0,
+                          fitter_options=fitter_options2, batch_size=None)
+
+        ymin, ymax = Y.min(axis=tuple(range(Y.ndim - 1))), Y.max(axis=tuple(range(Y.ndim - 1)))
+        ydelta = (ymax - ymin) * 0.1
+        model.out_range = [ymin - ydelta, ymax + ydelta]
+
+        return model
+    # [AGENT EDIT END]
+
     def sample_from_priors(self, n=1, seed=None):
         """Get a copy of `Model` with new parameter values sampled from priors.
 
