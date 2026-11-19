@@ -117,7 +117,7 @@ class LN_STRF(Model):
 
     def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
                  learning_rate = 1e-3, epochs=8000, early_stopping_tolerance = 1e-4,
-                 init_from_priors=True):
+                 init_from_priors=True, seed=None):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
         """2-stage fit with freezing/unfreezing NL
         :param Y:
         :param cost_function:
@@ -137,7 +137,7 @@ class LN_STRF(Model):
                            }
 
         if init_from_priors:
-            strf = self.sample_from_priors()
+            strf = self.sample_from_priors(seed=seed)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
         else:
             strf = self.copy()
             
@@ -354,7 +354,7 @@ class LN_pop(Model):
 
     def fit_LBHB(self, X,Y, cost_function = 'nmse', fitter='tf',
                  learning_rate = 1e-3, epochs=8000, early_stopping_tolerance=1e-4,
-                 init_from_priors=True):
+                 init_from_priors=True, seed=None):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
         """
         2-stage fit with freezing/unfreezing NL
         :param X: (T, channels_in) or (batch, T, channels_in) input
@@ -379,7 +379,7 @@ class LN_pop(Model):
                            }
 
         if init_from_priors:
-            strf = self.sample_from_priors()
+            strf = self.sample_from_priors(seed=seed)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
         else:
             strf = self.copy()
             

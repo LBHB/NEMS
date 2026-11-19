@@ -20,9 +20,11 @@ log = logging.getLogger(__name__)
 
 class LN_reconstruction(Model):
 
-    def __init__(self, time_bins, channels, out_channels, rank=None,
-                 nonlinearity='RectifiedLinear',
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: add causal option (FIR uses only current and past resp); None defaults so from_saved/json load works (2026-11-19) | date: 2026-11-18]
+    def __init__(self, time_bins=None, channels=None, out_channels=None, rank=None,
+                 nonlinearity='RectifiedLinear', causal=False,
                  nl_kwargs=None, from_saved=False, **model_init_kwargs):
+    # [AGENT EDIT END]
         """Linear-nonlinear Spectro-Temporal Receptive Field model.
 
         Contains the following layers:
@@ -59,6 +61,12 @@ class LN_reconstruction(Model):
         nl_kwargs : dict; optional.
             Additional keyword arguments for the nonlinearity Layer, like
             `no_shift` or `no_offset` for `RectifiedLinear`.
+        causal : bool; default=False.
+            If True, the FIR filter is causal: the reconstruction at time t
+            uses only neural activity at times <= t (`time_bins` lags, 0 to
+            time_bins-1). If False (default), the filter spans roughly
+            +-time_bins/2 around t, so it also uses activity after t (the
+            response lags the stimulus, so this usually reconstructs better).
         model_init_kwargs : dict; optional.
             Additional keyword arguments for `Model.__init__`, like `dtype`
             or `meta`.
@@ -69,15 +77,20 @@ class LN_reconstruction(Model):
         if from_saved:
             return
 
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: add causal option (FIR uses only current and past resp) | date: 2026-11-18]
+        include_anticausal = not causal
         # Add STRF
         if rank is None:
             # Full-rank finite impulse response
-            fir = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, channels, out_channels))
+            fir = FiniteImpulseResponse(include_anticausal=include_anticausal,
+                                        shape=(time_bins, channels, out_channels))
             self.add_layers(fir)
         else:
             wc = WeightChannels(shape=(channels, rank))
-            fir = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, rank, out_channels))
+            fir = FiniteImpulseResponse(include_anticausal=include_anticausal,
+                                        shape=(time_bins, rank, out_channels))
             self.add_layers(wc, fir)
+        # [AGENT EDIT END]
 
         # Add static nonlinearity
         if nonlinearity in ['DoubleExponential', 'dexp', 'DEXP']:
@@ -99,7 +112,17 @@ class LN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
-    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf'):
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init, as in CNN_pop.fit_LBHB | date: 2026-11-19]
+    def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf', init_from_priors=True,
+                 seed=None):
+        """2-stage fit (output NL skipped, then fit with NL).
+        init_from_priors : bool, default True. True: start from a fresh random
+            sample of the parameter priors; False: start from the current
+            parameters (eg to continue a previous fit).
+        seed : int or None. Seed for sample_from_priors (None: use self.seed,
+            unseeded if that is None too). Ignored if init_from_priors=False.
+        """
+    # [AGENT EDIT END]
         fitter_options = {'cost_function': cost_function,  # 'nmse'
                           'early_stopping_tolerance': 5e-3,
                           'validation_split': 0,
@@ -111,7 +134,12 @@ class LN_reconstruction(Model):
                            'learning_rate': 1e-3, 'epochs': 8000
                            }
 
-        model = self.sample_from_priors()
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init | date: 2026-11-19]
+        if init_from_priors:
+            model = self.sample_from_priors(seed=seed)
+        else:
+            model = self.copy()
+        # [AGENT EDIT END]
 
         model.layers[-1].skip_nonlinearity()
         model = model.fit(input=X, target=Y, backend=fitter,
@@ -137,9 +165,11 @@ class LN_reconstruction(Model):
 
 class CNN_reconstruction(Model):
 
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: add causal option (FIR uses only current and past resp), as in LN_reconstruction | date: 2026-11-18]
     def __init__(self, time_bins=11, channels=None, out_channels=None, L1=10, L2=0,
-                 nonlinearity='RectifiedLinear',
+                 nonlinearity='RectifiedLinear', causal=False, L1_reps=1,
                  nl_kwargs=None, from_saved=False, **model_init_kwargs):
+    # [AGENT EDIT END]
         """CNN-based spectrogram population decoder.
 
         Contains the following layers:
@@ -176,6 +206,17 @@ class CNN_reconstruction(Model):
         nl_kwargs : dict; optional.
             Additional keyword arguments for the nonlinearity Layer, like
             `no_shift` or `no_offset` for `RectifiedLinear`.
+        causal : bool; default=False.
+            If True, the FIR filter is causal: the reconstruction at time t
+            uses only neural activity at times <= t (`time_bins` lags, 0 to
+            time_bins-1). If False (default), the filter spans roughly
+            +-time_bins/2 around t. Unused if time_bins == 1.
+        L1_reps : int; default=1.
+            Number of WeightChannels + FIR + ReLU blocks in layer 1 (as in
+            CNN_pop). Block 1 maps `channels` -> L1; each later block maps
+            L1 -> L1 with its own `time_bins`-tap FIR, so L1_reps=2 gives two
+            stacked FIR layers (total temporal span 2*(time_bins-1)+1 bins).
+            Requires time_bins > 1 when L1_reps > 1.
         model_init_kwargs : dict; optional.
             Additional keyword arguments for `Model.__init__`, like `dtype`
             or `meta`.
@@ -185,12 +226,20 @@ class CNN_reconstruction(Model):
         super().__init__(**model_init_kwargs)
         if from_saved:
             return
-        relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
         if time_bins>1:
-            wc1 = WeightChannels(shape=(channels, 1, L1))
-            fir1 = FiniteImpulseResponse(include_anticausal=True, shape=(time_bins, 1, L1))
-            self.add_layers(wc1, fir1, relu1)
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: causal option; L1_reps stacked wc+fir+relu blocks (copied from CNN_pop) | date: 2026-11-18]
+            for rep_idx in range(L1_reps):
+                N_in = channels if rep_idx == 0 else L1
+                wc1 = WeightChannels(shape=(N_in, 1, L1))
+                fir1 = FiniteImpulseResponse(include_anticausal=not causal,
+                                             shape=(time_bins, 1, L1))
+                relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
+                self.add_layers(wc1, fir1, relu1)
+            # [AGENT EDIT END]
         else:
+            if L1_reps > 1:
+                raise ValueError("L1_reps > 1 requires time_bins > 1")
+            relu1 = RectifiedLinear(shape=(L1,), no_offset=False, no_shift=False)
             wc1 = WeightChannels(shape=(channels, L1))
             self.add_layers(wc1, relu1)
 
@@ -226,8 +275,19 @@ class CNN_reconstruction(Model):
         # TODO: modify initial parameters based on stimulus statistics?
         return LN_reconstruction(time_bins, channels, **kwargs)
 
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init, as in CNN_pop.fit_LBHB | date: 2026-11-19]
     def fit_LBHB(self, X, Y, cost_function='nmse', fitter='tf',
-                 **fitopts_kwargs):
+                 init_from_priors=True, seed=None, **fitopts_kwargs):
+        """2-stage fit (output NL skipped, then fit with NL).
+        init_from_priors : bool, default True. True: start from a fresh random
+            sample of the parameter priors; False: start from the current
+            parameters (eg to continue a previous fit).
+        seed : int or None. Seed for sample_from_priors (None: use self.seed,
+            unseeded if that is None too). Ignored if init_from_priors=False.
+        fitopts_kwargs : override stage-2 fitter options (stage 1 uses 10x
+            tolerance and learning rate, 3000 epochs).
+        """
+    # [AGENT EDIT END]
         fitter_options2 = {'cost_function': cost_function,
                            'early_stopping_tolerance': 5e-4,
                            'validation_split': 0,
@@ -239,8 +299,12 @@ class CNN_reconstruction(Model):
         fitter_options['learning_rate'] *= 10
         fitter_options['epochs'] = 3000
 
-        model = self.sample_from_priors()
-        model = model.sample_from_priors()
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: optional sample_from_priors init (was sampled twice) | date: 2026-11-19]
+        if init_from_priors:
+            model = self.sample_from_priors(seed=seed)
+        else:
+            model = self.copy()
+        # [AGENT EDIT END]
 
         model.layers[-1].skip_nonlinearity()
         model = model.fit(input=X, target=Y, backend=fitter,
@@ -332,8 +396,8 @@ class binary(Model):
         return cls(time_bins=time_bins, channels=channels, **kwargs)
 
     def fit_LBHB(self, X, Y, cost_function='binary_crossentropy',
-                 fitter='tf', init_priors=True,
-                 **fitopts_kwargs):
+                 fitter='tf', init_priors=True, seed=None,
+                 **fitopts_kwargs):  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: seed pass-through to sample_from_priors | date: 2026-11-19]
         # fitter_options = {'cost_function': cost_function,
         #                   'early_stopping_tolerance': 5e-3,
         #                   'validation_split': 0,
@@ -344,8 +408,12 @@ class binary(Model):
                            'learning_rate': 1e-3, 'epochs': 8000}
         fitter_options2.update(**fitopts_kwargs)
 
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: seed pass-through; init_priors=False previously left `model` undefined | date: 2026-11-19]
         if init_priors:
-            model = self.sample_from_priors()
+            model = self.sample_from_priors(seed=seed)
+        else:
+            model = self.copy()
+        # [AGENT EDIT END]
         #model = model.fit(input=X, target=Y, backend=fitter,
         #                  fitter_options=fitter_options, batch_size=None)
         model = model.fit(input=X, target=Y, backend=fitter,

@@ -70,7 +70,8 @@ class Model:
     """
 
     def __init__(self, layers=None, name=None, dtype=np.float64, meta=None, output_name=None,
-                 fs=None, f_min=200, f_max=20000, primary_ear=0, from_saved=False):
+                 fs=None, f_min=200, f_max=20000, primary_ear=0, from_saved=False,
+                 seed=None):
         """
         Parameters
         ----------
@@ -83,6 +84,11 @@ class Model:
             meta : dict; optional.
                 A general-purpose dictionary for storing additional information
                 about the model.
+            seed : int or None; default=None.
+                Random seed for `sample_from_priors` (and so for the random
+                initialization in subclass `fit_LBHB` methods). None: unseeded,
+                a new random draw each call. Stored in `meta['seed']`, so it is
+                kept by `copy()` and saved/loaded with the model.
 
         See also
         --------
@@ -141,6 +147,10 @@ class Model:
             meta['f_min'] = f_min
         if 'primary_ear' not in meta.keys():
             meta['primary_ear'] = primary_ear
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: integer seed option for sample_from_priors | date: 2026-11-19]
+        if 'seed' not in meta.keys():
+            meta['seed'] = None if seed is None else int(seed)
+        # [AGENT EDIT END]
 
         self.meta = meta
         self.results = None   # holds FitResults after Model.fit()
@@ -165,6 +175,17 @@ class Model:
     def fs(self):
         """Sampling rate of resp"""
         return self.meta.get('fs',None)
+
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: integer seed option for sample_from_priors | date: 2026-11-19]
+    @property
+    def seed(self):
+        """Random seed used by `sample_from_priors` (None = unseeded)."""
+        return self.meta.get('seed', None)
+
+    @seed.setter
+    def seed(self, seed):
+        self.meta['seed'] = None if seed is None else int(seed)
+    # [AGENT EDIT END]
 
     @property
     def f_min(self):
@@ -1597,7 +1618,7 @@ class Model:
         for k, v in layer_dict.items():
             self.layers[k].set_parameter_values(v)
 
-    def sample_from_priors(self, n=1):
+    def sample_from_priors(self, n=1, seed=None):
         """Get a copy of `Model` with new parameter values sampled from priors.
 
         Parameters
@@ -1605,6 +1626,11 @@ class Model:
         n : int; default=1.
             For `n > 1`, a list of `n` Model copies will be returned. This
             option is ignored if `inplace=True`.
+        seed : int or None; default=None.
+            Random seed for the draw. None: use `self.seed` (set at init);
+            if that is also None the draw is unseeded. Seeding reproduces the
+            same sample(s); with `n > 1` the copies still differ from each
+            other. numpy's global random state is restored afterwards.
 
         Returns
         -------
@@ -1616,14 +1642,27 @@ class Model:
 
         """
 
-        m = self
-        model_copies = []
-        for i in range(n):
-            # Can't copy all from self, otherwise samples will be the same.
-            m = m.copy()
-            for layer in m.layers:
-                layer.sample_from_priors(inplace=True)
-            model_copies.append(m)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: integer seed option for sample_from_priors | date: 2026-11-19]
+        # Priors draw with scipy rvs(random_state=None), ie numpy's global
+        # RandomState: seed it for the draw, then restore the caller's state.
+        if seed is None:
+            seed = self.seed
+        if seed is not None:
+            saved_state = np.random.get_state()
+            np.random.seed(int(seed))
+        try:
+            m = self
+            model_copies = []
+            for i in range(n):
+                # Can't copy all from self, otherwise samples will be the same.
+                m = m.copy()
+                for layer in m.layers:
+                    layer.sample_from_priors(inplace=True)
+                model_copies.append(m)
+        finally:
+            if seed is not None:
+                np.random.set_state(saved_state)
+        # [AGENT EDIT END]
         if n == 1:
             # Remove singleton list wrapper
             model_copies = model_copies[0]

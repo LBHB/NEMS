@@ -80,7 +80,10 @@ class Distribution:
 
         i = 0
         while np.sum(np.isnan(good_sample)) > 0:
-            sample = self.distribution.rvs(size=size)
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: draw from numpy's global RandomState explicitly; Model.copy() deep-copies the frozen scipy dist, which detaches its random_state, so unseeded sample_from_priors repeated the same values | date: 2026-11-19]
+            sample = self.distribution.rvs(size=size,
+                                           random_state=np.random.mtrand._rand)
+            # [AGENT EDIT END]
             if bounds is not None:
                 if i > max_tries:
                     raise ValueError(
