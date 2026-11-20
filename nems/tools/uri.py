@@ -170,6 +170,48 @@ def targz_uri(uri):
         return None
 
 
+# [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: cache files over nems_baphy: connect timeout for HTTP calls, atomic local writes | date: 2026-11-20]
+HTTP_TIMEOUT = (10, None)   # (connect, read) seconds: fail fast on a dead tunnel, no cap on transfer time
+
+
+def _atomic_write(filepath, payload, mode='wb'):
+    """Write payload to filepath via a temp file in the same folder + os.replace, so a
+    crash or a concurrent writer never leaves a partially written file."""
+    import tempfile
+    dirpath = os.path.dirname(filepath)
+    if dirpath and not os.path.exists(dirpath):
+        os.makedirs(dirpath, mode=0o0777, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=dirpath or '.', prefix='.' + os.path.basename(filepath) + '.')
+    try:
+        with os.fdopen(fd, mode) as f:
+            payload(f) if callable(payload) else f.write(payload)
+        os.replace(tmp, filepath)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    try:
+        os.chmod(filepath, 0o666)
+    except PermissionError:
+        pass  # file already existed, owned by someone else, with its own permissions
+
+
+def resource_exists(uri):
+    """True if the resource at uri exists. HTTP: HEAD request (200 -> True,
+    404 -> False, anything else raises ConnectionError). Local: os.path.exists."""
+    if http_uri(uri):
+        r = requests.head(uri, timeout=HTTP_TIMEOUT, allow_redirects=True)
+        if r.status_code == 200:
+            return True
+        if r.status_code == 404:
+            return False
+        raise ConnectionError(f'HTTP HEAD {uri} failed. Got {r.status_code}')
+    elif local_uri(uri):
+        return os.path.exists(local_uri(uri))
+    raise ValueError('URI type unknown')
+# [AGENT EDIT END]
+
+
 def save_resource(uri, data=None, json=None):
     '''
     For saving a resource to a URI. Throws an exception if there was a
@@ -182,7 +224,7 @@ def save_resource(uri, data=None, json=None):
             s = jsonlib.dumps(json, cls=NumpyEncoder)
             js = jsonlib.loads(s)
             try:
-                r = requests.put(uri, json=js)
+                r = requests.put(uri, json=js, timeout=HTTP_TIMEOUT)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: connect timeout | date: 2026-11-20]
                 if r.status_code != 200:
                     err = 'HTTP PUT failed. Got {}: {}'.format(r.status_code,
                                                                r.text)
@@ -194,23 +236,15 @@ def save_resource(uri, data=None, json=None):
         elif local_uri(uri):
             filepath = local_uri(uri)
             # Create any necessary directories
-            dirpath = os.path.dirname(filepath)
-            if not os.path.exists(dirpath):
-                os.makedirs(dirpath, mode=0o0777)
-            with open(filepath, mode='w+') as f:
-                jsonlib.dump(json, f, cls=NumpyEncoder)
-                f.close()
-                try:
-                    os.chmod(filepath, 0o666)
-                except PermissionError:
-                    # File should already exist with the correct permissions
-                    pass
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: atomic local write | date: 2026-11-20]
+            _atomic_write(filepath, lambda f: jsonlib.dump(json, f, cls=NumpyEncoder), mode='w')
+            # [AGENT EDIT END]
         else:
             raise ValueError('URI type unknown')
     elif data is not None:
         if http_uri(uri):
             try:
-                r = requests.put(uri, data=data)
+                r = requests.put(uri, data=data, timeout=HTTP_TIMEOUT)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: connect timeout | date: 2026-11-20]
                 if r.status_code != 200:
                     err = 'HTTP PUT failed. Got {}: {}'.format(r.status_code,
                                                                r.text)
@@ -221,22 +255,15 @@ def save_resource(uri, data=None, json=None):
                 raise ConnectionError(err)
         elif local_uri(uri):
             filepath = local_uri(uri)
-            dirpath = os.path.dirname(filepath)
-            if not os.path.exists(dirpath):
-                os.makedirs(dirpath, mode=0o0777)
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: atomic local write | date: 2026-11-20]
             if type(data) is str:
                 d = io.BytesIO(data.encode())
             elif type(data) is io.BytesIO:
                 d = data
             else:
                 d = io.BytesIO(data)
-            with open(filepath, mode='wb') as f:
-                f.write(d.read())
-            try:
-                os.chmod(filepath, 0o666)
-            except PermissionError:
-                # File should already exist with the correct permissions
-                pass
+            _atomic_write(filepath, d.read())
+            # [AGENT EDIT END]
         else:
             raise ValueError('URI type unknown')
     else:
@@ -244,13 +271,25 @@ def save_resource(uri, data=None, json=None):
     return err
 
 
-def load_resource(uri, raw=False):
+def load_resource(uri, raw=False, binary=False):
     '''
     Loads and returns the resource (probably a JSON) found at URI.
+    binary=True returns the raw bytes (any file type, eg npz, png, pkl).
     '''
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: binary loads (requests.Response has no .data, so non-JSON binaries could not be loaded over HTTP) | date: 2026-11-20]
+    if binary:
+        if http_uri(uri):
+            r = requests.get(uri, timeout=HTTP_TIMEOUT)
+            r.raise_for_status()   # 404 etc -> requests.HTTPError (not a ConnectionError: not retryable)
+            return r.content
+        elif local_uri(uri):
+            with open(local_uri(uri), mode='rb') as f:
+                return f.read()
+        raise ValueError('URI resource type unknown')
+    # [AGENT EDIT END]
     if http_uri(uri):
         log.info(f"loading resource: {uri}")
-        r = requests.get(uri)
+        r = requests.get(uri, timeout=HTTP_TIMEOUT)  # [AGENT EDIT | agent: claude-opus-5-5 | user: svd | reason: connect timeout | date: 2026-11-20]
         if r.status_code != 200:
             err = 'HTTP GET failed. Got {}: {}'.format(r.status_code,
                                                        r.text)
