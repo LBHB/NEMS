@@ -180,7 +180,17 @@ def _atomic_write(filepath, payload, mode='wb'):
     import tempfile
     dirpath = os.path.dirname(filepath)
     if dirpath and not os.path.exists(dirpath):
-        os.makedirs(dirpath, mode=0o0777, exist_ok=True)
+        # create level by level and chmod 0o777 (makedirs' mode is cut by the umask)
+        missing, d = [], dirpath
+        while d and not os.path.exists(d):
+            missing.append(d)
+            d = os.path.dirname(d)
+        for d in reversed(missing):
+            os.makedirs(d, exist_ok=True)
+            try:
+                os.chmod(d, 0o777)
+            except PermissionError:
+                pass
     fd, tmp = tempfile.mkstemp(dir=dirpath or '.', prefix='.' + os.path.basename(filepath) + '.')
     try:
         with os.fdopen(fd, mode) as f:
