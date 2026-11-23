@@ -344,7 +344,9 @@ class WeightChannelsGaussian(WeightChannels):
 
         # bounds on parameter values. 0.01 is very skinny for sd, but it seems to help
         mean_bounds = (-0.1, 1.1)
-        sd_bounds = (0.05, np.inf)
+        # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: restore 2024 effective sd lower bound (0.005); the 2024 TF bound left sd_lower unscaled by the x10 sd scaling, and fits rely on it (batch 343 vs 390 CNN gap) | date: 2026-11-23]
+        sd_bounds = (0.005, np.inf)
+        # [AGENT EDIT END]
 
         shape = self.shape[1:]
 
