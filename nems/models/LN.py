@@ -1158,6 +1158,16 @@ def LNpop_get_gabor_tuning(model, channels=None, cell_list=None, layer=2, binaur
         return _LNpop_fit_gabor(model, channels, layer, binaural, fitopts)
 
     opts = {k: v for k, v in fitopts.items() if k not in ('verbose', 'title')}
+    # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: an explicitly passed fit_gabor_2d default (eg padbins=6) must give the same cache key as omitting it; fs/f_min/f_max/include_offset are always in the key | date: 2026-10-26]
+    import inspect
+    gabor_defaults = {k: p.default for k, p in inspect.signature(fit_gabor_2d).parameters.items()
+                      if p.default is not inspect.Parameter.empty}
+    for k in list(opts):
+        if (k in gabor_defaults) and (k not in ('fs', 'f_min', 'f_max', 'include_offset')):
+            dflt = gabor_defaults[k]
+            if (opts[k] is dflt) or (np.isscalar(opts[k]) and np.isscalar(dflt) and opts[k] == dflt):
+                del opts[k]
+    # [AGENT EDIT END]
     opts.update({'layer': layer, 'binaural': binaural,
                  'strf_fingerprint': array_fingerprint(LNpop_get_strf(model, layer=layer))})
     chan_of = {cellids[c]: c for c in channels}
