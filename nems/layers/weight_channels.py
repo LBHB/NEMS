@@ -333,8 +333,13 @@ class WeightChannelsGaussian(WeightChannels):
         sd : scalar or ndarray
             Standard deviation of gaussian, shape is `self.shape[1:]`.
             Prior:  TODO  # Currently using defaults
-            Bounds: (0*, np.inf)
-            * Actually set to machine epsilon to avoid division by zero.
+            # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: document the sd bound and its history | date: 2026-11-23]
+            Bounds: (0.005, np.inf). 0.005 reproduces 2024 fits: the 2024 TF
+            layer left the lower bound unscaled by the x10 internal sd scaling,
+            so a nominal 0.05 acted as 0.005. Enforcing 0.05 made fits worse
+            (see nems_db .claude/skills/nems_models/references/fit_parity_2024_2026.md).
+            Values of exactly 0 are set to machine epsilon (zero_to_epsilon).
+            # [AGENT EDIT END]
 
         Returns
         -------
@@ -342,9 +347,9 @@ class WeightChannelsGaussian(WeightChannels):
 
         """
 
-        # bounds on parameter values. 0.01 is very skinny for sd, but it seems to help
         mean_bounds = (-0.1, 1.1)
         # [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: restore 2024 effective sd lower bound (0.005); the 2024 TF bound left sd_lower unscaled by the x10 sd scaling, and fits rely on it (batch 343 vs 390 CNN gap) | date: 2026-11-23]
+        # bounds on parameter values. 0.005 is very skinny for sd, but it seems to help
         sd_bounds = (0.005, np.inf)
         # [AGENT EDIT END]
 

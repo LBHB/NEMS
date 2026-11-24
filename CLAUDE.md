@@ -76,6 +76,9 @@ Each backend implements `_build()`, `_fit()`, and `predict()`. Selected via `mod
 - `numpy >= 1.24.4, < 2.0` is required — NumPy 2.0 is not yet supported.
 - TensorFlow backend is optional and lazily imported — code should work without it installed.
 - The `@layer` decorator in `nems.registry` is used to register Layer keyword parsers; new layers should follow this pattern.
+<!-- [AGENT EDIT START | agent: claude-opus-5-5 | user: svd | reason: record the wc.g sd-bound parity issue | date: 2026-11-23] -->
+- The TF backend rescales some parameters internally (eg `WeightChannelsGaussian.sd` ×10, divided back in `weights_to_values`). Bounds passed to TF must be on the same scale, and changing them changes fit results: a 2026 bound fix that scaled the sd lower bound made `wc.g` fits worse than 2024 ones, and was offset by setting the default lower bound to 0.005 (`b42ff3c`). History and parity tests: nems_db `.claude/skills/nems_models/references/fit_parity_2024_2026.md`.
+<!-- [AGENT EDIT END] -->
 - Tutorials are in `tutorials/` (numbered Python scripts) and `tutorials/notebooks/` (Jupyter).
 - **Agent code edits:** Wrap any new or modified block of code introduced by an agent with start/end comment tags:
   ```python
